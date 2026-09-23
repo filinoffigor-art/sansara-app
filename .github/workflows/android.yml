@@ -1,4 +1,4 @@
-Build SANSARA APK
+name: Build SANSARA APK
 
 on:
   push:
