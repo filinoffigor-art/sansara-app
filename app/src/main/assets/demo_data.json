@@ -1,0 +1,20 @@
+{
+  "clients": [
+    {"id":"C-1024","type":"Торгующая организация","name":"ООО Ритуал-Сервис","status":"Оптовик","discount":10,"orderAccess":true},
+    {"id":"C-1025","type":"Агент","name":"Алексей Петров","status":"Активный","discount":7,"orderAccess":true}
+  ],
+  "products": [
+    {"sku":"V-125-037","name":"Венок Классик","category":"Венки","size":"125 см","price":3150,"stock":12,"productionDays":3},
+    {"sku":"V-110-021","name":"Венок Стандарт","category":"Венки","size":"110 см","price":2650,"stock":8,"productionDays":3},
+    {"sku":"V-200-018","name":"Венок Премиум","category":"Венки","size":"200 см","price":7900,"stock":0,"productionDays":3},
+    {"sku":"L-90-014","name":"Лента траурная","category":"Ленты","size":"90 см","price":450,"stock":38,"productionDays":3},
+    {"sku":"O-54-011","name":"Одежда мужская","category":"Одежда","size":"54","price":3400,"stock":6,"productionDays":3},
+    {"sku":"C-01","name":"Гроб Классик","category":"Гробы","size":"Стандарт","price":12500,"stock":3,"productionDays":3},
+    {"sku":"K-100-001","name":"Крест ритуальный","category":"Кресты","size":"100 см","price":2800,"stock":0,"productionDays":3}
+  ],
+  "production": [
+    {"date":"2026-09-27","sku":"V-125-037","qty":15,"status":"На приход"},
+    {"date":"2026-09-27","sku":"V-110-021","qty":8,"status":"На приход"},
+    {"date":"2026-09-27","sku":"L-90-014","qty":30,"status":"На приход"}
+  ]
+}
