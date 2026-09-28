@@ -26,6 +26,24 @@ data class CatalogSyncResult(
 )
 
 object TildaCatalogSync {
+    private fun normalizeCategory(raw: String, name: String): String {
+        val text = "$raw $name".lowercase()
+        return when {
+            "круг" in text && "вен" in text -> "Венки круглые"
+            "вен" in text -> "Венки"
+            "корз" in text -> "Корзины"
+            "флорет" in text -> "Флоретки"
+            "полян" in text -> "Полянки"
+            "лент" in text -> "Ленты"
+            "гроб" in text -> "Гробы"
+            "крест" in text -> "Кресты"
+            "одеж" in text || "костюм" in text -> "Одежда"
+            "цвет" in text -> "Цветы"
+            "услуг" in text -> "Услуги"
+            else -> raw.ifBlank { "Каталог" }
+        }
+    }
+
     suspend fun fetchYml(feedUrl: String): CatalogSyncResult = withContext(Dispatchers.IO) {
         require(feedUrl.startsWith("https://") || feedUrl.startsWith("http://")) { "Некорректная ссылка YML" }
 
@@ -34,7 +52,7 @@ object TildaCatalogSync {
             connectTimeout = 12_000
             readTimeout = 20_000
             instanceFollowRedirects = true
-            setRequestProperty("User-Agent", "SANSARA-App/0.8")
+            setRequestProperty("User-Agent", "SANSARA-App/0.9")
         }
         try {
             val code = connection.responseCode
@@ -108,7 +126,7 @@ object TildaCatalogSync {
                                             externalId = ext,
                                             sku = resolvedSku,
                                             name = name,
-                                            category = categories[categoryId].orEmpty().ifBlank { "Каталог" },
+                                            category = normalizeCategory(categories[categoryId].orEmpty(), name),
                                             quality = quality,
                                             size = size,
                                             price = price,
