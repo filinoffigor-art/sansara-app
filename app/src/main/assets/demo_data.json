@@ -41,7 +41,9 @@
       "price": 3750,
       "stock": 11,
       "status": "В наличии",
-      "productionDays": 3
+      "productionDays": 3,
+      "externalId": "V-060-001",
+      "imageUrl": ""
     },
     {
       "sku": "V-060-002",
@@ -52,7 +54,9 @@
       "price": 2700,
       "stock": 0,
       "status": "Под заказ",
-      "productionDays": 3
+      "productionDays": 3,
+      "externalId": "V-060-002",
+      "imageUrl": ""
     },
     {
       "sku": "V-110-003",
@@ -63,7 +67,9 @@
       "price": 2100,
       "stock": 0,
       "status": "Под заказ",
-      "productionDays": 3
+      "productionDays": 3,
+      "externalId": "V-110-003",
+      "imageUrl": ""
     },
     {
       "sku": "V-060-004",
@@ -74,7 +80,9 @@
       "price": 2250,
       "stock": 0,
       "status": "Под заказ",
-      "productionDays": 3
+      "productionDays": 3,
+      "externalId": "V-060-004",
+      "imageUrl": ""
     },
     {
       "sku": "V-140-005",
@@ -85,7 +93,9 @@
       "price": 2350,
       "stock": 14,
       "status": "В наличии",
-      "productionDays": 3
+      "productionDays": 3,
+      "externalId": "V-140-005",
+      "imageUrl": ""
     },
     {
       "sku": "V-140-006",
@@ -96,7 +106,9 @@
       "price": 2100,
       "stock": 0,
       "status": "Под заказ",
-      "productionDays": 3
+      "productionDays": 3,
+      "externalId": "V-140-006",
+      "imageUrl": ""
     },
     {
       "sku": "V-060-007",
@@ -107,7 +119,9 @@
       "price": 2150,
       "stock": 17,
       "status": "В наличии",
-      "productionDays": 3
+      "productionDays": 3,
+      "externalId": "V-060-007",
+      "imageUrl": ""
     },
     {
       "sku": "V-090-008",
@@ -118,7 +132,9 @@
       "price": 1850,
       "stock": 0,
       "status": "Под заказ",
-      "productionDays": 3
+      "productionDays": 3,
+      "externalId": "V-090-008",
+      "imageUrl": ""
     },
     {
       "sku": "V-125-009",
@@ -129,7 +145,9 @@
       "price": 2400,
       "stock": 4,
       "status": "В наличии",
-      "productionDays": 3
+      "productionDays": 3,
+      "externalId": "V-125-009",
+      "imageUrl": ""
     },
     {
       "sku": "V-060-010",
@@ -140,7 +158,9 @@
       "price": 2600,
       "stock": 20,
       "status": "В наличии",
-      "productionDays": 3
+      "productionDays": 3,
+      "externalId": "V-060-010",
+      "imageUrl": ""
     },
     {
       "sku": "V-090-011",
@@ -151,7 +171,9 @@
       "price": 3850,
       "stock": 6,
       "status": "В наличии",
-      "productionDays": 3
+      "productionDays": 3,
+      "externalId": "V-090-011",
+      "imageUrl": ""
     },
     {
       "sku": "V-060-012",
@@ -162,7 +184,9 @@
       "price": 1700,
       "stock": 9,
       "status": "В наличии",
-      "productionDays": 3
+      "productionDays": 3,
+      "externalId": "V-060-012",
+      "imageUrl": ""
     },
     {
       "sku": "V-140-013",
@@ -173,7 +197,9 @@
       "price": 5000,
       "stock": 0,
       "status": "Под заказ",
-      "productionDays": 3
+      "productionDays": 3,
+      "externalId": "V-140-013",
+      "imageUrl": ""
     },
     {
       "sku": "V-110-014",
@@ -184,7 +210,9 @@
       "price": 2100,
       "stock": 2,
       "status": "В наличии",
-      "productionDays": 3
+      "productionDays": 3,
+      "externalId": "V-110-014",
+      "imageUrl": ""
     },
     {
       "sku": "V-090-015",
@@ -195,7 +223,9 @@
       "price": 4500,
       "stock": 0,
       "status": "Под заказ",
-      "productionDays": 3
+      "productionDays": 3,
+      "externalId": "V-090-015",
+      "imageUrl": ""
     },
     {
       "sku": "V-090-016",
@@ -206,7 +236,9 @@
       "price": 2750,
       "stock": 0,
       "status": "Под заказ",
-      "productionDays": 3
+      "productionDays": 3,
+      "externalId": "V-090-016",
+      "imageUrl": ""
     },
     {
       "sku": "V-140-017",
@@ -217,7 +249,9 @@
       "price": 2400,
       "stock": 0,
       "status": "Под заказ",
-      "productionDays": 3
+      "productionDays": 3,
+      "externalId": "V-140-017",
+      "imageUrl": ""
     },
     {
       "sku": "V-060-018",
@@ -228,7 +262,9 @@
       "price": 2250,
       "stock": 13,
       "status": "В наличии",
-      "productionDays": 3
+      "productionDays": 3,
+      "externalId": "V-060-018",
+      "imageUrl": ""
     },
     {
       "sku": "V-125-019",
@@ -239,7 +275,9 @@
       "price": 3400,
       "stock": 0,
       "status": "Под заказ",
-      "productionDays": 3
+      "productionDays": 3,
+      "externalId": "V-125-019",
+      "imageUrl": ""
     },
     {
       "sku": "V-125-020",
@@ -250,7 +288,9 @@
       "price": 2000,
       "stock": 6,
       "status": "В наличии",
-      "productionDays": 3
+      "productionDays": 3,
+      "externalId": "V-125-020",
+      "imageUrl": ""
     },
     {
       "sku": "VK-140-001",
@@ -261,7 +301,9 @@
       "price": 2400,
       "stock": 13,
       "status": "В наличии",
-      "productionDays": 3
+      "productionDays": 3,
+      "externalId": "VK-140-001",
+      "imageUrl": ""
     },
     {
       "sku": "VK-060-002",
@@ -272,7 +314,9 @@
       "price": 2750,
       "stock": 12,
       "status": "В наличии",
-      "productionDays": 3
+      "productionDays": 3,
+      "externalId": "VK-060-002",
+      "imageUrl": ""
     },
     {
       "sku": "VK-125-003",
@@ -283,7 +327,9 @@
       "price": 3800,
       "stock": 6,
       "status": "В наличии",
-      "productionDays": 3
+      "productionDays": 3,
+      "externalId": "VK-125-003",
+      "imageUrl": ""
     },
     {
       "sku": "VK-140-004",
@@ -294,7 +340,9 @@
       "price": 3750,
       "stock": 0,
       "status": "Под заказ",
-      "productionDays": 3
+      "productionDays": 3,
+      "externalId": "VK-140-004",
+      "imageUrl": ""
     },
     {
       "sku": "VK-110-005",
@@ -305,7 +353,9 @@
       "price": 2500,
       "stock": 6,
       "status": "В наличии",
-      "productionDays": 3
+      "productionDays": 3,
+      "externalId": "VK-110-005",
+      "imageUrl": ""
     },
     {
       "sku": "VK-140-006",
@@ -316,7 +366,9 @@
       "price": 4450,
       "stock": 0,
       "status": "Под заказ",
-      "productionDays": 3
+      "productionDays": 3,
+      "externalId": "VK-140-006",
+      "imageUrl": ""
     },
     {
       "sku": "VK-090-007",
@@ -327,7 +379,9 @@
       "price": 2100,
       "stock": 0,
       "status": "Под заказ",
-      "productionDays": 3
+      "productionDays": 3,
+      "externalId": "VK-090-007",
+      "imageUrl": ""
     },
     {
       "sku": "VK-090-008",
@@ -338,7 +392,9 @@
       "price": 4700,
       "stock": 0,
       "status": "Под заказ",
-      "productionDays": 3
+      "productionDays": 3,
+      "externalId": "VK-090-008",
+      "imageUrl": ""
     },
     {
       "sku": "VK-060-009",
@@ -349,7 +405,9 @@
       "price": 1750,
       "stock": 14,
       "status": "В наличии",
-      "productionDays": 3
+      "productionDays": 3,
+      "externalId": "VK-060-009",
+      "imageUrl": ""
     },
     {
       "sku": "VK-090-010",
@@ -360,7 +418,9 @@
       "price": 3350,
       "stock": 0,
       "status": "Под заказ",
-      "productionDays": 3
+      "productionDays": 3,
+      "externalId": "VK-090-010",
+      "imageUrl": ""
     },
     {
       "sku": "VK-140-011",
@@ -371,7 +431,9 @@
       "price": 2750,
       "stock": 21,
       "status": "В наличии",
-      "productionDays": 3
+      "productionDays": 3,
+      "externalId": "VK-140-011",
+      "imageUrl": ""
     },
     {
       "sku": "VK-125-012",
@@ -382,7 +444,9 @@
       "price": 3350,
       "stock": 15,
       "status": "В наличии",
-      "productionDays": 3
+      "productionDays": 3,
+      "externalId": "VK-125-012",
+      "imageUrl": ""
     },
     {
       "sku": "VK-060-013",
@@ -393,7 +457,9 @@
       "price": 1950,
       "stock": 8,
       "status": "В наличии",
-      "productionDays": 3
+      "productionDays": 3,
+      "externalId": "VK-060-013",
+      "imageUrl": ""
     },
     {
       "sku": "VK-060-014",
@@ -404,7 +470,9 @@
       "price": 2600,
       "stock": 3,
       "status": "В наличии",
-      "productionDays": 3
+      "productionDays": 3,
+      "externalId": "VK-060-014",
+      "imageUrl": ""
     },
     {
       "sku": "VK-090-015",
@@ -415,7 +483,9 @@
       "price": 4500,
       "stock": 8,
       "status": "В наличии",
-      "productionDays": 3
+      "productionDays": 3,
+      "externalId": "VK-090-015",
+      "imageUrl": ""
     },
     {
       "sku": "VK-110-016",
@@ -426,7 +496,9 @@
       "price": 2200,
       "stock": 0,
       "status": "Под заказ",
-      "productionDays": 3
+      "productionDays": 3,
+      "externalId": "VK-110-016",
+      "imageUrl": ""
     },
     {
       "sku": "VK-140-017",
@@ -437,7 +509,9 @@
       "price": 6550,
       "stock": 14,
       "status": "В наличии",
-      "productionDays": 3
+      "productionDays": 3,
+      "externalId": "VK-140-017",
+      "imageUrl": ""
     },
     {
       "sku": "VK-090-018",
@@ -448,7 +522,9 @@
       "price": 2900,
       "stock": 3,
       "status": "В наличии",
-      "productionDays": 3
+      "productionDays": 3,
+      "externalId": "VK-090-018",
+      "imageUrl": ""
     },
     {
       "sku": "VK-125-019",
@@ -459,7 +535,9 @@
       "price": 3900,
       "stock": 0,
       "status": "Под заказ",
-      "productionDays": 3
+      "productionDays": 3,
+      "externalId": "VK-125-019",
+      "imageUrl": ""
     },
     {
       "sku": "VK-125-020",
@@ -470,7 +548,9 @@
       "price": 5500,
       "stock": 17,
       "status": "В наличии",
-      "productionDays": 3
+      "productionDays": 3,
+      "externalId": "VK-125-020",
+      "imageUrl": ""
     },
     {
       "sku": "KOR-100-001",
@@ -481,7 +561,9 @@
       "price": 2600,
       "stock": 0,
       "status": "Под заказ",
-      "productionDays": 3
+      "productionDays": 3,
+      "externalId": "KOR-100-001",
+      "imageUrl": ""
     },
     {
       "sku": "KOR-100-002",
@@ -492,7 +574,9 @@
       "price": 3000,
       "stock": 14,
       "status": "В наличии",
-      "productionDays": 3
+      "productionDays": 3,
+      "externalId": "KOR-100-002",
+      "imageUrl": ""
     },
     {
       "sku": "KOR-030-003",
@@ -503,7 +587,9 @@
       "price": 1800,
       "stock": 20,
       "status": "В наличии",
-      "productionDays": 3
+      "productionDays": 3,
+      "externalId": "KOR-030-003",
+      "imageUrl": ""
     },
     {
       "sku": "KOR-100-004",
@@ -514,7 +600,9 @@
       "price": 2900,
       "stock": 2,
       "status": "В наличии",
-      "productionDays": 3
+      "productionDays": 3,
+      "externalId": "KOR-100-004",
+      "imageUrl": ""
     },
     {
       "sku": "KOR-100-005",
@@ -525,7 +613,9 @@
       "price": 2550,
       "stock": 17,
       "status": "В наличии",
-      "productionDays": 3
+      "productionDays": 3,
+      "externalId": "KOR-100-005",
+      "imageUrl": ""
     },
     {
       "sku": "KOR-030-006",
@@ -536,7 +626,9 @@
       "price": 1700,
       "stock": 0,
       "status": "Под заказ",
-      "productionDays": 3
+      "productionDays": 3,
+      "externalId": "KOR-030-006",
+      "imageUrl": ""
     },
     {
       "sku": "KOR-100-007",
@@ -547,7 +639,9 @@
       "price": 3000,
       "stock": 14,
       "status": "В наличии",
-      "productionDays": 3
+      "productionDays": 3,
+      "externalId": "KOR-100-007",
+      "imageUrl": ""
     },
     {
       "sku": "KOR-070-008",
@@ -558,7 +652,9 @@
       "price": 2600,
       "stock": 0,
       "status": "Под заказ",
-      "productionDays": 3
+      "productionDays": 3,
+      "externalId": "KOR-070-008",
+      "imageUrl": ""
     },
     {
       "sku": "KOR-070-009",
@@ -569,7 +665,9 @@
       "price": 2550,
       "stock": 11,
       "status": "В наличии",
-      "productionDays": 3
+      "productionDays": 3,
+      "externalId": "KOR-070-009",
+      "imageUrl": ""
     },
     {
       "sku": "KOR-030-010",
@@ -580,7 +678,9 @@
       "price": 1800,
       "stock": 18,
       "status": "В наличии",
-      "productionDays": 3
+      "productionDays": 3,
+      "externalId": "KOR-030-010",
+      "imageUrl": ""
     },
     {
       "sku": "KOR-030-011",
@@ -591,7 +691,9 @@
       "price": 1650,
       "stock": 0,
       "status": "Под заказ",
-      "productionDays": 3
+      "productionDays": 3,
+      "externalId": "KOR-030-011",
+      "imageUrl": ""
     },
     {
       "sku": "KOR-070-012",
@@ -602,7 +704,9 @@
       "price": 2350,
       "stock": 0,
       "status": "Под заказ",
-      "productionDays": 3
+      "productionDays": 3,
+      "externalId": "KOR-070-012",
+      "imageUrl": ""
     },
     {
       "sku": "KOR-070-013",
@@ -613,7 +717,9 @@
       "price": 2450,
       "stock": 18,
       "status": "В наличии",
-      "productionDays": 3
+      "productionDays": 3,
+      "externalId": "KOR-070-013",
+      "imageUrl": ""
     },
     {
       "sku": "KOR-100-014",
@@ -624,7 +730,9 @@
       "price": 2950,
       "stock": 22,
       "status": "В наличии",
-      "productionDays": 3
+      "productionDays": 3,
+      "externalId": "KOR-100-014",
+      "imageUrl": ""
     },
     {
       "sku": "KOR-030-015",
@@ -635,7 +743,9 @@
       "price": 2050,
       "stock": 0,
       "status": "Под заказ",
-      "productionDays": 3
+      "productionDays": 3,
+      "externalId": "KOR-030-015",
+      "imageUrl": ""
     },
     {
       "sku": "KOR-030-016",
@@ -646,7 +756,9 @@
       "price": 1950,
       "stock": 23,
       "status": "В наличии",
-      "productionDays": 3
+      "productionDays": 3,
+      "externalId": "KOR-030-016",
+      "imageUrl": ""
     },
     {
       "sku": "KOR-030-017",
@@ -657,7 +769,9 @@
       "price": 1950,
       "stock": 4,
       "status": "В наличии",
-      "productionDays": 3
+      "productionDays": 3,
+      "externalId": "KOR-030-017",
+      "imageUrl": ""
     },
     {
       "sku": "KOR-030-018",
@@ -668,7 +782,9 @@
       "price": 2000,
       "stock": 4,
       "status": "В наличии",
-      "productionDays": 3
+      "productionDays": 3,
+      "externalId": "KOR-030-018",
+      "imageUrl": ""
     },
     {
       "sku": "KOR-070-019",
@@ -679,7 +795,9 @@
       "price": 2650,
       "stock": 0,
       "status": "Под заказ",
-      "productionDays": 3
+      "productionDays": 3,
+      "externalId": "KOR-070-019",
+      "imageUrl": ""
     },
     {
       "sku": "KOR-070-020",
@@ -690,7 +808,9 @@
       "price": 2500,
       "stock": 1,
       "status": "В наличии",
-      "productionDays": 3
+      "productionDays": 3,
+      "externalId": "KOR-070-020",
+      "imageUrl": ""
     },
     {
       "sku": "POL-110-001",
@@ -701,7 +821,9 @@
       "price": 2450,
       "stock": 21,
       "status": "В наличии",
-      "productionDays": 3
+      "productionDays": 3,
+      "externalId": "POL-110-001",
+      "imageUrl": ""
     },
     {
       "sku": "POL-110-002",
@@ -712,7 +834,9 @@
       "price": 2900,
       "stock": 0,
       "status": "Под заказ",
-      "productionDays": 3
+      "productionDays": 3,
+      "externalId": "POL-110-002",
+      "imageUrl": ""
     },
     {
       "sku": "POL-110-003",
@@ -723,7 +847,9 @@
       "price": 2500,
       "stock": 18,
       "status": "В наличии",
-      "productionDays": 3
+      "productionDays": 3,
+      "externalId": "POL-110-003",
+      "imageUrl": ""
     },
     {
       "sku": "POL-060-004",
@@ -734,7 +860,9 @@
       "price": 1850,
       "stock": 0,
       "status": "Под заказ",
-      "productionDays": 3
+      "productionDays": 3,
+      "externalId": "POL-060-004",
+      "imageUrl": ""
     },
     {
       "sku": "POL-110-005",
@@ -745,7 +873,9 @@
       "price": 2600,
       "stock": 0,
       "status": "Под заказ",
-      "productionDays": 3
+      "productionDays": 3,
+      "externalId": "POL-110-005",
+      "imageUrl": ""
     },
     {
       "sku": "POL-060-006",
@@ -756,7 +886,9 @@
       "price": 1700,
       "stock": 7,
       "status": "В наличии",
-      "productionDays": 3
+      "productionDays": 3,
+      "externalId": "POL-060-006",
+      "imageUrl": ""
     },
     {
       "sku": "POL-060-007",
@@ -767,7 +899,9 @@
       "price": 1850,
       "stock": 11,
       "status": "В наличии",
-      "productionDays": 3
+      "productionDays": 3,
+      "externalId": "POL-060-007",
+      "imageUrl": ""
     },
     {
       "sku": "POL-090-008",
@@ -778,7 +912,9 @@
       "price": 2300,
       "stock": 0,
       "status": "Под заказ",
-      "productionDays": 3
+      "productionDays": 3,
+      "externalId": "POL-090-008",
+      "imageUrl": ""
     },
     {
       "sku": "POL-090-009",
@@ -789,7 +925,9 @@
       "price": 2100,
       "stock": 4,
       "status": "В наличии",
-      "productionDays": 3
+      "productionDays": 3,
+      "externalId": "POL-090-009",
+      "imageUrl": ""
     },
     {
       "sku": "POL-110-010",
@@ -800,7 +938,9 @@
       "price": 2550,
       "stock": 0,
       "status": "Под заказ",
-      "productionDays": 3
+      "productionDays": 3,
+      "externalId": "POL-110-010",
+      "imageUrl": ""
     },
     {
       "sku": "POL-090-011",
@@ -811,7 +951,9 @@
       "price": 2450,
       "stock": 7,
       "status": "В наличии",
-      "productionDays": 3
+      "productionDays": 3,
+      "externalId": "POL-090-011",
+      "imageUrl": ""
     },
     {
       "sku": "POL-060-012",
@@ -822,7 +964,9 @@
       "price": 1750,
       "stock": 24,
       "status": "В наличии",
-      "productionDays": 3
+      "productionDays": 3,
+      "externalId": "POL-060-012",
+      "imageUrl": ""
     },
     {
       "sku": "POL-110-013",
@@ -833,7 +977,9 @@
       "price": 2800,
       "stock": 0,
       "status": "Под заказ",
-      "productionDays": 3
+      "productionDays": 3,
+      "externalId": "POL-110-013",
+      "imageUrl": ""
     },
     {
       "sku": "POL-090-014",
@@ -844,7 +990,9 @@
       "price": 2100,
       "stock": 0,
       "status": "Под заказ",
-      "productionDays": 3
+      "productionDays": 3,
+      "externalId": "POL-090-014",
+      "imageUrl": ""
     },
     {
       "sku": "POL-090-015",
@@ -855,7 +1003,9 @@
       "price": 2500,
       "stock": 0,
       "status": "Под заказ",
-      "productionDays": 3
+      "productionDays": 3,
+      "externalId": "POL-090-015",
+      "imageUrl": ""
     },
     {
       "sku": "POL-060-016",
@@ -866,7 +1016,9 @@
       "price": 1800,
       "stock": 5,
       "status": "В наличии",
-      "productionDays": 3
+      "productionDays": 3,
+      "externalId": "POL-060-016",
+      "imageUrl": ""
     },
     {
       "sku": "POL-060-017",
@@ -877,7 +1029,9 @@
       "price": 1850,
       "stock": 14,
       "status": "В наличии",
-      "productionDays": 3
+      "productionDays": 3,
+      "externalId": "POL-060-017",
+      "imageUrl": ""
     },
     {
       "sku": "POL-060-018",
@@ -888,7 +1042,9 @@
       "price": 1750,
       "stock": 0,
       "status": "Под заказ",
-      "productionDays": 3
+      "productionDays": 3,
+      "externalId": "POL-060-018",
+      "imageUrl": ""
     },
     {
       "sku": "POL-090-019",
@@ -899,7 +1055,9 @@
       "price": 2200,
       "stock": 0,
       "status": "Под заказ",
-      "productionDays": 3
+      "productionDays": 3,
+      "externalId": "POL-090-019",
+      "imageUrl": ""
     },
     {
       "sku": "POL-110-020",
@@ -910,7 +1068,9 @@
       "price": 2450,
       "stock": 0,
       "status": "Под заказ",
-      "productionDays": 3
+      "productionDays": 3,
+      "externalId": "POL-110-020",
+      "imageUrl": ""
     },
     {
       "sku": "FL-060-001",
@@ -921,7 +1081,9 @@
       "price": 1850,
       "stock": 0,
       "status": "Под заказ",
-      "productionDays": 3
+      "productionDays": 3,
+      "externalId": "FL-060-001",
+      "imageUrl": ""
     },
     {
       "sku": "FL-060-002",
@@ -932,7 +1094,9 @@
       "price": 2000,
       "stock": 3,
       "status": "В наличии",
-      "productionDays": 3
+      "productionDays": 3,
+      "externalId": "FL-060-002",
+      "imageUrl": ""
     },
     {
       "sku": "FL-090-003",
@@ -943,7 +1107,9 @@
       "price": 2500,
       "stock": 0,
       "status": "Под заказ",
-      "productionDays": 3
+      "productionDays": 3,
+      "externalId": "FL-090-003",
+      "imageUrl": ""
     },
     {
       "sku": "FL-110-004",
@@ -954,7 +1120,9 @@
       "price": 2650,
       "stock": 13,
       "status": "В наличии",
-      "productionDays": 3
+      "productionDays": 3,
+      "externalId": "FL-110-004",
+      "imageUrl": ""
     },
     {
       "sku": "FL-060-005",
@@ -965,7 +1133,9 @@
       "price": 2200,
       "stock": 16,
       "status": "В наличии",
-      "productionDays": 3
+      "productionDays": 3,
+      "externalId": "FL-060-005",
+      "imageUrl": ""
     },
     {
       "sku": "FL-110-006",
@@ -976,7 +1146,9 @@
       "price": 2650,
       "stock": 0,
       "status": "Под заказ",
-      "productionDays": 3
+      "productionDays": 3,
+      "externalId": "FL-110-006",
+      "imageUrl": ""
     },
     {
       "sku": "FL-090-007",
@@ -987,7 +1159,9 @@
       "price": 2500,
       "stock": 2,
       "status": "В наличии",
-      "productionDays": 3
+      "productionDays": 3,
+      "externalId": "FL-090-007",
+      "imageUrl": ""
     },
     {
       "sku": "FL-090-008",
@@ -998,7 +1172,9 @@
       "price": 2350,
       "stock": 13,
       "status": "В наличии",
-      "productionDays": 3
+      "productionDays": 3,
+      "externalId": "FL-090-008",
+      "imageUrl": ""
     },
     {
       "sku": "FL-060-009",
@@ -1009,7 +1185,9 @@
       "price": 2100,
       "stock": 22,
       "status": "В наличии",
-      "productionDays": 3
+      "productionDays": 3,
+      "externalId": "FL-060-009",
+      "imageUrl": ""
     },
     {
       "sku": "FL-110-010",
@@ -1020,7 +1198,9 @@
       "price": 2750,
       "stock": 3,
       "status": "В наличии",
-      "productionDays": 3
+      "productionDays": 3,
+      "externalId": "FL-110-010",
+      "imageUrl": ""
     },
     {
       "sku": "FL-110-011",
@@ -1031,7 +1211,9 @@
       "price": 2900,
       "stock": 14,
       "status": "В наличии",
-      "productionDays": 3
+      "productionDays": 3,
+      "externalId": "FL-110-011",
+      "imageUrl": ""
     },
     {
       "sku": "FL-110-012",
@@ -1042,7 +1224,9 @@
       "price": 2800,
       "stock": 9,
       "status": "В наличии",
-      "productionDays": 3
+      "productionDays": 3,
+      "externalId": "FL-110-012",
+      "imageUrl": ""
     },
     {
       "sku": "FL-090-013",
@@ -1053,7 +1237,9 @@
       "price": 2600,
       "stock": 16,
       "status": "В наличии",
-      "productionDays": 3
+      "productionDays": 3,
+      "externalId": "FL-090-013",
+      "imageUrl": ""
     },
     {
       "sku": "FL-110-014",
@@ -1064,7 +1250,9 @@
       "price": 2800,
       "stock": 17,
       "status": "В наличии",
-      "productionDays": 3
+      "productionDays": 3,
+      "externalId": "FL-110-014",
+      "imageUrl": ""
     },
     {
       "sku": "FL-060-015",
@@ -1075,7 +1263,9 @@
       "price": 2100,
       "stock": 9,
       "status": "В наличии",
-      "productionDays": 3
+      "productionDays": 3,
+      "externalId": "FL-060-015",
+      "imageUrl": ""
     },
     {
       "sku": "FL-090-016",
@@ -1086,7 +1276,9 @@
       "price": 2800,
       "stock": 13,
       "status": "В наличии",
-      "productionDays": 3
+      "productionDays": 3,
+      "externalId": "FL-090-016",
+      "imageUrl": ""
     },
     {
       "sku": "FL-090-017",
@@ -1097,7 +1289,9 @@
       "price": 2550,
       "stock": 4,
       "status": "В наличии",
-      "productionDays": 3
+      "productionDays": 3,
+      "externalId": "FL-090-017",
+      "imageUrl": ""
     },
     {
       "sku": "FL-060-018",
@@ -1108,7 +1302,9 @@
       "price": 2050,
       "stock": 0,
       "status": "Под заказ",
-      "productionDays": 3
+      "productionDays": 3,
+      "externalId": "FL-060-018",
+      "imageUrl": ""
     },
     {
       "sku": "FL-090-019",
@@ -1119,7 +1315,9 @@
       "price": 2600,
       "stock": 18,
       "status": "В наличии",
-      "productionDays": 3
+      "productionDays": 3,
+      "externalId": "FL-090-019",
+      "imageUrl": ""
     },
     {
       "sku": "FL-090-020",
@@ -1130,7 +1328,9 @@
       "price": 2800,
       "stock": 17,
       "status": "В наличии",
-      "productionDays": 3
+      "productionDays": 3,
+      "externalId": "FL-090-020",
+      "imageUrl": ""
     },
     {
       "sku": "L-001",
@@ -1141,7 +1341,9 @@
       "price": 650,
       "stock": 4,
       "status": "В наличии",
-      "productionDays": 3
+      "productionDays": 3,
+      "externalId": "L-001",
+      "imageUrl": ""
     },
     {
       "sku": "L-002",
@@ -1152,7 +1354,9 @@
       "price": 550,
       "stock": 0,
       "status": "Под заказ",
-      "productionDays": 3
+      "productionDays": 3,
+      "externalId": "L-002",
+      "imageUrl": ""
     },
     {
       "sku": "L-003",
@@ -1163,7 +1367,9 @@
       "price": 750,
       "stock": 0,
       "status": "Под заказ",
-      "productionDays": 3
+      "productionDays": 3,
+      "externalId": "L-003",
+      "imageUrl": ""
     },
     {
       "sku": "L-004",
@@ -1174,7 +1380,9 @@
       "price": 650,
       "stock": 18,
       "status": "В наличии",
-      "productionDays": 3
+      "productionDays": 3,
+      "externalId": "L-004",
+      "imageUrl": ""
     },
     {
       "sku": "L-005",
@@ -1185,7 +1393,9 @@
       "price": 650,
       "stock": 0,
       "status": "Под заказ",
-      "productionDays": 3
+      "productionDays": 3,
+      "externalId": "L-005",
+      "imageUrl": ""
     },
     {
       "sku": "L-006",
@@ -1196,7 +1406,9 @@
       "price": 750,
       "stock": 0,
       "status": "Под заказ",
-      "productionDays": 3
+      "productionDays": 3,
+      "externalId": "L-006",
+      "imageUrl": ""
     },
     {
       "sku": "L-007",
@@ -1207,7 +1419,9 @@
       "price": 550,
       "stock": 25,
       "status": "В наличии",
-      "productionDays": 3
+      "productionDays": 3,
+      "externalId": "L-007",
+      "imageUrl": ""
     },
     {
       "sku": "L-008",
@@ -1218,7 +1432,9 @@
       "price": 650,
       "stock": 25,
       "status": "В наличии",
-      "productionDays": 3
+      "productionDays": 3,
+      "externalId": "L-008",
+      "imageUrl": ""
     },
     {
       "sku": "L-009",
@@ -1229,7 +1445,9 @@
       "price": 350,
       "stock": 0,
       "status": "Под заказ",
-      "productionDays": 3
+      "productionDays": 3,
+      "externalId": "L-009",
+      "imageUrl": ""
     },
     {
       "sku": "L-010",
@@ -1240,7 +1458,9 @@
       "price": 550,
       "stock": 4,
       "status": "В наличии",
-      "productionDays": 3
+      "productionDays": 3,
+      "externalId": "L-010",
+      "imageUrl": ""
     },
     {
       "sku": "L-011",
@@ -1251,7 +1471,9 @@
       "price": 550,
       "stock": 0,
       "status": "Под заказ",
-      "productionDays": 3
+      "productionDays": 3,
+      "externalId": "L-011",
+      "imageUrl": ""
     },
     {
       "sku": "L-012",
@@ -1262,7 +1484,9 @@
       "price": 350,
       "stock": 25,
       "status": "В наличии",
-      "productionDays": 3
+      "productionDays": 3,
+      "externalId": "L-012",
+      "imageUrl": ""
     },
     {
       "sku": "L-013",
@@ -1273,7 +1497,9 @@
       "price": 350,
       "stock": 25,
       "status": "В наличии",
-      "productionDays": 3
+      "productionDays": 3,
+      "externalId": "L-013",
+      "imageUrl": ""
     },
     {
       "sku": "L-014",
@@ -1284,7 +1510,9 @@
       "price": 750,
       "stock": 4,
       "status": "В наличии",
-      "productionDays": 3
+      "productionDays": 3,
+      "externalId": "L-014",
+      "imageUrl": ""
     },
     {
       "sku": "L-015",
@@ -1295,7 +1523,9 @@
       "price": 350,
       "stock": 12,
       "status": "В наличии",
-      "productionDays": 3
+      "productionDays": 3,
+      "externalId": "L-015",
+      "imageUrl": ""
     },
     {
       "sku": "L-016",
@@ -1306,7 +1536,9 @@
       "price": 650,
       "stock": 12,
       "status": "В наличии",
-      "productionDays": 3
+      "productionDays": 3,
+      "externalId": "L-016",
+      "imageUrl": ""
     },
     {
       "sku": "L-017",
@@ -1317,7 +1549,9 @@
       "price": 550,
       "stock": 25,
       "status": "В наличии",
-      "productionDays": 3
+      "productionDays": 3,
+      "externalId": "L-017",
+      "imageUrl": ""
     },
     {
       "sku": "L-018",
@@ -1328,7 +1562,9 @@
       "price": 550,
       "stock": 12,
       "status": "В наличии",
-      "productionDays": 3
+      "productionDays": 3,
+      "externalId": "L-018",
+      "imageUrl": ""
     },
     {
       "sku": "L-019",
@@ -1339,7 +1575,9 @@
       "price": 450,
       "stock": 0,
       "status": "Под заказ",
-      "productionDays": 3
+      "productionDays": 3,
+      "externalId": "L-019",
+      "imageUrl": ""
     },
     {
       "sku": "L-020",
@@ -1350,7 +1588,9 @@
       "price": 750,
       "stock": 25,
       "status": "В наличии",
-      "productionDays": 3
+      "productionDays": 3,
+      "externalId": "L-020",
+      "imageUrl": ""
     }
   ]
 }

@@ -17,8 +17,11 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
+import coil.compose.AsyncImage
+import kotlinx.coroutines.launch
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.*
@@ -76,7 +79,9 @@ private data class ProtoCatalogProduct(
     val price: Int,
     val stock: Int,
     val status: String,
-    val productionDays: Int
+    val productionDays: Int,
+    val imageUrl: String = "",
+    val externalId: String = ""
 )
 
 private data class ProtoProductionOp(
@@ -171,6 +176,11 @@ fun SansaraVisualPrototype() {
     var notificationsOrders by remember { mutableStateOf(true) }
     var notificationsProduction by remember { mutableStateOf(true) }
     var notificationsLowStock by remember { mutableStateOf(true) }
+    val prefs = remember { context.getSharedPreferences("sansara", Context.MODE_PRIVATE) }
+    var tildaFeedUrl by remember { mutableStateOf(prefs.getString("tilda_yml_url", BuildConfig.TILDA_YML_URL).orEmpty()) }
+    var catalogSyncStatus by remember { mutableStateOf("Тестовый каталог · локальные данные") }
+    var catalogSyncInProgress by remember { mutableStateOf(false) }
+    val scope = rememberCoroutineScope()
 
     val clients = remember {
         mutableStateListOf(
@@ -238,6 +248,40 @@ fun SansaraVisualPrototype() {
         productionDrafts.clear()
         toast("Оприходовано на склад: $total шт.")
     }
+
+    fun syncTildaCatalog(showToast: Boolean = true) {
+        val url = tildaFeedUrl.trim()
+        if (url.isBlank()) { if (showToast) toast("Укажите YML-ссылку каталога Tilda в настройках") ; return }
+        if (catalogSyncInProgress) return
+        catalogSyncInProgress = true
+        catalogSyncStatus = "Синхронизация с Tilda…"
+        prefs.edit().putString("tilda_yml_url", url).apply()
+        scope.launch {
+            try {
+                val result = TildaCatalogSync.fetchYml(url)
+                result.items.forEach { item ->
+                    val idx = products.indexOfFirst { it.sku.equals(item.sku, true) || (it.externalId.isNotBlank() && it.externalId == item.externalId) }
+                    if (idx >= 0) {
+                        val old = products[idx]
+                        products[idx] = old.copy(
+                            name = item.name, type = item.category, quality = item.quality, size = item.size,
+                            price = if (item.price > 0) item.price else old.price, productionDays = item.productionDays,
+                            imageUrl = item.imageUrl, externalId = item.externalId
+                        )
+                    } else {
+                        products.add(ProtoCatalogProduct(item.sku,item.name,item.category,item.quality,item.size,item.price,0,"Под заказ",item.productionDays,item.imageUrl,item.externalId))
+                    }
+                }
+                catalogSyncStatus = "${result.message} · остатки и резервы сохранены"
+                if (showToast) toast(catalogSyncStatus)
+            } catch (e: Exception) {
+                catalogSyncStatus = "Ошибка синхронизации: ${e.message ?: "неизвестная ошибка"}"
+                if (showToast) toast(catalogSyncStatus)
+            } finally { catalogSyncInProgress = false }
+        }
+    }
+
+    LaunchedEffect(Unit) { if (tildaFeedUrl.isNotBlank()) syncTildaCatalog(showToast = false) }
 
     BackHandler(enabled = screen != ProtoScreen.Welcome) { back() }
 
@@ -331,7 +375,7 @@ fun SansaraVisualPrototype() {
             ProtoScreen.AdminOrders -> ProtoAdminOrdersScreen(orders, onBack = { back() }, onOpen = { selectedOrderId = it.id; go(ProtoScreen.AdminOrderDetail) })
             ProtoScreen.AdminOrderDetail -> ProtoOrderDetailScreen(orders.firstOrNull { it.id == selectedOrderId }, isAdmin = true, onBack = { back() }, onStatus = { st -> orders.firstOrNull { it.id == selectedOrderId }?.status = st })
             ProtoScreen.AdminCatalog -> ProtoAdminCatalogScreen(products, stockOverrides, onBack = { back() })
-            ProtoScreen.AdminSettings -> ProtoAdminSettingsScreen(lowStockThreshold, notificationsRegistration, notificationsOrders, notificationsProduction, notificationsLowStock, onBack = { back() }, onThreshold = { lowStockThreshold = it.coerceIn(1,50) }, onReg = { notificationsRegistration = it }, onOrders = { notificationsOrders = it }, onProd = { notificationsProduction = it }, onLow = { notificationsLowStock = it })
+            ProtoScreen.AdminSettings -> ProtoAdminSettingsScreen(lowStockThreshold, notificationsRegistration, notificationsOrders, notificationsProduction, notificationsLowStock, tildaFeedUrl, catalogSyncStatus, catalogSyncInProgress, onBack = { back() }, onThreshold = { lowStockThreshold = it.coerceIn(1,50) }, onReg = { notificationsRegistration = it }, onOrders = { notificationsOrders = it }, onProd = { notificationsProduction = it }, onLow = { notificationsLowStock = it }, onTildaUrl = { tildaFeedUrl = it }, onSync = { syncTildaCatalog() })
             ProtoScreen.AdminAttention -> ProtoAttentionScreen(registrations, clients.filter { it.status == "Приостановлен" }, orders.filter { it.status == "Собирается" }, onBack = { back() }, onClient = { selectedClientId = it.id; go(ProtoScreen.AdminClient) }, onOrder = { selectedOrderId = it.id; go(ProtoScreen.AdminOrderDetail) })
             ProtoScreen.OnlineController -> ProtoOnlineControllerScreen(clients, onBack = { back() }, onClient = { selectedClientId = it.id; go(ProtoScreen.AdminClient) })
 
@@ -395,51 +439,121 @@ private fun ProtoLoginScreen(onBack:()->Unit,onLogin:(String)->Unit) {
 
 @Composable
 private fun ProtoRegistrationScreen(onBack:()->Unit,onSubmit:(ProtoRegistration)->Unit) {
-    var organization by remember { mutableStateOf("") }; var fio by remember { mutableStateOf("") }; var inn by remember { mutableStateOf("") }
-    var contact1 by remember { mutableStateOf("") }; var phone1 by remember { mutableStateOf("") }; var email by remember { mutableStateOf("") }
-    var city by remember { mutableStateOf("") }; var address by remember { mutableStateOf("") }; var type by remember { mutableStateOf(ProtoClientType.TRADING.label) }
-    var consent by remember { mutableStateOf(false) }; var showSecond by remember { mutableStateOf(false) }; var contact2 by remember { mutableStateOf("") }; var phone2 by remember { mutableStateOf("") }
-    val valid = organization.isNotBlank() && fio.isNotBlank() && contact1.isNotBlank() && phone1.isNotBlank() && email.isNotBlank() && city.isNotBlank() && consent
-    ProtoScaffold(title="Регистрация партнёра",subtitle="Заполните данные организации и контактных лиц",onBack=onBack) {
-        item {
-            ProtoSectionCard {
-                Text("Тип партнёра",color=ProtoGoldSoft,fontWeight=FontWeight.SemiBold)
-                Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.spacedBy(8.dp)) {
-                    listOf(ProtoClientType.AGENT.label,ProtoClientType.TRADING.label).forEach { t -> FilterChip(selected=type==t,onClick={type=t},label={Text(t,maxLines=1)},modifier=Modifier.weight(1f),colors=FilterChipDefaults.filterChipColors(selectedContainerColor=ProtoGold,selectedLabelColor=Color.Black,labelColor=ProtoText)) }
-                }
-                Spacer(Modifier.height(8.dp)); ProtoField(organization,{organization=it},"Название организации")
-                ProtoField(fio,{fio=it},"Фамилия, имя, отчество")
-                ProtoField(inn,{inn=it},"ИНН",keyboardType=KeyboardType.Number)
-                ProtoField(contact1,{contact1=it},"Контактное лицо")
-                ProtoField(phone1,{phone1=it},"Телефон",keyboardType=KeyboardType.Phone)
-                ProtoField(email,{email=it},"E-mail",keyboardType=KeyboardType.Email)
-                ProtoField(city,{city=it},"Город")
-                ProtoField(address,{address=it},"Адрес доставки")
-                TextButton(onClick={showSecond=!showSecond},contentPadding=PaddingValues(0.dp)){Icon(if(showSecond) Icons.Outlined.Remove else Icons.Outlined.Add,null,tint=ProtoGold);Spacer(Modifier.width(6.dp));Text(if(showSecond)"Убрать второе контактное лицо" else "Добавить контактное лицо",color=ProtoGold)}
-                if(showSecond){ ProtoField(contact2,{contact2=it},"Второе контактное лицо"); ProtoField(phone2,{phone2=it},"Телефон второго контакта",keyboardType=KeyboardType.Phone) }
-                Row(Modifier.fillMaxWidth().clickable{consent=!consent}.padding(vertical=8.dp),verticalAlignment=Alignment.CenterVertically){Checkbox(consent,{consent=it},colors=CheckboxDefaults.colors(checkedColor=ProtoGold,checkmarkColor=Color.Black));Text("Согласен на обработку персональных данных",color=ProtoText,fontSize=13.sp)}
-                Button(onClick={onSubmit(ProtoRegistration(organization,fio,inn,contact1,phone1,email,city,address,type,contact2,phone2))},enabled=valid,modifier=Modifier.fillMaxWidth().height(56.dp),colors=ButtonDefaults.buttonColors(containerColor=ProtoGold)){Text("Отправить заявку",color=Color.Black,fontWeight=FontWeight.Bold)}
-                Text("Тестовая версия: заявка сразу появляется у администратора. Telegram-передача подключается при добавлении токена бота.",color=ProtoMuted,fontSize=11.sp,modifier=Modifier.padding(top=8.dp))
+    var organization by remember { mutableStateOf("") }
+    var inn by remember { mutableStateOf("") }
+    var contact1 by remember { mutableStateOf("") }
+    var phone1 by remember { mutableStateOf("") }
+    var email by remember { mutableStateOf("") }
+    var city by remember { mutableStateOf("") }
+    var address by remember { mutableStateOf("") }
+    var type by remember { mutableStateOf(ProtoClientType.AGENT.label) }
+    var consent by remember { mutableStateOf(false) }
+    var showSecond by remember { mutableStateOf(false) }
+    var contact2 by remember { mutableStateOf("") }
+    var phone2 by remember { mutableStateOf("") }
+    val valid = organization.isNotBlank() && inn.isNotBlank() && contact1.isNotBlank() && phone1.isNotBlank() && email.isNotBlank() && city.isNotBlank() && consent
+
+    Box(Modifier.fillMaxSize().background(ProtoBg)) {
+        Image(painterResource(R.drawable.screen_registration), null, Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
+        Box(Modifier.fillMaxWidth().height(28.dp).background(ProtoBg).align(Alignment.TopCenter))
+        BoxWithConstraints(Modifier.fillMaxSize()) {
+            @Composable
+            fun visualField(value:String,onChange:(String)->Unit,x:Float,y:Float,w:Float,h:Float,keyboardType:KeyboardType=KeyboardType.Text) {
+                BasicTextField(
+                    value=value,onValueChange=onChange,singleLine=true,
+                    textStyle=LocalTextStyle.current.copy(color=ProtoText,fontSize=14.sp),
+                    keyboardOptions=KeyboardOptions(keyboardType=keyboardType),
+                    modifier=Modifier.offset(maxWidth*x,maxHeight*y).size(maxWidth*w,maxHeight*h).padding(horizontal=4.dp)
+                )
             }
+            visualField(organization,{organization=it},.18f,.218f,.73f,.045f)
+            visualField(inn,{inn=it},.18f,.282f,.73f,.045f,KeyboardType.Number)
+            visualField(contact1,{contact1=it},.18f,.346f,.67f,.045f)
+            visualField(phone1,{phone1=it},.18f,.409f,.73f,.048f,KeyboardType.Phone)
+            visualField(email,{email=it},.18f,.475f,.73f,.045f,KeyboardType.Email)
+            visualField(city,{city=it},.18f,.539f,.64f,.045f)
+            visualField(address,{address=it},.18f,.603f,.73f,.045f)
+
+            Box(Modifier.offset(maxWidth*.83f,maxHeight*.342f).size(42.dp).clip(CircleShape).background(Color(0xAA1A1815)).border(1.dp,ProtoGold,CircleShape).clickable{showSecond=true},contentAlignment=Alignment.Center){Text("+",color=ProtoGold,fontSize=23.sp)}
+
+            Box(Modifier.offset(maxWidth*.045f,maxHeight*.689f).size(maxWidth*.45f,maxHeight*.047f).clickable{type=ProtoClientType.AGENT.label})
+            Box(Modifier.offset(maxWidth*.50f,maxHeight*.689f).size(maxWidth*.45f,maxHeight*.047f).clickable{type=ProtoClientType.TRADING.label})
+            if(type==ProtoClientType.TRADING.label){
+                Box(Modifier.offset(maxWidth*.50f,maxHeight*.689f).size(maxWidth*.45f,maxHeight*.047f).background(ProtoGold.copy(alpha=.18f),RoundedCornerShape(14.dp)).border(1.dp,ProtoGold,RoundedCornerShape(14.dp)))
+            }
+            if(consent){
+                Box(Modifier.offset(maxWidth*.05f,maxHeight*.765f).size(32.dp).background(ProtoGold,RoundedCornerShape(7.dp)),contentAlignment=Alignment.Center){Icon(Icons.Outlined.Check,null,tint=Color.Black,modifier=Modifier.size(20.dp))}
+            }
+            Box(Modifier.offset(maxWidth*.04f,maxHeight*.755f).size(maxWidth*.90f,maxHeight*.055f).clickable{consent=!consent})
+            Box(Modifier.offset(maxWidth*.05f,maxHeight*.817f).size(maxWidth*.90f,maxHeight*.065f).clickable{
+                if(valid) onSubmit(ProtoRegistration(organization,organization,inn,contact1,phone1,email,city,address,type,contact2,phone2))
+            })
+            Box(Modifier.offset(maxWidth*.28f,maxHeight*.918f).size(maxWidth*.44f,maxHeight*.045f).clickable{onBack()})
         }
+        ProtoBackButton(onClick=onBack)
+    }
+
+    if(showSecond){
+        AlertDialog(
+            onDismissRequest={showSecond=false}, containerColor=ProtoPanel,
+            title={Text("Дополнительное контактное лицо",color=ProtoText)},
+            text={Column{ProtoField(contact2,{contact2=it},"ФИО");ProtoField(phone2,{phone2=it},"Телефон",KeyboardType.Phone)}},
+            confirmButton={TextButton(onClick={showSecond=false}){Text("Сохранить",color=ProtoGold)}},
+            dismissButton={TextButton(onClick={contact2="";phone2="";showSecond=false}){Text("Удалить",color=ProtoMuted)}}
+        )
     }
 }
-
 @Composable
 private fun ProtoClientHomeScreen(client:ProtoClient,products:List<ProtoCatalogProduct>,stockOverrides:SnapshotStateMap<String,Int>,cartCount:Int,query:String,onQuery:(String)->Unit,onSearch:()->Unit,onAvailability:(String)->Unit,onCategory:(String)->Unit,onOpenProduct:(ProtoCatalogProduct)->Unit,onCart:()->Unit,onOrders:()->Unit,onProfile:()->Unit,onCatalog:()->Unit) {
-    Column(Modifier.fillMaxSize().background(ProtoBg)) {
-        LazyColumn(Modifier.weight(1f),contentPadding=PaddingValues(horizontal=16.dp,vertical=20.dp),verticalArrangement=Arrangement.spacedBy(12.dp)) {
-            item { Text("SANSARA",color=ProtoGoldSoft,letterSpacing=4.sp,fontSize=20.sp,modifier=Modifier.clickable{ }); Text("Здравствуйте, ${client.contact.substringBefore(' ')}",color=ProtoText,fontSize=30.sp,fontWeight=FontWeight.Bold); Row(horizontalArrangement=Arrangement.spacedBy(8.dp)){ProtoPill(client.status,ProtoGreen);ProtoPill("Скидка ${client.discount}%",ProtoGold)} }
-            item { OutlinedTextField(value=query,onValueChange=onQuery,modifier=Modifier.fillMaxWidth(),placeholder={Text("Поиск по артикулу или названию")},leadingIcon={Icon(Icons.Outlined.Search,null)},trailingIcon={IconButton(onClick=onSearch){Icon(Icons.Outlined.ArrowForward,null)}},singleLine=true,colors=protoFieldColors()) }
-            item { Row(horizontalArrangement=Arrangement.spacedBy(8.dp)){ProtoActionChip("В наличии",Icons.Outlined.Inventory2,Modifier.weight(1f)){onAvailability("В наличии")};ProtoActionChip("Под заказ",Icons.Outlined.Schedule,Modifier.weight(1f)){onAvailability("Под заказ")}} }
-            item { Text("Каталог",color=ProtoText,fontSize=20.sp,fontWeight=FontWeight.Bold); Spacer(Modifier.height(6.dp)); val cats=listOf("Венки","Венки круглые","Корзины","Полянки","Флоретки","Ленты","Гробы","Кресты"); cats.chunked(2).forEach { row -> Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.spacedBy(8.dp)){row.forEach{cat->ProtoCategoryButton(cat,cat in setOf("Гробы","Кресты"),Modifier.weight(1f)){onCategory(cat)}};if(row.size==1)Spacer(Modifier.weight(1f))};Spacer(Modifier.height(7.dp))} }
-            item { Row(verticalAlignment=Alignment.CenterVertically){Text("Популярные товары",color=ProtoText,fontSize=20.sp,fontWeight=FontWeight.Bold);Spacer(Modifier.weight(1f));TextButton(onClick=onCatalog){Text("Все товары",color=ProtoGold)}} }
-            items(products.take(10),key={it.sku}) { p -> ProtoPopularRow(p,stockOverrides[p.sku]?:p.stock){onOpenProduct(p)} }
+    var searchOpen by remember { mutableStateOf(false) }
+    Box(Modifier.fillMaxSize().background(ProtoBg)) {
+        Image(painterResource(R.drawable.screen_client_home), null, Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
+        Box(Modifier.fillMaxWidth().height(28.dp).background(ProtoBg).align(Alignment.TopCenter))
+        BoxWithConstraints(Modifier.fillMaxSize()) {
+            Box(Modifier.offset(maxWidth*.035f,maxHeight*.195f).size(maxWidth*.93f,maxHeight*.065f).clickable{searchOpen=true})
+            Box(Modifier.offset(maxWidth*.035f,maxHeight*.268f).size(maxWidth*.29f,maxHeight*.048f).clickable{onAvailability("В наличии")})
+            Box(Modifier.offset(maxWidth*.34f,maxHeight*.268f).size(maxWidth*.30f,maxHeight*.048f).clickable{onAvailability("Под заказ")})
+            Box(Modifier.offset(maxWidth*.03f,maxHeight*.315f).size(maxWidth*.16f,maxHeight*.115f).clickable{onCategory("Венки")})
+            Box(Modifier.offset(maxWidth*.20f,maxHeight*.315f).size(maxWidth*.15f,maxHeight*.115f).clickable{onCategory("Гробы")})
+            Box(Modifier.offset(maxWidth*.36f,maxHeight*.315f).size(maxWidth*.15f,maxHeight*.115f).clickable{onCategory("Одежда")})
+            Box(Modifier.offset(maxWidth*.52f,maxHeight*.315f).size(maxWidth*.15f,maxHeight*.115f).clickable{onCategory("Ленты")})
+            Box(Modifier.offset(maxWidth*.68f,maxHeight*.315f).size(maxWidth*.15f,maxHeight*.115f).clickable{onCategory("Флоретки")})
+            Box(Modifier.offset(maxWidth*.84f,maxHeight*.315f).size(maxWidth*.13f,maxHeight*.115f).clickable{onCatalog()})
+
+            // Approved placement is preserved; only the popular-products window becomes a real vertical scroller.
+            Box(Modifier.offset(maxWidth*.025f,maxHeight*.485f).size(maxWidth*.95f,maxHeight*.395f).background(ProtoBg)) {
+                LazyColumn(contentPadding=PaddingValues(horizontal=4.dp,vertical=4.dp),verticalArrangement=Arrangement.spacedBy(8.dp)) {
+                    items(products.take(20).chunked(2)) { row ->
+                        Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.spacedBy(8.dp)) {
+                            row.forEach { p ->
+                                Card(colors=CardDefaults.cardColors(containerColor=ProtoPanel),border=BorderStroke(1.dp,ProtoBorder),shape=RoundedCornerShape(14.dp),modifier=Modifier.weight(1f)) {
+                                    ProtoProductImage(p,Modifier.fillMaxWidth().height(118.dp).clip(RoundedCornerShape(topStart=14.dp,topEnd=14.dp)))
+                                    Column(Modifier.padding(8.dp)) {
+                                        Text(p.name,color=ProtoText,fontWeight=FontWeight.SemiBold,maxLines=1,overflow=TextOverflow.Ellipsis,fontSize=12.sp)
+                                        Text("Арт. ${p.sku}",color=ProtoMuted,fontSize=9.sp)
+                                        Text(protoMoney(p.price),color=ProtoGoldSoft,fontWeight=FontWeight.Bold,fontSize=16.sp)
+                                        Button(onClick={onOpenProduct(p)},modifier=Modifier.fillMaxWidth().height(34.dp),colors=ButtonDefaults.buttonColors(containerColor=ProtoGold),contentPadding=PaddingValues(horizontal=3.dp)) {Text("В корзину",color=Color.Black,fontSize=10.sp,fontWeight=FontWeight.Bold,maxLines=1)}
+                                    }
+                                }
+                            }
+                            if(row.size==1) Spacer(Modifier.weight(1f))
+                        }
+                    }
+                }
+            }
+
+            PrototypeClickArea(maxWidth,maxHeight,.00f,.91f,.20f,.09f){}
+            PrototypeClickArea(maxWidth,maxHeight,.20f,.91f,.20f,.09f){onCatalog()}
+            PrototypeClickArea(maxWidth,maxHeight,.40f,.91f,.20f,.09f){onCart()}
+            PrototypeClickArea(maxWidth,maxHeight,.60f,.91f,.20f,.09f){onOrders()}
+            PrototypeClickArea(maxWidth,maxHeight,.80f,.91f,.20f,.09f){onProfile()}
         }
-        ProtoClientBottomBar(ProtoScreen.Home,cartCount,onHome={},onCatalog=onCatalog,onCart=onCart,onOrders=onOrders,onProfile=onProfile)
+    }
+
+    if(searchOpen){
+        AlertDialog(onDismissRequest={searchOpen=false},containerColor=ProtoPanel,title={Text("Поиск по каталогу",color=ProtoText)},text={ProtoField(query,onQuery,"Артикул или название")},confirmButton={TextButton(onClick={searchOpen=false;onSearch()}){Text("Найти",color=ProtoGold)}},dismissButton={TextButton(onClick={searchOpen=false}){Text("Отмена",color=ProtoMuted)}})
     }
 }
-
 @Composable
 private fun ProtoFilterScreen(selectedTypes:Set<String>,selectedQualities:Set<String>,selectedSizes:Set<String>,selectedAvailability:Set<String>,onToggleType:(String)->Unit,onToggleQuality:(String)->Unit,onToggleSize:(String)->Unit,onToggleAvailability:(String)->Unit,onShow:()->Unit,onBack:()->Unit) {
     Column(Modifier.fillMaxSize().background(ProtoBg).padding(horizontal=16.dp)) {
@@ -464,7 +578,7 @@ private fun ProtoProductListScreen(products:List<ProtoCatalogProduct>,cart:Snaps
 @Composable
 private fun ProtoProductCard(p:ProtoCatalogProduct,currentStock:Int,onOpen:()->Unit) {
     Card(colors=CardDefaults.cardColors(containerColor=ProtoPanel),border=BorderStroke(1.dp,ProtoBorder),shape=RoundedCornerShape(15.dp)){
-        Box(Modifier.fillMaxWidth().height(118.dp).background(ProtoPanel2).clickable(onClick=onOpen),contentAlignment=Alignment.Center){Icon(protoIconForType(p.type),null,tint=ProtoGold,modifier=Modifier.size(54.dp));Surface(Modifier.align(Alignment.BottomStart).padding(7.dp),color=if(currentStock>0)Color(0xDD123A27)else Color(0xDD4A2220),shape=RoundedCornerShape(18.dp)){Text(if(currentStock>0)"В наличии $currentStock" else "Под заказ · ${p.productionDays} дн.",color=if(currentStock>0)ProtoGreen else ProtoGoldSoft,fontSize=9.sp,modifier=Modifier.padding(horizontal=7.dp,vertical=3.dp))}}
+        Box(Modifier.fillMaxWidth().height(118.dp).background(ProtoPanel2).clickable(onClick=onOpen)){ProtoProductImage(p,Modifier.fillMaxSize());Surface(Modifier.align(Alignment.BottomStart).padding(7.dp),color=if(currentStock>0)Color(0xDD123A27)else Color(0xDD4A2220),shape=RoundedCornerShape(18.dp)){Text(if(currentStock>0)"В наличии $currentStock" else "Под заказ · ${p.productionDays} дн.",color=if(currentStock>0)ProtoGreen else ProtoGoldSoft,fontSize=9.sp,modifier=Modifier.padding(horizontal=7.dp,vertical=3.dp))}}
         Column(Modifier.padding(9.dp)){Text(p.name,color=ProtoText,fontWeight=FontWeight.SemiBold,maxLines=2,overflow=TextOverflow.Ellipsis);Text("Арт. ${p.sku}",color=ProtoMuted,fontSize=10.sp);Text(protoMoney(p.price),color=ProtoGoldSoft,fontWeight=FontWeight.Bold,fontSize=18.sp,modifier=Modifier.padding(vertical=4.dp));Button(onClick=onOpen,modifier=Modifier.fillMaxWidth().height(38.dp),contentPadding=PaddingValues(horizontal=4.dp),colors=ButtonDefaults.buttonColors(containerColor=ProtoGold),shape=RoundedCornerShape(9.dp)){Icon(Icons.Outlined.AddShoppingCart,null,tint=Color.Black,modifier=Modifier.size(16.dp));Spacer(Modifier.width(4.dp));Text("В корзину",color=Color.Black,fontSize=11.sp,fontWeight=FontWeight.Bold,maxLines=1)}}
     }
 }
@@ -472,19 +586,89 @@ private fun ProtoProductCard(p:ProtoCatalogProduct,currentStock:Int,onOpen:()->U
 @Composable
 private fun ProtoProductDetailScreen(product:ProtoCatalogProduct?,currentStock:Int,qty:Int,onBack:()->Unit,onMinus:()->Unit,onPlus:()->Unit,onAdd:()->Unit) {
     val p=product?:return
-    Column(Modifier.fillMaxSize().background(ProtoBg)){Box(Modifier.fillMaxWidth().height(300.dp).background(ProtoPanel2)){Box(Modifier.fillMaxSize(),contentAlignment=Alignment.Center){Icon(protoIconForType(p.type),null,tint=ProtoGold,modifier=Modifier.size(110.dp))};Box(Modifier.padding(14.dp,22.dp)){ProtoCircleBack(onBack)}};Column(Modifier.padding(18.dp)){Text(p.name,color=ProtoText,fontSize=28.sp,fontWeight=FontWeight.Bold);Text("Арт. ${p.sku}",color=ProtoMuted);Spacer(Modifier.height(8.dp));Row{Text(protoMoney(p.price),color=ProtoGoldSoft,fontSize=27.sp,fontWeight=FontWeight.Bold);Spacer(Modifier.weight(1f));Text(if(currentStock>0)"● В наличии $currentStock шт." else "● Под заказ · от ${p.productionDays} дней",color=if(currentStock>0)ProtoGreen else ProtoGoldSoft,fontSize=12.sp)};Spacer(Modifier.height(12.dp));ProtoSectionCard{ProtoInfoRow("Тип",p.type);ProtoInfoRow("Качество",p.quality);ProtoInfoRow("Размер",p.size)};Spacer(Modifier.height(14.dp));Row(verticalAlignment=Alignment.CenterVertically){OutlinedButton(onClick=onMinus,border=BorderStroke(1.dp,ProtoGold)){Icon(Icons.Outlined.Remove,null,tint=ProtoGold)};Text(qty.toString(),color=ProtoText,fontSize=23.sp,modifier=Modifier.padding(horizontal=18.dp));OutlinedButton(onClick=onPlus,border=BorderStroke(1.dp,ProtoGold)){Icon(Icons.Outlined.Add,null,tint=ProtoGold)};Spacer(Modifier.width(10.dp));Button(onClick=onAdd,modifier=Modifier.weight(1f).height(52.dp),colors=ButtonDefaults.buttonColors(containerColor=ProtoGold)){Text("В корзину",color=Color.Black,fontWeight=FontWeight.Bold,maxLines=1)}};Text("После добавления вы вернётесь к предыдущему экрану и сможете продолжить набор заказа.",color=ProtoMuted,fontSize=11.sp,modifier=Modifier.padding(top=8.dp))}}
+    Box(Modifier.fillMaxSize().background(ProtoBg)) {
+        Image(painterResource(R.drawable.screen_product),null,Modifier.fillMaxSize(),contentScale=ContentScale.Crop)
+        Box(Modifier.fillMaxWidth().height(28.dp).background(ProtoBg).align(Alignment.TopCenter))
+        BoxWithConstraints(Modifier.fillMaxSize()) {
+            // The approved composition and sizes stay fixed; data and photo are live overlays.
+            Box(Modifier.offset(maxWidth*.10f,maxHeight*.105f).size(maxWidth*.80f,maxHeight*.31f).clip(RoundedCornerShape(16.dp)).background(ProtoPanel2)) {
+                ProtoProductImage(p,Modifier.fillMaxSize())
+            }
+            Box(Modifier.offset(maxWidth*.045f,maxHeight*.438f).size(maxWidth*.90f,maxHeight*.13f).background(ProtoBg.copy(alpha=.96f)))
+            Text(p.name,color=ProtoText,fontSize=24.sp,fontWeight=FontWeight.Bold,modifier=Modifier.offset(maxWidth*.05f,maxHeight*.444f))
+            Text("Арт. ${p.sku}",color=ProtoMuted,fontSize=12.sp,modifier=Modifier.offset(maxWidth*.05f,maxHeight*.479f))
+            Text(protoMoney(p.price),color=ProtoText,fontSize=25.sp,fontWeight=FontWeight.Bold,modifier=Modifier.offset(maxWidth*.05f,maxHeight*.522f))
+            Text(if(currentStock>0)"● В наличии $currentStock шт." else "● Под заказ · от ${p.productionDays} дней",color=if(currentStock>0)ProtoGreen else ProtoGoldSoft,fontSize=11.sp,modifier=Modifier.offset(maxWidth*.70f,maxHeight*.482f))
+            Box(Modifier.offset(maxWidth*.045f,maxHeight*.571f).size(maxWidth*.29f,maxHeight*.055f).background(ProtoBg.copy(alpha=.88f),RoundedCornerShape(12.dp)))
+            Text(qty.toString(),color=ProtoText,fontSize=22.sp,modifier=Modifier.offset(maxWidth*.175f,maxHeight*.584f))
+            PrototypeClickArea(maxWidth,maxHeight,.04f,.57f,.10f,.06f){onMinus()}
+            PrototypeClickArea(maxWidth,maxHeight,.24f,.57f,.10f,.06f){onPlus()}
+            PrototypeClickArea(maxWidth,maxHeight,.36f,.57f,.59f,.06f){onAdd()}
+            Box(Modifier.offset(maxWidth*.045f,maxHeight*.655f).size(maxWidth*.91f,maxHeight*.145f).background(ProtoBg.copy(alpha=.92f),RoundedCornerShape(14.dp))) {
+                Column(Modifier.padding(12.dp)){ProtoInfoRow("Тип",p.type);ProtoInfoRow("Качество",p.quality);ProtoInfoRow("Размер",p.size);ProtoInfoRow("Источник",if(p.imageUrl.isBlank())"Тестовый каталог" else "Tilda")}
+            }
+            PrototypeClickArea(maxWidth,maxHeight,.00f,.91f,.20f,.09f){}
+            PrototypeClickArea(maxWidth,maxHeight,.20f,.91f,.20f,.09f){onBack()}
+        }
+        ProtoBackButton(onBack)
+    }
 }
-
 @Composable
 private fun ProtoCartScreen(products:List<ProtoCatalogProduct>,cart:SnapshotStateMap<String,Int>,onBack:()->Unit,onPlus:(ProtoCatalogProduct)->Unit,onMinus:(ProtoCatalogProduct)->Unit,onDelete:(ProtoCatalogProduct)->Unit,onCheckout:()->Unit) {
-    val lines=cart.mapNotNull{(sku,q)->products.firstOrNull{it.sku==sku}?.let{it to q}};val total=lines.sumOf{it.first.price*it.second}
-    Column(Modifier.fillMaxSize().background(ProtoBg)){Row(Modifier.padding(16.dp,22.dp,16.dp,8.dp),verticalAlignment=Alignment.CenterVertically){ProtoCircleBack(onBack);Spacer(Modifier.width(12.dp));Column{Text("Корзина",color=ProtoText,fontSize=28.sp,fontWeight=FontWeight.Bold);Text("${lines.sumOf{it.second}} шт. · ${protoMoney(total)}",color=ProtoMuted)}};if(lines.isEmpty())Box(Modifier.weight(1f).fillMaxWidth(),contentAlignment=Alignment.Center){Text("Корзина пока пуста",color=ProtoMuted)}else{LazyColumn(Modifier.weight(1f),contentPadding=PaddingValues(14.dp),verticalArrangement=Arrangement.spacedBy(8.dp)){items(lines,key={it.first.sku}){(p,q)->ProtoCartRow(p,q,{onMinus(p)},{onPlus(p)},{onDelete(p)})}};ProtoSectionCard(Modifier.padding(horizontal=14.dp)){Row{Text("Итого",color=ProtoText,fontSize=20.sp,fontWeight=FontWeight.Bold);Spacer(Modifier.weight(1f));Text(protoMoney(total),color=ProtoGoldSoft,fontSize=23.sp,fontWeight=FontWeight.Bold)}};Button(onClick=onCheckout,modifier=Modifier.padding(14.dp).fillMaxWidth().height(56.dp),colors=ButtonDefaults.buttonColors(containerColor=ProtoGold)){Text("Оформить заказ",color=Color.Black,fontWeight=FontWeight.Bold)} }}
+    val lines=cart.mapNotNull{(sku,q)->products.firstOrNull{it.sku==sku}?.let{it to q}}
+    val total=lines.sumOf{it.first.price*it.second}
+    Box(Modifier.fillMaxSize().background(ProtoBg)) {
+        Image(painterResource(R.drawable.screen_cart),null,Modifier.fillMaxSize(),contentScale=ContentScale.Crop)
+        Box(Modifier.fillMaxWidth().height(28.dp).background(ProtoBg).align(Alignment.TopCenter))
+        BoxWithConstraints(Modifier.fillMaxSize()) {
+            Box(Modifier.offset(maxWidth*.03f,maxHeight*.19f).size(maxWidth*.94f,maxHeight*.45f).background(ProtoBg)) {
+                if(lines.isEmpty()) Box(Modifier.fillMaxSize(),contentAlignment=Alignment.Center){Text("Корзина пока пуста",color=ProtoMuted)}
+                else LazyColumn(contentPadding=PaddingValues(vertical=4.dp),verticalArrangement=Arrangement.spacedBy(8.dp)) {
+                    items(lines,key={it.first.sku}) { (p,q) ->
+                        Card(colors=CardDefaults.cardColors(containerColor=ProtoPanel),border=BorderStroke(1.dp,ProtoBorder),shape=RoundedCornerShape(14.dp),modifier=Modifier.fillMaxWidth().height(108.dp)) {
+                            Row(Modifier.padding(8.dp),verticalAlignment=Alignment.CenterVertically){
+                                ProtoProductImage(p,Modifier.size(90.dp).clip(RoundedCornerShape(10.dp)))
+                                Spacer(Modifier.width(9.dp));Column(Modifier.weight(1f)){Text(p.name,color=ProtoText,fontWeight=FontWeight.SemiBold,maxLines=1,overflow=TextOverflow.Ellipsis);Text("Арт. ${p.sku}",color=ProtoMuted,fontSize=9.sp);Row(verticalAlignment=Alignment.CenterVertically){IconButton(onClick={onMinus(p)},modifier=Modifier.size(30.dp)){Icon(Icons.Outlined.Remove,null,tint=ProtoGold)};Text(q.toString(),color=ProtoText);IconButton(onClick={onPlus(p)},modifier=Modifier.size(30.dp)){Icon(Icons.Outlined.Add,null,tint=ProtoGold)}}}
+                                Column(horizontalAlignment=Alignment.End){Text(protoMoney(p.price*q),color=ProtoGoldSoft,fontWeight=FontWeight.Bold);IconButton(onClick={onDelete(p)},modifier=Modifier.size(34.dp)){Icon(Icons.Outlined.Delete,null,tint=ProtoGold)}}
+                            }
+                        }
+                    }
+                }
+            }
+            Box(Modifier.offset(maxWidth*.04f,maxHeight*.655f).size(maxWidth*.92f,maxHeight*.105f).background(ProtoBg.copy(alpha=.95f),RoundedCornerShape(14.dp))) {
+                Column(Modifier.padding(12.dp)){ProtoInfoRow("Товары","${lines.sumOf{it.second}} шт.");ProtoInfoRow("Итого",protoMoney(total))}
+            }
+            PrototypeClickArea(maxWidth,maxHeight,.04f,.79f,.92f,.07f){if(lines.isNotEmpty())onCheckout()}
+            PrototypeClickArea(maxWidth,maxHeight,.00f,.91f,.20f,.09f){onBack()}
+        }
+        ProtoBackButton(onBack)
+    }
 }
-
 @Composable
-private fun ProtoCheckoutScreen(cartCount:Int,total:Int,onBack:()->Unit,onSubmit:()->Unit){var method by remember{mutableStateOf("Доставка")};var address by remember{mutableStateOf("")};var comment by remember{mutableStateOf("")};ProtoScaffold("Оформление заказа","$cartCount шт. · ${protoMoney(total)}",onBack){item{ProtoSectionCard{Text("Способ получения",color=ProtoGoldSoft,fontWeight=FontWeight.SemiBold);Row(horizontalArrangement=Arrangement.spacedBy(6.dp)){listOf("Доставка","Самовывоз","ТК").forEach{m->FilterChip(selected=method==m,onClick={method=m},label={Text(m)},colors=FilterChipDefaults.filterChipColors(selectedContainerColor=ProtoGold,selectedLabelColor=Color.Black,labelColor=ProtoText))}};ProtoField(address,{address=it},"Адрес / ТК");ProtoField(comment,{comment=it},"Комментарий");Spacer(Modifier.height(8.dp));Button(onClick=onSubmit,modifier=Modifier.fillMaxWidth().height(56.dp),colors=ButtonDefaults.buttonColors(containerColor=ProtoGold)){Text("Отправить заказ",color=Color.Black,fontWeight=FontWeight.Bold)}}}}
+private fun ProtoCheckoutScreen(cartCount:Int,total:Int,onBack:()->Unit,onSubmit:()->Unit){
+    var method by remember{mutableStateOf("Доставка")}
+    var address by remember{mutableStateOf("")}
+    var comment by remember{mutableStateOf("")}
+    var editAddress by remember{mutableStateOf(false)}
+    var editComment by remember{mutableStateOf(false)}
+    Box(Modifier.fillMaxSize().background(ProtoBg)) {
+        Image(painterResource(R.drawable.screen_checkout),null,Modifier.fillMaxSize(),contentScale=ContentScale.Crop)
+        Box(Modifier.fillMaxWidth().height(28.dp).background(ProtoBg).align(Alignment.TopCenter))
+        BoxWithConstraints(Modifier.fillMaxSize()) {
+            PrototypeClickArea(maxWidth,maxHeight,.05f,.335f,.31f,.06f){method="Доставка"}
+            PrototypeClickArea(maxWidth,maxHeight,.36f,.335f,.31f,.06f){method="Самовывоз"}
+            PrototypeClickArea(maxWidth,maxHeight,.67f,.335f,.28f,.06f){method="ТК"}
+            PrototypeClickArea(maxWidth,maxHeight,.17f,.425f,.78f,.07f){editAddress=true}
+            PrototypeClickArea(maxWidth,maxHeight,.17f,.52f,.78f,.09f){editComment=true}
+            Box(Modifier.offset(maxWidth*.56f,maxHeight*.69f).size(maxWidth*.39f,maxHeight*.04f).background(ProtoBg.copy(alpha=.92f)))
+            Text(protoMoney(total),color=ProtoText,fontSize=18.sp,fontWeight=FontWeight.Bold,modifier=Modifier.offset(maxWidth*.70f,maxHeight*.70f))
+            PrototypeClickArea(maxWidth,maxHeight,.04f,.775f,.92f,.065f){onSubmit()}
+        }
+        ProtoBackButton(onBack)
+    }
+    if(editAddress)AlertDialog(onDismissRequest={editAddress=false},containerColor=ProtoPanel,title={Text("Адрес / транспортная компания",color=ProtoText)},text={ProtoField(address,{address=it},"Адрес получения")},confirmButton={TextButton(onClick={editAddress=false}){Text("Сохранить",color=ProtoGold)}})
+    if(editComment)AlertDialog(onDismissRequest={editComment=false},containerColor=ProtoPanel,title={Text("Комментарий к заказу",color=ProtoText)},text={ProtoField(comment,{comment=it},"Комментарий")},confirmButton={TextButton(onClick={editComment=false}){Text("Сохранить",color=ProtoGold)}})
 }
-
 @Composable
 private fun ProtoOrderListScreen(orders:List<ProtoOrder>,onBack:()->Unit,onOpen:(ProtoOrder)->Unit){ProtoScaffold("Заказы","История и текущий статус",onBack){if(orders.isEmpty())item{Text("Заказов пока нет",color=ProtoMuted)}else items(orders,key={it.id}){o->ProtoOrderRow(o){onOpen(o)}}}}
 
@@ -537,60 +721,30 @@ private fun ProtoAdminHomeScreen(
     stockOverrides:SnapshotStateMap<String,Int>, onSearch:()->Unit, onRegistrations:()->Unit, onClients:()->Unit, onOrders:()->Unit,
     onProduction:()->Unit, onStock:()->Unit, onCatalog:()->Unit, onSettings:()->Unit, onAttention:()->Unit, onOnline:()->Unit
 ) {
-    val active=clients.count{it.status!="Приостановлен"}
-    val todayOrders=orders.count{it.dateTime.startsWith(currentDateShort())}
-    val prodToday=productionOps.filter{it.date==currentDateShort()}.sumOf{it.qty}
-    val stock=products.sumOf{stockOverrides[it.sku]?:it.stock}
-    Column(Modifier.fillMaxSize().background(ProtoBg)) {
-        LazyColumn(Modifier.weight(1f),contentPadding=PaddingValues(16.dp,20.dp),verticalArrangement=Arrangement.spacedBy(12.dp)) {
-            item {
-                Text("SANSARA",color=ProtoGoldSoft,letterSpacing=4.sp,fontSize=18.sp)
-                Text("Здравствуйте, Игорь",color=ProtoText,fontSize=29.sp,fontWeight=FontWeight.Bold)
-                Text("Администратор · ${currentMonthLabel()}",color=ProtoMuted)
-            }
-            item {
-                OutlinedButton(onClick=onSearch,modifier=Modifier.fillMaxWidth().height(48.dp),border=BorderStroke(1.dp,ProtoBorder)) {
-                    Icon(Icons.Outlined.Search,null,tint=ProtoGold); Spacer(Modifier.width(8.dp)); Text("Поиск по клиентам, заказам, товарам",color=ProtoMuted)
-                }
-            }
-            item { Row(horizontalArrangement=Arrangement.spacedBy(8.dp)) {
-                ProtoMetricCard("Всего заявок","18","за месяц",Modifier.weight(1f),onRegistrations)
-                ProtoMetricCard("Активные клиенты",active.toString(),"в базе",Modifier.weight(1f),onClients)
-            }}
-            item { Row(horizontalArrangement=Arrangement.spacedBy(8.dp)) {
-                ProtoMetricCard("Заказы сегодня",todayOrders.toString(),"открыть",Modifier.weight(1f),onOrders)
-                ProtoMetricCard("Производство сегодня",prodToday.toString(),"шт.",Modifier.weight(1f),onProduction)
-            }}
-            item { ProtoMetricCard("Остаток на складе",stock.toString(),"шт. физический остаток",Modifier.fillMaxWidth(),onStock) }
-            item {
-                Text("Быстрые действия",color=ProtoText,fontSize=20.sp,fontWeight=FontWeight.Bold)
-                Row(horizontalArrangement=Arrangement.spacedBy(7.dp)) {
-                    ProtoQuickButton("Клиенты",Icons.Outlined.Groups,Modifier.weight(1f),onClients)
-                    ProtoQuickButton("Заказы",Icons.Outlined.ReceiptLong,Modifier.weight(1f),onOrders)
-                    ProtoQuickButton("Каталог",Icons.Outlined.Inventory2,Modifier.weight(1f),onCatalog)
-                    ProtoQuickButton("Настройки",Icons.Outlined.Settings,Modifier.weight(1f),onSettings)
-                }
-            }
-            item {
-                Text("Требует внимания",color=ProtoText,fontSize=20.sp,fontWeight=FontWeight.Bold)
-                ProtoAttentionLine("5 новых регистраций","Открыть и обработать",ProtoOrange,onAttention)
-                ProtoAttentionLine("3 клиента приостановлены","Проверить оплату / разблокировать",ProtoRed,onAttention)
-                ProtoAttentionLine("7 заказов на сборке","Контроль статусов",ProtoGold,onOrders)
-            }
-            item {
-                Text("Online controller",color=ProtoText,fontSize=20.sp,fontWeight=FontWeight.Bold)
-                ProtoSectionCard(Modifier.clickable(onClick=onOnline)) {
-                    ProtoInfoRow("Клиентские приложения","${clients.count{it.online}} онлайн")
-                    ProtoInfoRow("Админка","1 онлайн")
-                    ProtoInfoRow("Производство","2 онлайн")
-                    Text("Автосинхронизация · тестовый режим",color=ProtoGreen,fontSize=12.sp)
-                }
-            }
+    Box(Modifier.fillMaxSize().background(ProtoBg)) {
+        Image(painterResource(R.drawable.screen_admin_home),null,Modifier.fillMaxSize(),contentScale=ContentScale.Crop)
+        Box(Modifier.fillMaxWidth().height(28.dp).background(ProtoBg).align(Alignment.TopCenter))
+        BoxWithConstraints(Modifier.fillMaxSize()) {
+            PrototypeClickArea(maxWidth,maxHeight,.06f,.18f,.88f,.06f){onSearch()}
+            PrototypeClickArea(maxWidth,maxHeight,.06f,.25f,.43f,.10f){onRegistrations()}
+            PrototypeClickArea(maxWidth,maxHeight,.51f,.25f,.43f,.10f){onClients()}
+            PrototypeClickArea(maxWidth,maxHeight,.06f,.36f,.43f,.10f){onOrders()}
+            PrototypeClickArea(maxWidth,maxHeight,.51f,.36f,.43f,.10f){onProduction()}
+            PrototypeClickArea(maxWidth,maxHeight,.06f,.47f,.88f,.08f){onStock()}
+            PrototypeClickArea(maxWidth,maxHeight,.06f,.57f,.22f,.09f){onClients()}
+            PrototypeClickArea(maxWidth,maxHeight,.29f,.57f,.22f,.09f){onOrders()}
+            PrototypeClickArea(maxWidth,maxHeight,.52f,.57f,.22f,.09f){onCatalog()}
+            PrototypeClickArea(maxWidth,maxHeight,.75f,.57f,.20f,.09f){onSettings()}
+            PrototypeClickArea(maxWidth,maxHeight,.06f,.68f,.88f,.13f){onAttention()}
+            PrototypeClickArea(maxWidth,maxHeight,.06f,.82f,.88f,.07f){onOnline()}
+            PrototypeClickArea(maxWidth,maxHeight,.00f,.91f,.20f,.09f){}
+            PrototypeClickArea(maxWidth,maxHeight,.20f,.91f,.20f,.09f){onClients()}
+            PrototypeClickArea(maxWidth,maxHeight,.40f,.91f,.20f,.09f){onOrders()}
+            PrototypeClickArea(maxWidth,maxHeight,.60f,.91f,.20f,.09f){onStock()}
+            PrototypeClickArea(maxWidth,maxHeight,.80f,.91f,.20f,.09f){onSettings()}
         }
-        ProtoAdminBottomBar(ProtoScreen.AdminHome,onHome={},onClients=onClients,onOrders=onOrders,onStock=onStock,onProfile=onSettings)
     }
 }
-
 @Composable
 private fun ProtoAdminClientsScreen(clients:List<ProtoClient>,onBack:()->Unit,onOpen:(ProtoClient)->Unit){var q by remember{mutableStateOf("")};val filtered=clients.filter{q.isBlank()||it.name.contains(q,true)||it.contact.contains(q,true)};ProtoScaffold("Клиенты","Оборот за ${currentMonthLabel().lowercase(ruLocale)}",onBack){item{ProtoField(q,{q=it},"Поиск клиента")};items(filtered,key={it.id}){c->Card(colors=CardDefaults.cardColors(containerColor=ProtoPanel),border=BorderStroke(1.dp,ProtoBorder),modifier=Modifier.fillMaxWidth().clickable{onOpen(c)}){Row(Modifier.padding(13.dp),verticalAlignment=Alignment.CenterVertically){Column(Modifier.weight(1f)){Text(c.name,color=ProtoText,fontWeight=FontWeight.SemiBold);Text("${c.status} · ${c.orderCount} заказов",color=ProtoMuted,fontSize=12.sp)};Column(horizontalAlignment=Alignment.End){Text(protoMoney(c.monthTurnover),color=ProtoGoldSoft,fontWeight=FontWeight.Bold);Icon(Icons.Outlined.ChevronRight,null,tint=ProtoGold)}}}}}}
 
@@ -628,11 +782,26 @@ private fun ProtoAdminClientScreen(client:ProtoClient?,onBack:()->Unit,onToggleB
 private fun ProtoAdminOrdersScreen(orders:List<ProtoOrder>,onBack:()->Unit,onOpen:(ProtoOrder)->Unit){ProtoScaffold("Заказы",currentMonthLabel(),onBack){items(orders,key={it.id}){o->ProtoOrderRow(o){onOpen(o)}}}}
 
 @Composable
-private fun ProtoAdminCatalogScreen(products:List<ProtoCatalogProduct>,stockOverrides:SnapshotStateMap<String,Int>,onBack:()->Unit){ProtoScaffold("Каталог","Все тестовые позиции",onBack){items(products,key={it.sku}){p->ProtoSectionCard{Row(verticalAlignment=Alignment.CenterVertically){Icon(protoIconForType(p.type),null,tint=ProtoGold,modifier=Modifier.size(34.dp));Spacer(Modifier.width(10.dp));Column(Modifier.weight(1f)){Text(p.name,color=ProtoText,fontWeight=FontWeight.SemiBold);Text("${p.sku} · ${p.type} · ${p.size}",color=ProtoMuted,fontSize=11.sp)};Text("${stockOverrides[p.sku]?:p.stock} шт.",color=ProtoGoldSoft,fontWeight=FontWeight.Bold)}}}}}
+private fun ProtoAdminCatalogScreen(products:List<ProtoCatalogProduct>,stockOverrides:SnapshotStateMap<String,Int>,onBack:()->Unit){ProtoScaffold("Каталог","Все тестовые позиции",onBack){items(products,key={it.sku}){p->ProtoSectionCard{Row(verticalAlignment=Alignment.CenterVertically){ProtoProductImage(p,Modifier.size(46.dp).clip(RoundedCornerShape(8.dp)));Spacer(Modifier.width(10.dp));Column(Modifier.weight(1f)){Text(p.name,color=ProtoText,fontWeight=FontWeight.SemiBold);Text("${p.sku} · ${p.type} · ${p.size}",color=ProtoMuted,fontSize=11.sp)};Text("${stockOverrides[p.sku]?:p.stock} шт.",color=ProtoGoldSoft,fontWeight=FontWeight.Bold)}}}}}
 
 @Composable
-private fun ProtoAdminSettingsScreen(threshold:Int,reg:Boolean,orders:Boolean,prod:Boolean,low:Boolean,onBack:()->Unit,onThreshold:(Int)->Unit,onReg:(Boolean)->Unit,onOrders:(Boolean)->Unit,onProd:(Boolean)->Unit,onLow:(Boolean)->Unit){ProtoScaffold("Настройки","Управление бизнес-правилами тестовой версии",onBack){item{ProtoSectionCard{Text("Уведомления",color=ProtoText,fontSize=19.sp,fontWeight=FontWeight.Bold);ProtoSwitchRow("Новые регистрации",reg,onReg);ProtoSwitchRow("Новые заказы",orders,onOrders);ProtoSwitchRow("Производство",prod,onProd);ProtoSwitchRow("Низкие остатки",low,onLow)}};item{ProtoSectionCard{Text("Порог низкого остатка",color=ProtoText,fontSize=19.sp,fontWeight=FontWeight.Bold);Row(verticalAlignment=Alignment.CenterVertically){IconButton(onClick={onThreshold(threshold-1)}){Icon(Icons.Outlined.Remove,null,tint=ProtoGold)};Text("$threshold шт.",color=ProtoGoldSoft,fontSize=22.sp,fontWeight=FontWeight.Bold);IconButton(onClick={onThreshold(threshold+1)}){Icon(Icons.Outlined.Add,null,tint=ProtoGold)}};Text("Позиции с доступным остатком ≤ порога будут попадать в «Требует внимания».",color=ProtoMuted,fontSize=11.sp);ProtoInfoRow("Телефон администратора","+7 926 304-60-19")}}}}
-
+private fun ProtoAdminSettingsScreen(
+    threshold:Int,reg:Boolean,orders:Boolean,prod:Boolean,low:Boolean,tildaUrl:String,syncStatus:String,syncing:Boolean,
+    onBack:()->Unit,onThreshold:(Int)->Unit,onReg:(Boolean)->Unit,onOrders:(Boolean)->Unit,onProd:(Boolean)->Unit,onLow:(Boolean)->Unit,
+    onTildaUrl:(String)->Unit,onSync:()->Unit
+){
+    ProtoScaffold("Настройки","Управление бизнес-правилами и синхронизацией",onBack){
+        item{ProtoSectionCard{Text("Уведомления",color=ProtoText,fontSize=19.sp,fontWeight=FontWeight.Bold);ProtoSwitchRow("Новые регистрации",reg,onReg);ProtoSwitchRow("Новые заказы",orders,onOrders);ProtoSwitchRow("Производство",prod,onProd);ProtoSwitchRow("Низкие остатки",low,onLow)}}
+        item{ProtoSectionCard{Text("Порог низкого остатка",color=ProtoText,fontSize=19.sp,fontWeight=FontWeight.Bold);Row(verticalAlignment=Alignment.CenterVertically){IconButton(onClick={onThreshold(threshold-1)}){Icon(Icons.Outlined.Remove,null,tint=ProtoGold)};Text("$threshold шт.",color=ProtoGoldSoft,fontSize=22.sp,fontWeight=FontWeight.Bold);IconButton(onClick={onThreshold(threshold+1)}){Icon(Icons.Outlined.Add,null,tint=ProtoGold)}};Text("Позиции с доступным остатком ≤ порога попадают в «Требует внимания».",color=ProtoMuted,fontSize=11.sp);ProtoInfoRow("Телефон администратора","+7 926 304-60-19")}}
+        item{ProtoSectionCard{
+            Text("Каталог Tilda",color=ProtoText,fontSize=19.sp,fontWeight=FontWeight.Bold)
+            Text("Вставьте публичную YML-ссылку каталога Tilda. Синхронизация обновляет карточки, цены, категории и фотографии, но не перезаписывает склад, резерв, производство и историю заказов.",color=ProtoMuted,fontSize=11.sp,modifier=Modifier.padding(vertical=6.dp))
+            ProtoField(tildaUrl,onTildaUrl,"YML-ссылка каталога Tilda")
+            Button(onClick=onSync,enabled=!syncing && tildaUrl.isNotBlank(),modifier=Modifier.fillMaxWidth().height(48.dp),colors=ButtonDefaults.buttonColors(containerColor=ProtoGold)){if(syncing)CircularProgressIndicator(Modifier.size(18.dp),strokeWidth=2.dp,color=Color.Black)else Icon(Icons.Outlined.Sync,null,tint=Color.Black);Spacer(Modifier.width(7.dp));Text(if(syncing)"Синхронизация…" else "Синхронизировать каталог",color=Color.Black,fontWeight=FontWeight.Bold)}
+            Text(syncStatus,color=if(syncStatus.startsWith("Ошибка"))ProtoRed else ProtoGreen,fontSize=11.sp,modifier=Modifier.padding(top=7.dp))
+        }}
+    }
+}
 @Composable
 private fun ProtoAttentionScreen(regs:List<ProtoRegistration>,blocked:List<ProtoClient>,picking:List<ProtoOrder>,onBack:()->Unit,onClient:(ProtoClient)->Unit,onOrder:(ProtoOrder)->Unit){ProtoScaffold("Требует внимания","Задачи остаются до обработки",onBack){item{Text("Новые регистрации",color=ProtoGoldSoft,fontSize=18.sp,fontWeight=FontWeight.Bold)};items(regs){r->ProtoSectionCard{Text(r.organization,color=ProtoText,fontWeight=FontWeight.SemiBold);Text("${r.type} · ${r.contact1} · ${r.phone1}",color=ProtoMuted,fontSize=12.sp);Button(onClick={},modifier=Modifier.padding(top=6.dp),colors=ButtonDefaults.buttonColors(containerColor=ProtoGold)){Text("Открыть / закрыть",color=Color.Black)}}};item{Text("Приостановленные клиенты",color=ProtoGoldSoft,fontSize=18.sp,fontWeight=FontWeight.Bold)};items(blocked,key={it.id}){c->ProtoSectionCard(Modifier.clickable{onClient(c)}){Text(c.name,color=ProtoText,fontWeight=FontWeight.SemiBold);Text("Нажмите для разблокировки",color=ProtoMuted,fontSize=12.sp)}};item{Text("Заказы на сборке",color=ProtoGoldSoft,fontSize=18.sp,fontWeight=FontWeight.Bold)};items(picking,key={it.id}){o->ProtoOrderRow(o){onOrder(o)}}}}
 
@@ -646,77 +815,70 @@ private fun ProtoProductionHomeScreen(
 ) {
     val produced=opsToday.sumOf{it.qty}
     val physical=products.sumOf{stockOverrides[it.sku]?:it.stock}
-    Column(Modifier.fillMaxSize().background(ProtoBg)) {
-        LazyColumn(Modifier.weight(1f),contentPadding=PaddingValues(16.dp,20.dp),verticalArrangement=Arrangement.spacedBy(12.dp)) {
-            item {
-                Text("Производство",color=ProtoText,fontSize=30.sp,fontWeight=FontWeight.Bold)
-                Text(currentDateLong(),color=ProtoGoldSoft)
-                Text("Данные видит клиент и администратор после проведения",color=ProtoMuted,fontSize=11.sp)
-            }
-            item {
-                Row(verticalAlignment=Alignment.CenterVertically) {
-                    Text("Выпуск продукции сегодня",color=ProtoText,fontSize=20.sp,fontWeight=FontWeight.Bold)
-                    Spacer(Modifier.weight(1f))
-                    TextButton(onClick=onAdd){Icon(Icons.Outlined.Add,null,tint=ProtoGold);Text("Добавить",color=ProtoGold)}
-                }
-                Card(colors=CardDefaults.cardColors(containerColor=ProtoPanel),border=BorderStroke(1.dp,ProtoBorder),modifier=Modifier.fillMaxWidth().heightIn(min=150.dp,max=270.dp)) {
-                    if(drafts.isEmpty()) {
-                        Box(Modifier.fillMaxSize().padding(18.dp),contentAlignment=Alignment.Center){Text("Добавьте позиции сегодняшнего выпуска",color=ProtoMuted)}
-                    } else {
-                        LazyColumn(Modifier.padding(8.dp)) {
-                            items(drafts) { d ->
-                                Row(Modifier.fillMaxWidth().padding(8.dp),verticalAlignment=Alignment.CenterVertically) {
-                                    Icon(protoIconForType(d.product.type),null,tint=ProtoGold)
-                                    Spacer(Modifier.width(8.dp))
-                                    Column(Modifier.weight(1f)) {
-                                        Text(d.product.name,color=ProtoText,maxLines=1,overflow=TextOverflow.Ellipsis)
-                                        Text("${d.product.sku} · ${d.assembler}",color=ProtoMuted,fontSize=10.sp)
-                                    }
-                                    Text("${d.qty} шт.",color=ProtoGoldSoft,fontWeight=FontWeight.Bold)
-                                }
-                            }
-                        }
+    Box(Modifier.fillMaxSize().background(ProtoBg)) {
+        Image(painterResource(R.drawable.screen_production),null,Modifier.fillMaxSize(),contentScale=ContentScale.Crop)
+        Box(Modifier.fillMaxWidth().height(28.dp).background(ProtoBg).align(Alignment.TopCenter))
+        BoxWithConstraints(Modifier.fillMaxSize()) {
+            // Replace only the static date text, keeping its original location.
+            Box(Modifier.offset(maxWidth*.05f,maxHeight*.155f).size(maxWidth*.55f,maxHeight*.035f).background(ProtoBg))
+            Text(currentDateLong(),color=ProtoGoldSoft,fontSize=13.sp,modifier=Modifier.offset(maxWidth*.055f,maxHeight*.158f))
+
+            // Same release window and dimensions, now actually scrollable.
+            Box(Modifier.offset(maxWidth*.055f,maxHeight*.285f).size(maxWidth*.89f,maxHeight*.245f).background(ProtoPanel.copy(alpha=.98f),RoundedCornerShape(14.dp)).border(1.dp,ProtoBorder,RoundedCornerShape(14.dp))) {
+                if(drafts.isEmpty()) {
+                    Column(Modifier.fillMaxSize().clickable{onAdd()}.padding(18.dp),horizontalAlignment=Alignment.CenterHorizontally,verticalArrangement=Arrangement.Center){Icon(Icons.Outlined.AddCircleOutline,null,tint=ProtoGold,modifier=Modifier.size(34.dp));Text("Добавить позицию выпуска",color=ProtoGoldSoft,fontWeight=FontWeight.SemiBold);Text("Венки · круглые венки · корзины · флоретки · полянки",color=ProtoMuted,fontSize=9.sp)}
+                } else {
+                    LazyColumn(contentPadding=PaddingValues(8.dp),verticalArrangement=Arrangement.spacedBy(5.dp)) {
+                        items(drafts) { d -> Row(Modifier.fillMaxWidth().padding(5.dp),verticalAlignment=Alignment.CenterVertically){ProtoProductImage(d.product,Modifier.size(42.dp).clip(RoundedCornerShape(8.dp)));Spacer(Modifier.width(8.dp));Column(Modifier.weight(1f)){Text(d.product.name,color=ProtoText,fontSize=11.sp,maxLines=1,overflow=TextOverflow.Ellipsis);Text("${d.product.sku} · ${d.assembler}",color=ProtoMuted,fontSize=9.sp)};Text("${d.qty} шт.",color=ProtoGoldSoft,fontWeight=FontWeight.Bold,fontSize=11.sp)} }
+                        item{OutlinedButton(onClick=onAdd,modifier=Modifier.fillMaxWidth(),border=BorderStroke(1.dp,ProtoGold)){Text("+ Добавить позицию",color=ProtoGold,fontSize=11.sp)}}
                     }
                 }
             }
-            item {
-                ProtoSectionCard {
-                    ProtoInfoRow("Уже проведено сегодня","$produced шт.")
-                    ProtoInfoRow("Подготовлено к приходу","${drafts.sumOf{it.qty}} шт.")
-                    ProtoInfoRow("Физический остаток склада","$physical шт.")
-                }
+
+            Box(Modifier.offset(maxWidth*.08f,maxHeight*.55f).size(maxWidth*.84f,maxHeight*.085f).background(ProtoBg.copy(alpha=.92f),RoundedCornerShape(12.dp))) {
+                Column(Modifier.padding(10.dp)){Text("Итого выпуска сегодня: ${produced + drafts.sumOf{it.qty}} шт.",color=ProtoText,fontWeight=FontWeight.Bold,fontSize=12.sp);Text("Проведено: $produced · подготовлено: ${drafts.sumOf{it.qty}} · всего на складе: $physical",color=ProtoMuted,fontSize=9.sp)}
             }
-            item {
-                Button(onClick=onPostAll,modifier=Modifier.fillMaxWidth().height(56.dp),colors=ButtonDefaults.buttonColors(containerColor=ProtoGold)) {
-                    Icon(Icons.Outlined.Inventory2,null,tint=Color.Black);Spacer(Modifier.width(8.dp));Text("Оприходовать выпуск",color=Color.Black,fontWeight=FontWeight.Bold)
-                }
-                OutlinedButton(onClick=onHistory,modifier=Modifier.fillMaxWidth().padding(top=8.dp),border=BorderStroke(1.dp,ProtoGold)) {
-                    Icon(Icons.Outlined.History,null,tint=ProtoGold);Spacer(Modifier.width(8.dp));Text("История приходов",color=ProtoGold)
-                }
-            }
-            item { Spacer(Modifier.height(4.dp)) }
+            PrototypeClickArea(maxWidth,maxHeight,.08f,.645f,.84f,.065f){onPostAll()}
+            PrototypeClickArea(maxWidth,maxHeight,.08f,.72f,.84f,.06f){onHistory()}
+            PrototypeClickArea(maxWidth,maxHeight,.00f,.91f,.20f,.09f){}
+            PrototypeClickArea(maxWidth,maxHeight,.20f,.91f,.20f,.09f){onAdd()}
+            PrototypeClickArea(maxWidth,maxHeight,.40f,.91f,.20f,.09f){onHistory()}
+            PrototypeClickArea(maxWidth,maxHeight,.60f,.91f,.20f,.09f){onStock()}
         }
-        ProtoProductionBottomBar(onHome={},onProduction={},onHistory=onHistory,onStock=onStock,onProfile={})
     }
 }
+@Composable
+private fun ProtoProductionCategoryScreen(onBack:()->Unit,onCategory:(String)->Unit){ProtoScaffold("Выпуск продукции","Что произведено в цеху?",onBack){item{listOf("Венки","Венки круглые","Корзины","Флоретки","Полянки").forEach{cat->ProtoSectionCard(Modifier.padding(vertical=4.dp).clickable{onCategory(cat)}){Row(verticalAlignment=Alignment.CenterVertically){Image(painterResource(protoPlaceholderForType(cat)),null,Modifier.size(42.dp).clip(RoundedCornerShape(8.dp)),contentScale=ContentScale.Crop);Spacer(Modifier.width(12.dp));Text(cat,color=ProtoText,fontSize=18.sp,fontWeight=FontWeight.SemiBold,modifier=Modifier.weight(1f));Icon(Icons.Outlined.ChevronRight,null,tint=ProtoGold)}}}}}}
 
 @Composable
-private fun ProtoProductionCategoryScreen(onBack:()->Unit,onCategory:(String)->Unit){ProtoScaffold("Выпуск продукции","Что произведено в цеху?",onBack){item{listOf("Венки","Венки круглые","Корзины","Флоретки","Полянки").forEach{cat->ProtoSectionCard(Modifier.padding(vertical=4.dp).clickable{onCategory(cat)}){Row(verticalAlignment=Alignment.CenterVertically){Icon(protoIconForType(cat),null,tint=ProtoGold,modifier=Modifier.size(34.dp));Spacer(Modifier.width(12.dp));Text(cat,color=ProtoText,fontSize=18.sp,fontWeight=FontWeight.SemiBold,modifier=Modifier.weight(1f));Icon(Icons.Outlined.ChevronRight,null,tint=ProtoGold)}}}}}}
+private fun ProtoProductionCatalogScreen(products:List<ProtoCatalogProduct>,onBack:()->Unit,onSelect:(ProtoCatalogProduct)->Unit){var query by remember{mutableStateOf("")};val filtered=products.filter{query.isBlank()||it.sku.contains(query,true)||it.name.contains(query,true)};ProtoScaffold("Каталог производства","Выберите модель — артикул подставится автоматически",onBack){item{ProtoField(query,{query=it},"Поиск по артикулу или названию")};items(filtered,key={it.sku}){p->ProtoSectionCard(Modifier.clickable{onSelect(p)}){Row(verticalAlignment=Alignment.CenterVertically){ProtoProductImage(p,Modifier.size(58.dp).clip(RoundedCornerShape(10.dp)));Spacer(Modifier.width(10.dp));Column(Modifier.weight(1f)){Text(p.name,color=ProtoText,fontWeight=FontWeight.SemiBold);Text("Арт. ${p.sku} · ${p.quality} · ${p.size}",color=ProtoMuted,fontSize=11.sp)};Icon(Icons.Outlined.ChevronRight,null,tint=ProtoGold)}}}}}
 
 @Composable
-private fun ProtoProductionCatalogScreen(products:List<ProtoCatalogProduct>,onBack:()->Unit,onSelect:(ProtoCatalogProduct)->Unit){var query by remember{mutableStateOf("")};val filtered=products.filter{query.isBlank()||it.sku.contains(query,true)||it.name.contains(query,true)};ProtoScaffold("Каталог производства","Выберите модель — артикул подставится автоматически",onBack){item{ProtoField(query,{query=it},"Поиск по артикулу или названию")};items(filtered,key={it.sku}){p->ProtoSectionCard(Modifier.clickable{onSelect(p)}){Row(verticalAlignment=Alignment.CenterVertically){Box(Modifier.size(58.dp).background(ProtoPanel2,RoundedCornerShape(10.dp)),contentAlignment=Alignment.Center){Icon(protoIconForType(p.type),null,tint=ProtoGold,modifier=Modifier.size(34.dp))};Spacer(Modifier.width(10.dp));Column(Modifier.weight(1f)){Text(p.name,color=ProtoText,fontWeight=FontWeight.SemiBold);Text("Арт. ${p.sku} · ${p.quality} · ${p.size}",color=ProtoMuted,fontSize=11.sp)};Icon(Icons.Outlined.ChevronRight,null,tint=ProtoGold)}}}}}
+private fun ProtoProductionEntryScreen(product:ProtoCatalogProduct?,qty:Int,assembler:String,onBack:()->Unit,onMinus:()->Unit,onPlus:()->Unit,onAssembler:(String)->Unit,onAddDraft:()->Unit,onPostNow:()->Unit){val p=product?:return;ProtoScaffold("Приход продукции","Выбранная позиция каталога",onBack){item{ProtoSectionCard{Row(verticalAlignment=Alignment.CenterVertically){ProtoProductImage(p,Modifier.size(82.dp).clip(RoundedCornerShape(12.dp)));Spacer(Modifier.width(12.dp));Column{Text(p.name,color=ProtoText,fontSize=20.sp,fontWeight=FontWeight.Bold);Text("Арт. ${p.sku}",color=ProtoGoldSoft);Text("${p.quality} · ${p.size}",color=ProtoMuted)}}}};item{Text("Сборщица",color=ProtoGoldSoft,fontWeight=FontWeight.SemiBold);Row(horizontalArrangement=Arrangement.spacedBy(6.dp)){listOf("Анна К.","Мария С.","Елена П.").forEach{name->FilterChip(selected=assembler==name,onClick={onAssembler(name)},label={Text(name)},colors=FilterChipDefaults.filterChipColors(selectedContainerColor=ProtoGold,selectedLabelColor=Color.Black,labelColor=ProtoText))}}};item{Text("Количество",color=ProtoGoldSoft,fontWeight=FontWeight.SemiBold);Row(Modifier.fillMaxWidth(),verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.Center){OutlinedButton(onClick=onMinus,border=BorderStroke(1.dp,ProtoGold)){Icon(Icons.Outlined.Remove,null,tint=ProtoGold)};Text(qty.toString(),color=ProtoText,fontSize=34.sp,fontWeight=FontWeight.Bold,modifier=Modifier.padding(horizontal=28.dp));OutlinedButton(onClick=onPlus,border=BorderStroke(1.dp,ProtoGold)){Icon(Icons.Outlined.Add,null,tint=ProtoGold)}}};item{Button(onClick=onAddDraft,modifier=Modifier.fillMaxWidth().height(54.dp),colors=ButtonDefaults.buttonColors(containerColor=ProtoGold)){Text("Добавить в выпуск дня",color=Color.Black,fontWeight=FontWeight.Bold)};OutlinedButton(onClick=onPostNow,modifier=Modifier.fillMaxWidth().padding(top=8.dp),border=BorderStroke(1.dp,ProtoGold)){Text("Оприходовать на склад сразу",color=ProtoGold,fontWeight=FontWeight.Bold)}}}}
 
 @Composable
-private fun ProtoProductionEntryScreen(product:ProtoCatalogProduct?,qty:Int,assembler:String,onBack:()->Unit,onMinus:()->Unit,onPlus:()->Unit,onAssembler:(String)->Unit,onAddDraft:()->Unit,onPostNow:()->Unit){val p=product?:return;ProtoScaffold("Приход продукции","Выбранная позиция каталога",onBack){item{ProtoSectionCard{Row(verticalAlignment=Alignment.CenterVertically){Box(Modifier.size(82.dp).background(ProtoPanel2,RoundedCornerShape(12.dp)),contentAlignment=Alignment.Center){Icon(protoIconForType(p.type),null,tint=ProtoGold,modifier=Modifier.size(46.dp))};Spacer(Modifier.width(12.dp));Column{Text(p.name,color=ProtoText,fontSize=20.sp,fontWeight=FontWeight.Bold);Text("Арт. ${p.sku}",color=ProtoGoldSoft);Text("${p.quality} · ${p.size}",color=ProtoMuted)}}}};item{Text("Сборщица",color=ProtoGoldSoft,fontWeight=FontWeight.SemiBold);Row(horizontalArrangement=Arrangement.spacedBy(6.dp)){listOf("Анна К.","Мария С.","Елена П.").forEach{name->FilterChip(selected=assembler==name,onClick={onAssembler(name)},label={Text(name)},colors=FilterChipDefaults.filterChipColors(selectedContainerColor=ProtoGold,selectedLabelColor=Color.Black,labelColor=ProtoText))}}};item{Text("Количество",color=ProtoGoldSoft,fontWeight=FontWeight.SemiBold);Row(Modifier.fillMaxWidth(),verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.Center){OutlinedButton(onClick=onMinus,border=BorderStroke(1.dp,ProtoGold)){Icon(Icons.Outlined.Remove,null,tint=ProtoGold)};Text(qty.toString(),color=ProtoText,fontSize=34.sp,fontWeight=FontWeight.Bold,modifier=Modifier.padding(horizontal=28.dp));OutlinedButton(onClick=onPlus,border=BorderStroke(1.dp,ProtoGold)){Icon(Icons.Outlined.Add,null,tint=ProtoGold)}}};item{Button(onClick=onAddDraft,modifier=Modifier.fillMaxWidth().height(54.dp),colors=ButtonDefaults.buttonColors(containerColor=ProtoGold)){Text("Добавить в выпуск дня",color=Color.Black,fontWeight=FontWeight.Bold)};OutlinedButton(onClick=onPostNow,modifier=Modifier.fillMaxWidth().padding(top=8.dp),border=BorderStroke(1.dp,ProtoGold)){Text("Оприходовать на склад сразу",color=ProtoGold,fontWeight=FontWeight.Bold)}}}}
+private fun ProtoProductionHistoryScreen(ops:List<ProtoProductionOp>,onBack:()->Unit){val grouped=ops.groupBy{it.date};ProtoScaffold("История приходов","По датам, артикулам и сборщицам",onBack){grouped.forEach{(date,dayOps)->item(key="h$date"){Row(Modifier.fillMaxWidth().padding(top=8.dp),verticalAlignment=Alignment.CenterVertically){Text(date,color=ProtoGoldSoft,fontSize=18.sp,fontWeight=FontWeight.Bold);Spacer(Modifier.weight(1f));Text("${dayOps.sumOf{it.qty}} шт.",color=ProtoMuted)}};items(dayOps,key={it.date+it.time+it.sku+it.assembler}){op->ProtoSectionCard{Row(verticalAlignment=Alignment.CenterVertically){Image(painterResource(R.drawable.mock_wreath),null,Modifier.size(58.dp).clip(RoundedCornerShape(10.dp)),contentScale=ContentScale.Crop);Spacer(Modifier.width(10.dp));Column(Modifier.weight(1f)){Text(op.name,color=ProtoText,fontWeight=FontWeight.SemiBold);Text("${op.sku} · ${op.time}",color=ProtoMuted,fontSize=11.sp);Text("Сборщица: ${op.assembler}",color=ProtoMuted,fontSize=11.sp)};Text("${op.qty} шт.",color=ProtoGoldSoft,fontWeight=FontWeight.Bold)}}}}}}
 
 @Composable
-private fun ProtoProductionHistoryScreen(ops:List<ProtoProductionOp>,onBack:()->Unit){val grouped=ops.groupBy{it.date};ProtoScaffold("История приходов","По датам, артикулам и сборщицам",onBack){grouped.forEach{(date,dayOps)->item(key="h$date"){Row(Modifier.fillMaxWidth().padding(top=8.dp),verticalAlignment=Alignment.CenterVertically){Text(date,color=ProtoGoldSoft,fontSize=18.sp,fontWeight=FontWeight.Bold);Spacer(Modifier.weight(1f));Text("${dayOps.sumOf{it.qty}} шт.",color=ProtoMuted)}};items(dayOps,key={it.date+it.time+it.sku+it.assembler}){op->ProtoSectionCard{Row(verticalAlignment=Alignment.CenterVertically){Box(Modifier.size(58.dp).background(ProtoPanel2,RoundedCornerShape(10.dp)),contentAlignment=Alignment.Center){Icon(Icons.Outlined.LocalFlorist,null,tint=ProtoGold,modifier=Modifier.size(34.dp))};Spacer(Modifier.width(10.dp));Column(Modifier.weight(1f)){Text(op.name,color=ProtoText,fontWeight=FontWeight.SemiBold);Text("${op.sku} · ${op.time}",color=ProtoMuted,fontSize=11.sp);Text("Сборщица: ${op.assembler}",color=ProtoMuted,fontSize=11.sp)};Text("${op.qty} шт.",color=ProtoGoldSoft,fontWeight=FontWeight.Bold)}}}}}}
-
+private fun ProtoServerScreen(products:List<ProtoCatalogProduct>,stockOverrides:SnapshotStateMap<String,Int>,productionOps:List<ProtoProductionOp>,orders:List<ProtoOrder>,clients:List<ProtoClient>,onBack:()->Unit,onStock:()->Unit,onReserve:()->Unit,onNewClients:()->Unit,onOnline:()->Unit,onExport:()->Unit){
+    Box(Modifier.fillMaxSize().background(ProtoBg)) {
+        Image(painterResource(R.drawable.screen_server),null,Modifier.fillMaxSize(),contentScale=ContentScale.Crop)
+        Box(Modifier.fillMaxWidth().height(28.dp).background(ProtoBg).align(Alignment.TopCenter))
+        BoxWithConstraints(Modifier.fillMaxSize()) {
+            Box(Modifier.offset(maxWidth*.55f,maxHeight*.14f).size(maxWidth*.40f,maxHeight*.04f).background(ProtoBg.copy(alpha=.88f)))
+            Text(currentMonthLabel(),color=ProtoGoldSoft,fontSize=11.sp,modifier=Modifier.offset(maxWidth*.61f,maxHeight*.148f))
+            PrototypeClickArea(maxWidth,maxHeight,.05f,.23f,.43f,.12f){}
+            PrototypeClickArea(maxWidth,maxHeight,.52f,.23f,.43f,.12f){onReserve()}
+            PrototypeClickArea(maxWidth,maxHeight,.05f,.36f,.43f,.12f){onStock()}
+            PrototypeClickArea(maxWidth,maxHeight,.52f,.36f,.43f,.12f){onNewClients()}
+            PrototypeClickArea(maxWidth,maxHeight,.06f,.56f,.88f,.17f){onOnline()}
+            PrototypeClickArea(maxWidth,maxHeight,.08f,.80f,.84f,.06f){onExport()}
+        }
+        ProtoBackButton(onBack)
+    }
+}
 @Composable
-private fun ProtoServerScreen(products:List<ProtoCatalogProduct>,stockOverrides:SnapshotStateMap<String,Int>,productionOps:List<ProtoProductionOp>,orders:List<ProtoOrder>,clients:List<ProtoClient>,onBack:()->Unit,onStock:()->Unit,onReserve:()->Unit,onNewClients:()->Unit,onOnline:()->Unit,onExport:()->Unit){val physical=products.sumOf{stockOverrides[it.sku]?:it.stock};val reserve=orders.filter{it.status!="Доставлен"}.sumOf{it.pieces};val available=(physical-reserve).coerceAtLeast(0);val monthProduced=productionOps.sumOf{it.qty};ProtoScaffold("Склад и данные",currentMonthLabel(),onBack){item{Row(horizontalArrangement=Arrangement.spacedBy(8.dp)){ProtoMetricCard("Выпущено",monthProduced.toString(),"за месяц",Modifier.weight(1f),{});ProtoMetricCard("Резерв",reserve.toString(),"шт.",Modifier.weight(1f),onReserve)}};item{Row(horizontalArrangement=Arrangement.spacedBy(8.dp)){ProtoMetricCard("Доступно",available.toString(),"шт. сейчас",Modifier.weight(1f),onStock);ProtoMetricCard("Новые клиенты","${clients.size}","за месяц",Modifier.weight(1f),onNewClients)}};item{Text("Синхронизация",color=ProtoText,fontSize=20.sp,fontWeight=FontWeight.Bold);ProtoSectionCard(Modifier.clickable(onClick=onOnline)){ProtoInfoRow("Клиенты онлайн","${clients.count{it.online}}");ProtoInfoRow("Администратор онлайн","1");ProtoInfoRow("Производство онлайн","2");Text("● Автосинхронизация активна",color=ProtoGreen,fontSize=12.sp)}};item{Button(onClick=onExport,modifier=Modifier.fillMaxWidth().height(54.dp),colors=ButtonDefaults.buttonColors(containerColor=ProtoGold)){Icon(Icons.Outlined.Download,null,tint=Color.Black);Spacer(Modifier.width(8.dp));Text("Экспорт текущей выборки",color=Color.Black,fontWeight=FontWeight.Bold)}}}}
-
-@Composable
-private fun ProtoStockListScreen(products:List<ProtoCatalogProduct>,stockOverrides:SnapshotStateMap<String,Int>,onBack:()->Unit){ProtoScaffold("Остатки на складе","Физический и доступный остаток",onBack){items(products,key={it.sku}){p->val stock=stockOverrides[p.sku]?:p.stock;ProtoSectionCard{Row(verticalAlignment=Alignment.CenterVertically){Icon(protoIconForType(p.type),null,tint=ProtoGold,modifier=Modifier.size(32.dp));Spacer(Modifier.width(10.dp));Column(Modifier.weight(1f)){Text(p.name,color=ProtoText,fontWeight=FontWeight.SemiBold);Text(p.sku,color=ProtoMuted,fontSize=11.sp)};Text("$stock шт.",color=if(stock>0)ProtoGreen else ProtoRed,fontWeight=FontWeight.Bold)}}}}}
+private fun ProtoStockListScreen(products:List<ProtoCatalogProduct>,stockOverrides:SnapshotStateMap<String,Int>,onBack:()->Unit){ProtoScaffold("Остатки на складе","Физический и доступный остаток",onBack){items(products,key={it.sku}){p->val stock=stockOverrides[p.sku]?:p.stock;ProtoSectionCard{Row(verticalAlignment=Alignment.CenterVertically){ProtoProductImage(p,Modifier.size(46.dp).clip(RoundedCornerShape(8.dp)));Spacer(Modifier.width(10.dp));Column(Modifier.weight(1f)){Text(p.name,color=ProtoText,fontWeight=FontWeight.SemiBold);Text(p.sku,color=ProtoMuted,fontSize=11.sp)};Text("$stock шт.",color=if(stock>0)ProtoGreen else ProtoRed,fontWeight=FontWeight.Bold)}}}}}
 
 @Composable
 private fun ProtoReserveListScreen(orders:List<ProtoOrder>,onBack:()->Unit){ProtoScaffold("Резерв","За кем закреплены товары",onBack){items(orders.filter{it.status!="Доставлен"},key={it.id}){o->ProtoSectionCard{Text(o.clientName,color=ProtoText,fontWeight=FontWeight.SemiBold);Text("${o.id} · ${o.pieces} шт. · ${protoMoney(o.total)}",color=ProtoMuted,fontSize=11.sp);o.lines.forEach{l->Text("${l.sku} — ${l.qty} шт.",color=ProtoGoldSoft,fontSize=11.sp)}}}}}
@@ -728,8 +890,15 @@ private fun ProtoNewClientsScreen(clients:List<ProtoClient>,onBack:()->Unit,onOp
 private fun ProtoExportScreen(onBack:()->Unit,onExport:()->Unit){var report by remember{mutableStateOf("Остатки на складе")};ProtoScaffold("Экспорт","Сначала выберите параметр отчёта",onBack){item{ProtoSectionCard{listOf("Остатки на складе","Резерв по клиентам","Выпуск за месяц","Производство по сборщицам","Заказы за месяц").forEach{r->Row(Modifier.fillMaxWidth().clickable{report=r}.padding(vertical=5.dp),verticalAlignment=Alignment.CenterVertically){RadioButton(selected=report==r,onClick={report=r},colors=RadioButtonDefaults.colors(selectedColor=ProtoGold));Text(r,color=ProtoText)}};Button(onClick=onExport,modifier=Modifier.fillMaxWidth().padding(top=8.dp),colors=ButtonDefaults.buttonColors(containerColor=ProtoGold)){Text("Экспортировать",color=Color.Black,fontWeight=FontWeight.Bold)}}}}}
 
 @Composable
-private fun ProtoSimpleMessageScreen(title:String,text:String,onBack:()->Unit){Box(Modifier.fillMaxSize().background(ProtoBg).padding(24.dp),contentAlignment=Alignment.Center){ProtoSectionCard{Icon(Icons.Outlined.CheckCircle,null,tint=ProtoGreen,modifier=Modifier.size(54.dp).align(Alignment.CenterHorizontally));Text(title,color=ProtoText,fontSize=27.sp,fontWeight=FontWeight.Bold,modifier=Modifier.align(Alignment.CenterHorizontally).padding(top=12.dp));Text(text,color=ProtoMuted,modifier=Modifier.padding(vertical=14.dp));Button(onClick=onBack,modifier=Modifier.fillMaxWidth(),colors=ButtonDefaults.buttonColors(containerColor=ProtoGold)){Text("Готово",color=Color.Black,fontWeight=FontWeight.Bold)}}}}
-
+private fun ProtoSimpleMessageScreen(title:String,text:String,onBack:()->Unit){
+    if(title=="Заявка отправлена"){
+        Box(Modifier.fillMaxSize().background(ProtoBg)){
+            Image(painterResource(R.drawable.screen_reg_sent),null,Modifier.fillMaxSize(),contentScale=ContentScale.Crop)
+            Box(Modifier.fillMaxWidth().height(28.dp).background(ProtoBg).align(Alignment.TopCenter))
+            BoxWithConstraints(Modifier.fillMaxSize()){PrototypeClickArea(maxWidth,maxHeight,.08f,.78f,.84f,.075f){onBack()}}
+        }
+    } else Box(Modifier.fillMaxSize().background(ProtoBg).padding(24.dp),contentAlignment=Alignment.Center){ProtoSectionCard{Icon(Icons.Outlined.CheckCircle,null,tint=ProtoGreen,modifier=Modifier.size(54.dp).align(Alignment.CenterHorizontally));Text(title,color=ProtoText,fontSize=27.sp,fontWeight=FontWeight.Bold,modifier=Modifier.align(Alignment.CenterHorizontally).padding(top=12.dp));Text(text,color=ProtoMuted,modifier=Modifier.padding(vertical=14.dp));Button(onClick=onBack,modifier=Modifier.fillMaxWidth(),colors=ButtonDefaults.buttonColors(containerColor=ProtoGold)){Text("Готово",color=Color.Black,fontWeight=FontWeight.Bold)}}}
+}
 @Composable
 private fun ProtoScaffold(title:String,subtitle:String?=null,onBack:(()->Unit)?=null,content:LazyListScope.()->Unit){Column(Modifier.fillMaxSize().background(ProtoBg)){Row(Modifier.padding(16.dp,22.dp,16.dp,8.dp),verticalAlignment=Alignment.CenterVertically){if(onBack!=null){ProtoCircleBack(onBack);Spacer(Modifier.width(12.dp))};Column{Text(title,color=ProtoText,fontSize=28.sp,fontWeight=FontWeight.Bold);if(subtitle!=null)Text(subtitle,color=ProtoMuted,fontSize=12.sp)}};LazyColumn(Modifier.weight(1f),contentPadding=PaddingValues(horizontal=16.dp,vertical=8.dp),verticalArrangement=Arrangement.spacedBy(10.dp),content=content)}}
 
@@ -756,10 +925,10 @@ private fun ProtoCompactGrid(title:String,options:List<String>,selected:Set<Stri
 private fun ProtoCategoryButton(label:String,disabled:Boolean,modifier:Modifier,onClick:()->Unit){OutlinedButton(onClick=onClick,enabled=true,modifier=modifier.height(46.dp),border=BorderStroke(1.dp,if(disabled)ProtoBorder else ProtoGold),contentPadding=PaddingValues(horizontal=5.dp)){Text(if(disabled)"$label · скоро" else label,color=if(disabled)ProtoMuted else ProtoGold,fontSize=11.sp,maxLines=1)}}
 
 @Composable
-private fun ProtoPopularRow(p:ProtoCatalogProduct,stock:Int,onOpen:()->Unit){Card(colors=CardDefaults.cardColors(containerColor=ProtoPanel),border=BorderStroke(1.dp,ProtoBorder),shape=RoundedCornerShape(14.dp),modifier=Modifier.fillMaxWidth()){Row(Modifier.padding(10.dp),verticalAlignment=Alignment.CenterVertically){Box(Modifier.size(72.dp).background(ProtoPanel2,RoundedCornerShape(10.dp)),contentAlignment=Alignment.Center){Icon(protoIconForType(p.type),null,tint=ProtoGold,modifier=Modifier.size(38.dp))};Spacer(Modifier.width(10.dp));Column(Modifier.weight(1f)){Text(p.name,color=ProtoText,fontWeight=FontWeight.SemiBold,maxLines=1,overflow=TextOverflow.Ellipsis);Text("Арт. ${p.sku}",color=ProtoMuted,fontSize=10.sp);Text(if(stock>0)"В наличии $stock шт." else "Под заказ · от ${p.productionDays} дней",color=if(stock>0)ProtoGreen else ProtoGoldSoft,fontSize=10.sp);Text(protoMoney(p.price),color=ProtoGoldSoft,fontWeight=FontWeight.Bold)};Button(onClick=onOpen,colors=ButtonDefaults.buttonColors(containerColor=ProtoGold),contentPadding=PaddingValues(horizontal=8.dp),modifier=Modifier.width(92.dp)){Text("В корзину",color=Color.Black,fontSize=10.sp,fontWeight=FontWeight.Bold,maxLines=1)}}}}
+private fun ProtoPopularRow(p:ProtoCatalogProduct,stock:Int,onOpen:()->Unit){Card(colors=CardDefaults.cardColors(containerColor=ProtoPanel),border=BorderStroke(1.dp,ProtoBorder),shape=RoundedCornerShape(14.dp),modifier=Modifier.fillMaxWidth()){Row(Modifier.padding(10.dp),verticalAlignment=Alignment.CenterVertically){ProtoProductImage(p,Modifier.size(72.dp).clip(RoundedCornerShape(10.dp)));Spacer(Modifier.width(10.dp));Column(Modifier.weight(1f)){Text(p.name,color=ProtoText,fontWeight=FontWeight.SemiBold,maxLines=1,overflow=TextOverflow.Ellipsis);Text("Арт. ${p.sku}",color=ProtoMuted,fontSize=10.sp);Text(if(stock>0)"В наличии $stock шт." else "Под заказ · от ${p.productionDays} дней",color=if(stock>0)ProtoGreen else ProtoGoldSoft,fontSize=10.sp);Text(protoMoney(p.price),color=ProtoGoldSoft,fontWeight=FontWeight.Bold)};Button(onClick=onOpen,colors=ButtonDefaults.buttonColors(containerColor=ProtoGold),contentPadding=PaddingValues(horizontal=8.dp),modifier=Modifier.width(92.dp)){Text("В корзину",color=Color.Black,fontSize=10.sp,fontWeight=FontWeight.Bold,maxLines=1)}}}}
 
 @Composable
-private fun ProtoCartRow(p:ProtoCatalogProduct,qty:Int,onMinus:()->Unit,onPlus:()->Unit,onDelete:()->Unit){Card(colors=CardDefaults.cardColors(containerColor=ProtoPanel),border=BorderStroke(1.dp,ProtoBorder),shape=RoundedCornerShape(14.dp)){Row(Modifier.padding(10.dp),verticalAlignment=Alignment.CenterVertically){Box(Modifier.size(64.dp).background(ProtoPanel2,RoundedCornerShape(9.dp)),contentAlignment=Alignment.Center){Icon(protoIconForType(p.type),null,tint=ProtoGold,modifier=Modifier.size(32.dp))};Spacer(Modifier.width(9.dp));Column(Modifier.weight(1f)){Text(p.name,color=ProtoText,fontWeight=FontWeight.SemiBold,maxLines=1,overflow=TextOverflow.Ellipsis);Text(p.sku,color=ProtoMuted,fontSize=10.sp);Row(verticalAlignment=Alignment.CenterVertically){IconButton(onClick=onMinus,modifier=Modifier.size(30.dp)){Icon(Icons.Outlined.Remove,null,tint=ProtoGold)};Text(qty.toString(),color=ProtoText);IconButton(onClick=onPlus,modifier=Modifier.size(30.dp)){Icon(Icons.Outlined.Add,null,tint=ProtoGold)}}};Column(horizontalAlignment=Alignment.End){Text(protoMoney(p.price*qty),color=ProtoGoldSoft,fontWeight=FontWeight.Bold);IconButton(onClick=onDelete){Icon(Icons.Outlined.Delete,null,tint=ProtoMuted)}}}}}
+private fun ProtoCartRow(p:ProtoCatalogProduct,qty:Int,onMinus:()->Unit,onPlus:()->Unit,onDelete:()->Unit){Card(colors=CardDefaults.cardColors(containerColor=ProtoPanel),border=BorderStroke(1.dp,ProtoBorder),shape=RoundedCornerShape(14.dp)){Row(Modifier.padding(10.dp),verticalAlignment=Alignment.CenterVertically){ProtoProductImage(p,Modifier.size(64.dp).clip(RoundedCornerShape(9.dp)));Spacer(Modifier.width(9.dp));Column(Modifier.weight(1f)){Text(p.name,color=ProtoText,fontWeight=FontWeight.SemiBold,maxLines=1,overflow=TextOverflow.Ellipsis);Text(p.sku,color=ProtoMuted,fontSize=10.sp);Row(verticalAlignment=Alignment.CenterVertically){IconButton(onClick=onMinus,modifier=Modifier.size(30.dp)){Icon(Icons.Outlined.Remove,null,tint=ProtoGold)};Text(qty.toString(),color=ProtoText);IconButton(onClick=onPlus,modifier=Modifier.size(30.dp)){Icon(Icons.Outlined.Add,null,tint=ProtoGold)}}};Column(horizontalAlignment=Alignment.End){Text(protoMoney(p.price*qty),color=ProtoGoldSoft,fontWeight=FontWeight.Bold);IconButton(onClick=onDelete){Icon(Icons.Outlined.Delete,null,tint=ProtoMuted)}}}}}
 
 @Composable
 private fun ProtoOrderRow(o:ProtoOrder,onClick:()->Unit){ProtoSectionCard(Modifier.clickable(onClick=onClick)){Row{Column(Modifier.weight(1f)){Text(o.id,color=ProtoGoldSoft,fontWeight=FontWeight.Bold);Text(o.clientName,color=ProtoText,fontWeight=FontWeight.SemiBold);Text("${o.pieces} шт. · ${o.dateTime}",color=ProtoMuted,fontSize=11.sp)};Column(horizontalAlignment=Alignment.End){Text(protoMoney(o.total),color=ProtoGoldSoft,fontWeight=FontWeight.Bold);ProtoPill(o.status,ProtoGreen)}}}}
@@ -800,11 +969,27 @@ private fun RowScope.ProtoNavItem(selected:Boolean,label:String,icon:androidx.co
 @Composable
 private fun protoNavColors()=NavigationBarItemDefaults.colors(selectedIconColor=Color.Black,selectedTextColor=ProtoGold,indicatorColor=ProtoGold,unselectedIconColor=ProtoMuted,unselectedTextColor=ProtoMuted)
 
+@Composable
+private fun ProtoProductImage(p:ProtoCatalogProduct,modifier:Modifier=Modifier){
+    val placeholder=painterResource(protoPlaceholderForType(p.type))
+    AsyncImage(model=p.imageUrl.takeIf{it.isNotBlank()}?:protoPlaceholderForType(p.type),contentDescription=p.name,modifier=modifier,contentScale=ContentScale.Crop,placeholder=placeholder,error=placeholder,fallback=placeholder)
+}
+
+private fun protoPlaceholderForType(type:String)=when(type){
+    "Венки","Венки круглые","Корзины","Полянки","Флоретки"->R.drawable.mock_wreath
+    "Ленты"->R.drawable.mock_ribbon
+    "Гробы"->R.drawable.mock_coffin
+    "Одежда"->R.drawable.mock_clothes
+    "Цветы"->R.drawable.mock_flowers
+    "Услуги"->R.drawable.mock_service
+    else->R.drawable.mock_generic
+}
+
 private fun protoToggle(set:Set<String>,value:String)=if(value in set)set-value else set+value
 private fun protoMoney(value:Int)=NumberFormat.getCurrencyInstance(ruLocale).format(value).replace(",00","")
 private fun protoIconForType(type:String)=when(type){"Венки","Венки круглые"->Icons.Outlined.LocalFlorist;"Корзины"->Icons.Outlined.ShoppingBasket;"Полянки","Флоретки"->Icons.Outlined.Spa;"Ленты"->Icons.Outlined.ReceiptLong;else->Icons.Outlined.Inventory2}
 
-private fun protoLoadProducts(context:Context):List<ProtoCatalogProduct>{return try{val root=JSONObject(context.assets.open("demo_data.json").bufferedReader().use{it.readText()});val arr=root.getJSONArray("products");(0 until arr.length()).map{i->val o=arr.getJSONObject(i);ProtoCatalogProduct(o.getString("sku"),o.getString("name"),o.getString("type"),o.optString("quality","—"),o.getString("size"),o.getInt("price"),o.getInt("stock"),o.getString("status"),o.optInt("productionDays",3))}}catch(_:Exception){emptyList()}}
+private fun protoLoadProducts(context:Context):List<ProtoCatalogProduct>{return try{val root=JSONObject(context.assets.open("demo_data.json").bufferedReader().use{it.readText()});val arr=root.getJSONArray("products");(0 until arr.length()).map{i->val o=arr.getJSONObject(i);ProtoCatalogProduct(o.getString("sku"),o.getString("name"),o.getString("type"),o.optString("quality","—"),o.getString("size"),o.getInt("price"),o.getInt("stock"),o.getString("status"),o.optInt("productionDays",3),o.optString("imageUrl",""),o.optString("externalId",o.optString("sku","")))}}catch(_:Exception){emptyList()}}
 
 private fun protoDial(context:Context){context.startActivity(Intent(Intent.ACTION_DIAL,Uri.parse("tel:${BuildConfig.ADMIN_PHONE}")))}
 private fun protoMessage(context:Context){context.startActivity(Intent(Intent.ACTION_SENDTO,Uri.parse("smsto:${BuildConfig.ADMIN_PHONE}")))}
