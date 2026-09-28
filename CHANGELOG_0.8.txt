@@ -40,3 +40,9 @@ SANSARA 0.8 — VISUAL LOCK + TILDA SYNC CORE
 АРХИТЕКТУРНОЕ ПРАВИЛО
 Tilda = мастер-источник карточек товара и изображений.
 SANSARA/сервер = мастер-источник остатков, резервов, заказов, клиентов, производства и истории.
+
+0.8.1 fix:
+- restored ProtoBackButton helper from approved visual prototype
+- restored invisible PrototypeClickArea hotspot helper
+- no visual/layout changes
+- version bumped to 0.8.1

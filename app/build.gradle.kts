@@ -12,8 +12,8 @@ android {
         applicationId = "ru.sansara.app"
         minSdk = 26
         targetSdk = 35
-        versionCode = 8
-        versionName = "0.8.0-visual-lock-tilda"
+        versionCode = 9
+        versionName = "0.8.1-visual-lock-tilda-fix"
         buildConfigField("String", "ADMIN_PHONE", "\"+79263046019\"")
         buildConfigField("String", "TILDA_YML_URL", "\"\"")
     }

@@ -39,6 +39,7 @@ import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import org.json.JSONObject
@@ -907,6 +908,41 @@ private fun ProtoHeader(title:String,subtitle:String,onBack:()->Unit){Row(vertic
 
 @Composable
 private fun ProtoCircleBack(onClick:()->Unit){Box(Modifier.size(44.dp).clip(CircleShape).background(Color(0xCC11100E)).border(1.dp,ProtoGold,CircleShape).clickable(onClick=onClick),contentAlignment=Alignment.Center){Icon(Icons.Outlined.ArrowBack,null,tint=ProtoGold)}}
+
+@Composable
+private fun ProtoBackButton(onClick: () -> Unit) {
+    Box(
+        modifier = Modifier
+            .padding(start = 14.dp, top = 34.dp)
+            .size(46.dp)
+            .clip(CircleShape)
+            .background(Color(0xCC11100E))
+            .border(1.dp, ProtoGold, CircleShape)
+            .clickable(onClick = onClick),
+        contentAlignment = Alignment.Center
+    ) {
+        Icon(Icons.Outlined.ArrowBack, null, tint = ProtoGold, modifier = Modifier.size(25.dp))
+    }
+}
+
+@Composable
+private fun BoxScope.PrototypeClickArea(
+    maxWidth: Dp,
+    maxHeight: Dp,
+    x: Float,
+    y: Float,
+    w: Float,
+    h: Float,
+    onClick: () -> Unit
+) {
+    Box(
+        Modifier
+            .offset(x = maxWidth * x, y = maxHeight * y)
+            .width(maxWidth * w)
+            .height(maxHeight * h)
+            .clickable(onClick = onClick)
+    )
+}
 
 @Composable
 private fun ProtoSectionCard(modifier:Modifier=Modifier,content:@Composable ColumnScope.()->Unit){Card(colors=CardDefaults.cardColors(containerColor=ProtoPanel),border=BorderStroke(1.dp,ProtoBorder),shape=RoundedCornerShape(14.dp),modifier=modifier.fillMaxWidth()){Column(Modifier.padding(14.dp),content=content)}}
