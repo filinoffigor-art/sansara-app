@@ -12,8 +12,8 @@ android {
         applicationId = "ru.sansara.app"
         minSdk = 26
         targetSdk = 35
-        versionCode = 4
-        versionName = "0.4.0-visual-prototype"
+        versionCode = 5
+        versionName = "0.5.0-filter-catalog"
         buildConfigField("String", "ADMIN_PHONE", "\"+79611266675\"")
     }
 
