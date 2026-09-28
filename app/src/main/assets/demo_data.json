@@ -1131,6 +1131,226 @@
       "stock": 17,
       "status": "В наличии",
       "productionDays": 3
+    },
+    {
+      "sku": "L-001",
+      "name": "Лента траурная №01",
+      "type": "Ленты",
+      "quality": "—",
+      "size": "5 см × 50 м",
+      "price": 650,
+      "stock": 4,
+      "status": "В наличии",
+      "productionDays": 3
+    },
+    {
+      "sku": "L-002",
+      "name": "Лента траурная №02",
+      "type": "Ленты",
+      "quality": "—",
+      "size": "8 см × 50 м",
+      "price": 550,
+      "stock": 0,
+      "status": "Под заказ",
+      "productionDays": 3
+    },
+    {
+      "sku": "L-003",
+      "name": "Лента траурная №03",
+      "type": "Ленты",
+      "quality": "—",
+      "size": "5 см × 50 м",
+      "price": 750,
+      "stock": 0,
+      "status": "Под заказ",
+      "productionDays": 3
+    },
+    {
+      "sku": "L-004",
+      "name": "Лента траурная №04",
+      "type": "Ленты",
+      "quality": "—",
+      "size": "5 см × 50 м",
+      "price": 650,
+      "stock": 18,
+      "status": "В наличии",
+      "productionDays": 3
+    },
+    {
+      "sku": "L-005",
+      "name": "Лента траурная №05",
+      "type": "Ленты",
+      "quality": "—",
+      "size": "8 см × 50 м",
+      "price": 650,
+      "stock": 0,
+      "status": "Под заказ",
+      "productionDays": 3
+    },
+    {
+      "sku": "L-006",
+      "name": "Лента траурная №06",
+      "type": "Ленты",
+      "quality": "—",
+      "size": "10 см × 50 м",
+      "price": 750,
+      "stock": 0,
+      "status": "Под заказ",
+      "productionDays": 3
+    },
+    {
+      "sku": "L-007",
+      "name": "Лента траурная №07",
+      "type": "Ленты",
+      "quality": "—",
+      "size": "8 см × 50 м",
+      "price": 550,
+      "stock": 25,
+      "status": "В наличии",
+      "productionDays": 3
+    },
+    {
+      "sku": "L-008",
+      "name": "Лента траурная №08",
+      "type": "Ленты",
+      "quality": "—",
+      "size": "8 см × 50 м",
+      "price": 650,
+      "stock": 25,
+      "status": "В наличии",
+      "productionDays": 3
+    },
+    {
+      "sku": "L-009",
+      "name": "Лента траурная №09",
+      "type": "Ленты",
+      "quality": "—",
+      "size": "5 см × 50 м",
+      "price": 350,
+      "stock": 0,
+      "status": "Под заказ",
+      "productionDays": 3
+    },
+    {
+      "sku": "L-010",
+      "name": "Лента траурная №10",
+      "type": "Ленты",
+      "quality": "—",
+      "size": "8 см × 50 м",
+      "price": 550,
+      "stock": 4,
+      "status": "В наличии",
+      "productionDays": 3
+    },
+    {
+      "sku": "L-011",
+      "name": "Лента траурная №11",
+      "type": "Ленты",
+      "quality": "—",
+      "size": "5 см × 50 м",
+      "price": 550,
+      "stock": 0,
+      "status": "Под заказ",
+      "productionDays": 3
+    },
+    {
+      "sku": "L-012",
+      "name": "Лента траурная №12",
+      "type": "Ленты",
+      "quality": "—",
+      "size": "8 см × 50 м",
+      "price": 350,
+      "stock": 25,
+      "status": "В наличии",
+      "productionDays": 3
+    },
+    {
+      "sku": "L-013",
+      "name": "Лента траурная №13",
+      "type": "Ленты",
+      "quality": "—",
+      "size": "8 см × 50 м",
+      "price": 350,
+      "stock": 25,
+      "status": "В наличии",
+      "productionDays": 3
+    },
+    {
+      "sku": "L-014",
+      "name": "Лента траурная №14",
+      "type": "Ленты",
+      "quality": "—",
+      "size": "5 см × 50 м",
+      "price": 750,
+      "stock": 4,
+      "status": "В наличии",
+      "productionDays": 3
+    },
+    {
+      "sku": "L-015",
+      "name": "Лента траурная №15",
+      "type": "Ленты",
+      "quality": "—",
+      "size": "5 см × 50 м",
+      "price": 350,
+      "stock": 12,
+      "status": "В наличии",
+      "productionDays": 3
+    },
+    {
+      "sku": "L-016",
+      "name": "Лента траурная №16",
+      "type": "Ленты",
+      "quality": "—",
+      "size": "5 см × 50 м",
+      "price": 650,
+      "stock": 12,
+      "status": "В наличии",
+      "productionDays": 3
+    },
+    {
+      "sku": "L-017",
+      "name": "Лента траурная №17",
+      "type": "Ленты",
+      "quality": "—",
+      "size": "5 см × 50 м",
+      "price": 550,
+      "stock": 25,
+      "status": "В наличии",
+      "productionDays": 3
+    },
+    {
+      "sku": "L-018",
+      "name": "Лента траурная №18",
+      "type": "Ленты",
+      "quality": "—",
+      "size": "5 см × 50 м",
+      "price": 550,
+      "stock": 12,
+      "status": "В наличии",
+      "productionDays": 3
+    },
+    {
+      "sku": "L-019",
+      "name": "Лента траурная №19",
+      "type": "Ленты",
+      "quality": "—",
+      "size": "5 см × 50 м",
+      "price": 450,
+      "stock": 0,
+      "status": "Под заказ",
+      "productionDays": 3
+    },
+    {
+      "sku": "L-020",
+      "name": "Лента траурная №20",
+      "type": "Ленты",
+      "quality": "—",
+      "size": "10 см × 50 м",
+      "price": 750,
+      "stock": 25,
+      "status": "В наличии",
+      "productionDays": 3
     }
   ]
 }
