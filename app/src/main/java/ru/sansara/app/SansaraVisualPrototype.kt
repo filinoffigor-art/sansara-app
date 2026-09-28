@@ -65,7 +65,7 @@ private enum class ProtoScreen {
     Server, StockList, ReserveList, NewClients, Export
 }
 
-private enum class ClientType(val label: String) { AGENT("Агент"), TRADING("Торгующая организация") }
+private enum class ProtoClientType(val label: String) { AGENT("Агент"), TRADING("Торгующая организация") }
 
 private data class ProtoCatalogProduct(
     val sku: String,
@@ -397,7 +397,7 @@ private fun ProtoLoginScreen(onBack:()->Unit,onLogin:(String)->Unit) {
 private fun ProtoRegistrationScreen(onBack:()->Unit,onSubmit:(ProtoRegistration)->Unit) {
     var organization by remember { mutableStateOf("") }; var fio by remember { mutableStateOf("") }; var inn by remember { mutableStateOf("") }
     var contact1 by remember { mutableStateOf("") }; var phone1 by remember { mutableStateOf("") }; var email by remember { mutableStateOf("") }
-    var city by remember { mutableStateOf("") }; var address by remember { mutableStateOf("") }; var type by remember { mutableStateOf(ClientType.TRADING.label) }
+    var city by remember { mutableStateOf("") }; var address by remember { mutableStateOf("") }; var type by remember { mutableStateOf(ProtoClientType.TRADING.label) }
     var consent by remember { mutableStateOf(false) }; var showSecond by remember { mutableStateOf(false) }; var contact2 by remember { mutableStateOf("") }; var phone2 by remember { mutableStateOf("") }
     val valid = organization.isNotBlank() && fio.isNotBlank() && contact1.isNotBlank() && phone1.isNotBlank() && email.isNotBlank() && city.isNotBlank() && consent
     ProtoScaffold(title="Регистрация партнёра",subtitle="Заполните данные организации и контактных лиц",onBack=onBack) {
@@ -405,7 +405,7 @@ private fun ProtoRegistrationScreen(onBack:()->Unit,onSubmit:(ProtoRegistration)
             ProtoSectionCard {
                 Text("Тип партнёра",color=ProtoGoldSoft,fontWeight=FontWeight.SemiBold)
                 Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.spacedBy(8.dp)) {
-                    listOf(ClientType.AGENT.label,ClientType.TRADING.label).forEach { t -> FilterChip(selected=type==t,onClick={type=t},label={Text(t,maxLines=1)},modifier=Modifier.weight(1f),colors=FilterChipDefaults.filterChipColors(selectedContainerColor=ProtoGold,selectedLabelColor=Color.Black,labelColor=ProtoText)) }
+                    listOf(ProtoClientType.AGENT.label,ProtoClientType.TRADING.label).forEach { t -> FilterChip(selected=type==t,onClick={type=t},label={Text(t,maxLines=1)},modifier=Modifier.weight(1f),colors=FilterChipDefaults.filterChipColors(selectedContainerColor=ProtoGold,selectedLabelColor=Color.Black,labelColor=ProtoText)) }
                 }
                 Spacer(Modifier.height(8.dp)); ProtoField(organization,{organization=it},"Название организации")
                 ProtoField(fio,{fio=it},"Фамилия, имя, отчество")
