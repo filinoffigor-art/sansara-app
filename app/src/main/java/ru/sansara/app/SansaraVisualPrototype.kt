@@ -797,6 +797,7 @@ private fun ProtoFilterScreen(selectedTypes:Set<String>,selectedQualities:Set<St
         Spacer(Modifier.weight(1f)); Button(onClick=onShow,modifier=Modifier.fillMaxWidth().height(56.dp),colors=ButtonDefaults.buttonColors(containerColor=ProtoGold),shape=RoundedCornerShape(14.dp)){Icon(Icons.Outlined.Search,null,tint=Color.Black);Spacer(Modifier.width(8.dp));Text("Показать товары",color=Color.Black,fontWeight=FontWeight.Bold,fontSize=17.sp)};Spacer(Modifier.height(18.dp))
     }
 }
+
 @Composable
 private fun ProtoProductListScreen(products:List<ProtoCatalogProduct>,cart:SnapshotStateMap<String,Int>,stockOverrides:SnapshotStateMap<String,Int>,availableStock:(ProtoCatalogProduct)->Int,discount:Int,onBack:()->Unit,onOpenFilter:()->Unit,onOpenProduct:(ProtoCatalogProduct)->Unit,onCart:()->Unit) {
     Column(Modifier.fillMaxSize().background(ProtoBg)) {
