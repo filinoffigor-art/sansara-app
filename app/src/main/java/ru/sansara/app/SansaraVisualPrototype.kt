@@ -53,6 +53,7 @@ import java.text.NumberFormat
 import java.io.File
 import java.time.LocalDate
 import java.time.LocalDateTime
+import java.time.YearMonth
 import java.time.format.DateTimeFormatter
 import java.util.Locale
 
@@ -72,7 +73,7 @@ private enum class ProtoScreen {
     Welcome, Login, Registration, RegistrationSent,
     Home, Catalog, Filter, ProductList, ProductDetail, Cart, Checkout, OrderSent, OrderList, OrderDetail, Profile, Suspended,
     AdminHome, AdminSearch, AdminClients, AdminClient, AdminOrders, AdminOrderDetail, AdminCatalog, AdminSettings, AdminSettingsDetail, AdminAttention, OnlineController, LowStockList,
-    Production, ProductionCategory, ProductionCatalog, ProductionEntry, ProductionHistory, ProductionProfile,
+    Production, ProductionCategory, ProductionCatalog, ProductionEntry, ProductionHistory, ProductionReport, ProductionProfile,
     Server, StockList, ReserveList, NewClients, Export
 }
 
@@ -106,7 +107,8 @@ private data class ProtoProductionOp(
 private data class ProtoProductionDraft(
     val product: ProtoCatalogProduct,
     val qty: Int,
-    val assembler: String
+    val assembler: String,
+    val date: String = currentDateShort()
 )
 
 private data class ProtoClient(
@@ -195,6 +197,7 @@ fun SansaraVisualPrototype() {
     var productionProduct by remember { mutableStateOf<ProtoCatalogProduct?>(null) }
     var productionQty by remember { mutableIntStateOf(1) }
     var productionAssembler by remember { mutableStateOf("Анна К.") }
+    var selectedProductionDate by remember { mutableStateOf(LocalDate.now()) }
     var lowStockThreshold by remember { mutableIntStateOf(5) }
     var notificationsRegistration by remember { mutableStateOf(true) }
     var notificationsOrders by remember { mutableStateOf(true) }
@@ -284,14 +287,15 @@ fun SansaraVisualPrototype() {
     fun currentClient(): ProtoClient = clients.firstOrNull { it.id == selectedClientId } ?: clients.first()
     fun discountedPrice(p: ProtoCatalogProduct): Int = p.price * (100 - currentClient().discount) / 100
     fun nextAccessCode(): String = ((clients.mapNotNull { it.accessCode.toIntOrNull() }.maxOrNull() ?: 1029) + 1).toString()
-    fun postDrafts() {
-        if (productionDrafts.isEmpty()) { toast("Добавьте позиции в выпуск дня"); return }
-        productionDrafts.forEach { d ->
+    fun postDrafts(date: String) {
+        val selectedDrafts = productionDrafts.filter { it.date == date }
+        if (selectedDrafts.isEmpty()) { toast("Добавьте позиции в выпуск выбранного дня"); return }
+        selectedDrafts.forEach { d ->
             stockOverrides[d.product.sku] = physicalStock(d.product) + d.qty
-            productionOps.add(0, ProtoProductionOp(currentDateShort(), currentTimeShort(), d.product.sku, d.product.name, d.qty, d.assembler, "Игорь Ф."))
+            productionOps.add(0, ProtoProductionOp(date, currentTimeShort(), d.product.sku, d.product.name, d.qty, d.assembler, "Игорь Ф."))
         }
-        val total = productionDrafts.sumOf { it.qty }
-        productionDrafts.clear()
+        val total = selectedDrafts.sumOf { it.qty }
+        productionDrafts.removeAll(selectedDrafts.toSet())
         toast("Оприходовано на склад: $total шт.")
     }
 
@@ -572,19 +576,57 @@ fun SansaraVisualPrototype() {
             ProtoScreen.OnlineController -> ProtoOnlineControllerScreen(clients, onBack = { back() }, onClient = { selectedClientId = it.id; go(ProtoScreen.AdminClient) })
             ProtoScreen.LowStockList -> ProtoLowStockListScreen(products, stockOverrides, reservedForSku = { reservedForSku(it) }, threshold = lowStockThreshold, onBack = { back() })
 
-            ProtoScreen.Production -> ProtoProductionHomeScreen(
-                drafts = productionDrafts, opsToday = productionOps.filter { it.date == currentDateShort() }, products = products, stockOverrides = stockOverrides,
-                onAdd = { go(ProtoScreen.ProductionCategory) }, onPostAll = { postDrafts() }, onHistory = { go(ProtoScreen.ProductionHistory) }, onStock = { go(ProtoScreen.Server) },
-                onHome = { toast("Главный экран производства") }, onProfile = { go(ProtoScreen.ProductionProfile) }
-            )
+            ProtoScreen.Production -> {
+                val productionDateKey = selectedProductionDate.format(DateTimeFormatter.ofPattern("dd.MM.yyyy"))
+                ProtoProductionHomeScreen(
+                    selectedDate = selectedProductionDate,
+                    drafts = productionDrafts.filter { it.date == productionDateKey },
+                    opsForDay = productionOps.filter { it.date == productionDateKey },
+                    products = products,
+                    stockOverrides = stockOverrides,
+                    onDateChange = { selectedProductionDate = it },
+                    onAdd = { go(ProtoScreen.ProductionCategory) },
+                    onPostAll = { postDrafts(productionDateKey) },
+                    onHistory = { go(ProtoScreen.ProductionHistory) },
+                    onReport = { go(ProtoScreen.ProductionReport) },
+                    onStock = { go(ProtoScreen.Server) },
+                    onHome = { toast("Главный экран производства") },
+                    onProfile = { go(ProtoScreen.ProductionProfile) }
+                )
+            }
             ProtoScreen.ProductionCategory -> ProtoProductionCategoryScreen(onBack = { back() }, onCategory = { productionCategory = it; go(ProtoScreen.ProductionCatalog) })
             ProtoScreen.ProductionCatalog -> ProtoProductionCatalogScreen(products.filter { it.type == productionCategory }, onBack = { back() }, onSelect = { productionProduct = it; productionQty = 1; go(ProtoScreen.ProductionEntry) })
-            ProtoScreen.ProductionEntry -> ProtoProductionEntryScreen(productionProduct, productionQty, productionAssembler, onBack = { back() }, onMinus = { productionQty = (productionQty - 1).coerceAtLeast(1) }, onPlus = { productionQty += 1 }, onAssembler = { productionAssembler = it }, onAddDraft = {
-                productionProduct?.let { p -> productionDrafts.add(ProtoProductionDraft(p, productionQty, productionAssembler)); toast("Позиция добавлена в выпуск дня") }; history.clear(); screen = ProtoScreen.Production
-            }, onPostNow = {
-                productionProduct?.let { p -> stockOverrides[p.sku] = physicalStock(p) + productionQty; productionOps.add(0, ProtoProductionOp(currentDateShort(), currentTimeShort(), p.sku, p.name, productionQty, productionAssembler, "Игорь Ф.")); toast("Оприходовано: ${p.name} +$productionQty шт.") }; history.clear(); screen = ProtoScreen.Production
-            })
+            ProtoScreen.ProductionEntry -> {
+                val productionDateKey = selectedProductionDate.format(DateTimeFormatter.ofPattern("dd.MM.yyyy"))
+                ProtoProductionEntryScreen(
+                    productionProduct, productionQty, productionAssembler,
+                    selectedDate = selectedProductionDate,
+                    onBack = { back() },
+                    onMinus = { productionQty = (productionQty - 1).coerceAtLeast(1) },
+                    onPlus = { productionQty += 1 },
+                    onAssembler = { productionAssembler = it },
+                    onAddDraft = {
+                        productionProduct?.let { p ->
+                            productionDrafts.add(ProtoProductionDraft(p, productionQty, productionAssembler, productionDateKey))
+                            toast("Позиция добавлена в выпуск выбранного дня")
+                        }
+                        history.clear(); screen = ProtoScreen.Production
+                    },
+                    onPostNow = {
+                        productionProduct?.let { p ->
+                            stockOverrides[p.sku] = physicalStock(p) + productionQty
+                            productionOps.add(0, ProtoProductionOp(productionDateKey, currentTimeShort(), p.sku, p.name, productionQty, productionAssembler, "Игорь Ф."))
+                            toast("Оприходовано: " + p.name + " +" + productionQty + " шт.")
+                        }
+                        history.clear(); screen = ProtoScreen.Production
+                    }
+                )
+            }
             ProtoScreen.ProductionHistory -> ProtoProductionHistoryScreen(productionOps, products, onBack = { back() })
+            ProtoScreen.ProductionReport -> {
+                val productionDateKey = selectedProductionDate.format(DateTimeFormatter.ofPattern("dd.MM.yyyy"))
+                ProtoProductionReportScreen(selectedProductionDate, productionOps.filter { it.date == productionDateKey }, products, onBack = { back() })
+            }
             ProtoScreen.ProductionProfile -> ProtoStaffProfileScreen(role = "Производство", onBack = { back() }, onCall = { protoDial(context) }, onLogout = { history.clear(); screen = ProtoScreen.Welcome })
 
             ProtoScreen.Server -> ProtoServerScreen(products, stockOverrides, productionOps, orders, clients, reservedForSku = { reservedForSku(it) }, onBack = { back() }, onProduced = { go(ProtoScreen.ProductionHistory) }, onStock = { go(ProtoScreen.StockList) }, onReserve = { go(ProtoScreen.ReserveList) }, onNewClients = { go(ProtoScreen.NewClients) }, onOnline = { go(ProtoScreen.OnlineController) }, onExport = { go(ProtoScreen.Export) })
@@ -1385,29 +1427,215 @@ private fun ProtoOnlineControllerScreen(clients:List<ProtoClient>,onBack:()->Uni
 
 @Composable
 private fun ProtoProductionHomeScreen(
-    drafts:List<ProtoProductionDraft>,opsToday:List<ProtoProductionOp>,products:List<ProtoCatalogProduct>,stockOverrides:SnapshotStateMap<String,Int>,
-    onAdd:()->Unit,onPostAll:()->Unit,onHistory:()->Unit,onStock:()->Unit,onHome:()->Unit,onProfile:()->Unit
+    selectedDate:LocalDate,
+    drafts:List<ProtoProductionDraft>,
+    opsForDay:List<ProtoProductionOp>,
+    products:List<ProtoCatalogProduct>,
+    stockOverrides:SnapshotStateMap<String,Int>,
+    onDateChange:(LocalDate)->Unit,
+    onAdd:()->Unit,
+    onPostAll:()->Unit,
+    onHistory:()->Unit,
+    onReport:()->Unit,
+    onStock:()->Unit,
+    onHome:()->Unit,
+    onProfile:()->Unit
 ){
-    val produced=opsToday.sumOf{it.qty};val draftTotal=drafts.sumOf{it.qty};val physical=products.sumOf{stockOverrides[it.sku]?:it.stock}
+    val produced = opsForDay.sumOf { it.qty }
+    val draftTotal = drafts.sumOf { it.qty }
+    val physical = products.sumOf { stockOverrides[it.sku] ?: it.stock }
+    val selectedLabel = selectedDate.format(DateTimeFormatter.ofPattern("d MMMM yyyy", ruLocale))
+    var showCalendar by remember { mutableStateOf(false) }
+
     Box(Modifier.fillMaxSize().background(ProtoBg)){
-        Image(painterResource(R.drawable.screen_production),null,Modifier.fillMaxSize(),contentScale=ContentScale.Crop);Box(Modifier.fillMaxWidth().height(42.dp).background(ProtoBg).align(Alignment.TopCenter))
+        Image(painterResource(R.drawable.screen_production),null,Modifier.fillMaxSize(),contentScale=ContentScale.Crop)
+        // Preserve the SANSARA logo; cover only the phone status-bar area.
+        Box(Modifier.fillMaxWidth().height(24.dp).background(ProtoBg).align(Alignment.TopCenter))
+
         BoxWithConstraints(Modifier.fillMaxSize()){
-            // Static date is replaced by the device date, without moving the approved header.
-            Box(Modifier.offset(maxWidth*.05f,maxHeight*.155f).size(maxWidth*.55f,maxHeight*.035f).background(ProtoBg));Text(currentDateLong(),color=ProtoGoldSoft,fontSize=13.sp,modifier=Modifier.offset(maxWidth*.055f,maxHeight*.158f))
-            // The old search field is intentionally removed on the production home. Its space is given to today's release list.
-            Box(Modifier.offset(maxWidth*.045f,maxHeight*.205f).size(maxWidth*.91f,maxHeight*.095f).background(ProtoBg))
-            Text("Выпуск продукции сегодня",color=ProtoText,fontSize=18.sp,fontWeight=FontWeight.Bold,modifier=Modifier.offset(maxWidth*.055f,maxHeight*.218f))
-            Box(Modifier.offset(maxWidth*.055f,maxHeight*.255f).size(maxWidth*.89f,maxHeight*.285f).background(ProtoPanel.copy(alpha=.98f),RoundedCornerShape(14.dp)).border(1.dp,ProtoBorder,RoundedCornerShape(14.dp))){
-                LazyColumn(contentPadding=PaddingValues(8.dp),verticalArrangement=Arrangement.spacedBy(5.dp)){
-                    if(opsToday.isEmpty()&&drafts.isEmpty()) item{Column(Modifier.fillMaxWidth().height(150.dp).clickable{onAdd()}.padding(18.dp),horizontalAlignment=Alignment.CenterHorizontally,verticalArrangement=Arrangement.Center){Icon(Icons.Outlined.AddCircleOutline,null,tint=ProtoGold,modifier=Modifier.size(34.dp));Text("Добавить позицию выпуска",color=ProtoGoldSoft,fontWeight=FontWeight.SemiBold);Text("Выберите товар из каталога производства",color=ProtoMuted,fontSize=9.sp)}}
-                    items(opsToday){op->val p=products.firstOrNull{it.sku==op.sku};Row(Modifier.fillMaxWidth().padding(5.dp),verticalAlignment=Alignment.CenterVertically){if(p!=null)ProtoProductImage(p,Modifier.size(42.dp).clip(RoundedCornerShape(8.dp)))else Image(painterResource(R.drawable.mock_wreath),null,Modifier.size(42.dp).clip(RoundedCornerShape(8.dp)),contentScale=ContentScale.Crop);Spacer(Modifier.width(8.dp));Column(Modifier.weight(1f)){Text(op.name,color=ProtoText,fontSize=11.sp,maxLines=1,overflow=TextOverflow.Ellipsis);Text("${op.sku} · ${op.assembler}",color=ProtoMuted,fontSize=9.sp)};Column(horizontalAlignment=Alignment.End){Text("${op.qty} шт.",color=ProtoGoldSoft,fontWeight=FontWeight.Bold,fontSize=11.sp);Text("Проведен",color=ProtoGreen,fontSize=8.sp)}}}
-                    items(drafts){d->Row(Modifier.fillMaxWidth().padding(5.dp),verticalAlignment=Alignment.CenterVertically){ProtoProductImage(d.product,Modifier.size(42.dp).clip(RoundedCornerShape(8.dp)));Spacer(Modifier.width(8.dp));Column(Modifier.weight(1f)){Text(d.product.name,color=ProtoText,fontSize=11.sp,maxLines=1,overflow=TextOverflow.Ellipsis);Text("${d.product.sku} · ${d.assembler}",color=ProtoMuted,fontSize=9.sp)};Column(horizontalAlignment=Alignment.End){Text("${d.qty} шт.",color=ProtoGoldSoft,fontWeight=FontWeight.Bold,fontSize=11.sp);Text("На приход",color=ProtoOrange,fontSize=8.sp)}}}
-                    item{OutlinedButton(onClick=onAdd,modifier=Modifier.fillMaxWidth(),border=BorderStroke(1.dp,ProtoGold)){Text("+ Добавить позицию",color=ProtoGold,fontSize=11.sp)}}
+            // Clean the whole old production body: old search, buttons, images and "Последние операции" disappear.
+            Box(Modifier.offset(maxWidth*.025f,maxHeight*.125f).size(maxWidth*.95f,maxHeight*.775f).background(ProtoBg.copy(alpha=.995f),RoundedCornerShape(16.dp)))
+
+            Column(
+                Modifier.offset(maxWidth*.04f,maxHeight*.132f).width(maxWidth*.92f).height(maxHeight*.755f)
+            ){
+                Row(Modifier.fillMaxWidth(),verticalAlignment=Alignment.CenterVertically){
+                    Text("Производство",color=ProtoText,fontSize=30.sp,fontWeight=FontWeight.Bold,modifier=Modifier.weight(1f))
+                    Surface(
+                        color=ProtoPanel,
+                        border=BorderStroke(1.dp,ProtoGold),
+                        shape=RoundedCornerShape(14.dp),
+                        modifier=Modifier.clickable{showCalendar=true}
+                    ){
+                        Row(Modifier.padding(horizontal=12.dp,vertical=9.dp),verticalAlignment=Alignment.CenterVertically){
+                            Icon(Icons.Outlined.CalendarMonth,null,tint=ProtoGold,modifier=Modifier.size(20.dp))
+                            Spacer(Modifier.width(7.dp))
+                            Text(selectedLabel,color=ProtoGoldSoft,fontSize=12.sp,fontWeight=FontWeight.SemiBold,maxLines=1)
+                            Spacer(Modifier.width(5.dp))
+                            Icon(Icons.Outlined.ExpandMore,null,tint=ProtoGold,modifier=Modifier.size(18.dp))
+                        }
+                    }
+                }
+
+                Spacer(Modifier.height(12.dp))
+
+                LazyColumn(
+                    Modifier.weight(1f),
+                    contentPadding=PaddingValues(bottom=18.dp),
+                    verticalArrangement=Arrangement.spacedBy(12.dp)
+                ){
+                    item{
+                        ProtoSectionCard{
+                            Row(verticalAlignment=Alignment.CenterVertically){
+                                Icon(Icons.Outlined.Info,null,tint=ProtoGold,modifier=Modifier.size(22.dp))
+                                Spacer(Modifier.width(9.dp))
+                                Text("После проведения данные сразу видят клиент и администратор.",color=ProtoMuted,fontSize=12.sp)
+                            }
+                        }
+                    }
+
+                    item{
+                        Row(Modifier.fillMaxWidth(),verticalAlignment=Alignment.CenterVertically){
+                            Column(Modifier.weight(1f)){
+                                Text("Выпуск продукции",color=ProtoText,fontSize=24.sp,fontWeight=FontWeight.Bold)
+                                Text(selectedLabel,color=ProtoMuted,fontSize=12.sp)
+                            }
+                            OutlinedButton(onClick=onAdd,border=BorderStroke(1.dp,ProtoGold),shape=RoundedCornerShape(12.dp)){
+                                Icon(Icons.Outlined.Add,null,tint=ProtoGold)
+                                Spacer(Modifier.width(5.dp))
+                                Text("Добавить",color=ProtoGold,fontWeight=FontWeight.SemiBold)
+                            }
+                        }
+                    }
+
+                    item{
+                        Card(
+                            colors=CardDefaults.cardColors(containerColor=ProtoPanel),
+                            border=BorderStroke(1.dp,ProtoBorder),
+                            shape=RoundedCornerShape(16.dp),
+                            modifier=Modifier.fillMaxWidth()
+                        ){
+                            Column(Modifier.padding(12.dp)){
+                                if(opsForDay.isEmpty() && drafts.isEmpty()){
+                                    Column(
+                                        Modifier.fillMaxWidth().height(180.dp).clickable{onAdd()},
+                                        horizontalAlignment=Alignment.CenterHorizontally,
+                                        verticalArrangement=Arrangement.Center
+                                    ){
+                                        Icon(Icons.Outlined.AddCircleOutline,null,tint=ProtoGold,modifier=Modifier.size(44.dp))
+                                        Spacer(Modifier.height(8.dp))
+                                        Text("Добавить позицию выпуска",color=ProtoGoldSoft,fontSize=16.sp,fontWeight=FontWeight.SemiBold)
+                                        Text("Выберите товар из каталога производства",color=ProtoMuted,fontSize=11.sp)
+                                    }
+                                } else {
+                                    opsForDay.forEach{op->
+                                        val p=products.firstOrNull{it.sku==op.sku}
+                                        Row(Modifier.fillMaxWidth().padding(vertical=8.dp),verticalAlignment=Alignment.CenterVertically){
+                                            if(p!=null) ProtoProductImage(p,Modifier.size(58.dp).clip(RoundedCornerShape(10.dp)))
+                                            else Image(painterResource(R.drawable.mock_wreath),null,Modifier.size(58.dp).clip(RoundedCornerShape(10.dp)),contentScale=ContentScale.Crop)
+                                            Spacer(Modifier.width(10.dp))
+                                            Column(Modifier.weight(1f)){
+                                                Text(op.name,color=ProtoText,fontSize=14.sp,fontWeight=FontWeight.SemiBold,maxLines=1,overflow=TextOverflow.Ellipsis)
+                                                Text(op.sku + " · " + op.assembler,color=ProtoMuted,fontSize=11.sp)
+                                            }
+                                            Column(horizontalAlignment=Alignment.End){
+                                                Text(op.qty.toString() + " шт.",color=ProtoGoldSoft,fontSize=15.sp,fontWeight=FontWeight.Bold)
+                                                Text("Проведено",color=ProtoGreen,fontSize=10.sp)
+                                            }
+                                        }
+                                        HorizontalDivider(color=ProtoBorder.copy(alpha=.55f))
+                                    }
+                                    drafts.forEach{d->
+                                        Row(Modifier.fillMaxWidth().padding(vertical=8.dp),verticalAlignment=Alignment.CenterVertically){
+                                            ProtoProductImage(d.product,Modifier.size(58.dp).clip(RoundedCornerShape(10.dp)))
+                                            Spacer(Modifier.width(10.dp))
+                                            Column(Modifier.weight(1f)){
+                                                Text(d.product.name,color=ProtoText,fontSize=14.sp,fontWeight=FontWeight.SemiBold,maxLines=1,overflow=TextOverflow.Ellipsis)
+                                                Text(d.product.sku + " · " + d.assembler,color=ProtoMuted,fontSize=11.sp)
+                                            }
+                                            Column(horizontalAlignment=Alignment.End){
+                                                Text(d.qty.toString() + " шт.",color=ProtoGoldSoft,fontSize=15.sp,fontWeight=FontWeight.Bold)
+                                                Text("На приход",color=ProtoOrange,fontSize=10.sp)
+                                            }
+                                        }
+                                        HorizontalDivider(color=ProtoBorder.copy(alpha=.55f))
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    item{
+                        Card(
+                            colors=CardDefaults.cardColors(containerColor=ProtoPanel),
+                            border=BorderStroke(1.dp,ProtoGold.copy(alpha=.55f)),
+                            shape=RoundedCornerShape(16.dp),
+                            modifier=Modifier.fillMaxWidth()
+                        ){
+                            Column(Modifier.padding(16.dp)){
+                                Text("Итого",color=ProtoGoldSoft,fontSize=17.sp,fontWeight=FontWeight.SemiBold)
+                                Spacer(Modifier.height(4.dp))
+                                Text((produced+draftTotal).toString() + " шт.",color=ProtoText,fontSize=32.sp,fontWeight=FontWeight.Bold)
+                                Spacer(Modifier.height(5.dp))
+                                Text("Проведено: " + produced + " · на приход: " + draftTotal + " · физический склад: " + physical,color=ProtoMuted,fontSize=11.sp)
+                            }
+                        }
+                    }
+
+                    item{
+                        Button(
+                            onClick=onPostAll,
+                            modifier=Modifier.fillMaxWidth().height(58.dp),
+                            colors=ButtonDefaults.buttonColors(containerColor=ProtoGold),
+                            shape=RoundedCornerShape(14.dp)
+                        ){
+                            Icon(Icons.Outlined.Inventory2,null,tint=Color.Black)
+                            Spacer(Modifier.width(8.dp))
+                            Text("Оприходовать выпуск",color=Color.Black,fontSize=16.sp,fontWeight=FontWeight.Bold)
+                        }
+                    }
+                    item{
+                        OutlinedButton(
+                            onClick=onHistory,
+                            modifier=Modifier.fillMaxWidth().height(56.dp),
+                            border=BorderStroke(1.dp,ProtoGold),
+                            shape=RoundedCornerShape(14.dp)
+                        ){
+                            Icon(Icons.Outlined.History,null,tint=ProtoGold)
+                            Spacer(Modifier.width(8.dp))
+                            Text("История приходов",color=ProtoGold,fontSize=15.sp,fontWeight=FontWeight.SemiBold)
+                        }
+                    }
+                    item{
+                        OutlinedButton(
+                            onClick=onReport,
+                            modifier=Modifier.fillMaxWidth().height(56.dp),
+                            border=BorderStroke(1.dp,ProtoGold),
+                            shape=RoundedCornerShape(14.dp)
+                        ){
+                            Icon(Icons.Outlined.Assessment,null,tint=ProtoGold)
+                            Spacer(Modifier.width(8.dp))
+                            Text("Отчёт",color=ProtoGold,fontSize=15.sp,fontWeight=FontWeight.SemiBold)
+                        }
+                    }
                 }
             }
-            Box(Modifier.offset(maxWidth*.08f,maxHeight*.55f).size(maxWidth*.84f,maxHeight*.085f).background(ProtoBg.copy(alpha=.94f),RoundedCornerShape(12.dp))){Column(Modifier.padding(10.dp)){Text("Итого выпуска сегодня: ${produced+draftTotal} шт.",color=ProtoText,fontWeight=FontWeight.Bold,fontSize=12.sp);Text("Проведено: $produced · на приход: $draftTotal · физический склад: $physical",color=ProtoMuted,fontSize=9.sp)}}
-            PrototypeClickArea(maxWidth,maxHeight,.08f,.645f,.84f,.065f){onPostAll()};PrototypeClickArea(maxWidth,maxHeight,.08f,.72f,.84f,.06f){onHistory()};PrototypeClickArea(maxWidth,maxHeight,.00f,.91f,.20f,.09f){onHome()};PrototypeClickArea(maxWidth,maxHeight,.20f,.91f,.20f,.09f){onAdd()};PrototypeClickArea(maxWidth,maxHeight,.40f,.91f,.20f,.09f){onHistory()};PrototypeClickArea(maxWidth,maxHeight,.60f,.91f,.20f,.09f){onStock()};PrototypeClickArea(maxWidth,maxHeight,.80f,.91f,.20f,.09f){onProfile()}
+
+            // Approved production bottom navigation remains fixed.
+            PrototypeClickArea(maxWidth,maxHeight,.00f,.91f,.20f,.09f){onHome()}
+            PrototypeClickArea(maxWidth,maxHeight,.20f,.91f,.20f,.09f){onAdd()}
+            PrototypeClickArea(maxWidth,maxHeight,.40f,.91f,.20f,.09f){onHistory()}
+            PrototypeClickArea(maxWidth,maxHeight,.60f,.91f,.20f,.09f){onStock()}
+            PrototypeClickArea(maxWidth,maxHeight,.80f,.91f,.20f,.09f){onProfile()}
         }
+    }
+
+    if(showCalendar){
+        ProtoProductionCalendarDialog(
+            selectedDate=selectedDate,
+            onDismiss={showCalendar=false},
+            onSelect={date->onDateChange(date);showCalendar=false}
+        )
     }
 }
 
@@ -1418,7 +1646,95 @@ private fun ProtoProductionCategoryScreen(onBack:()->Unit,onCategory:(String)->U
 private fun ProtoProductionCatalogScreen(products:List<ProtoCatalogProduct>,onBack:()->Unit,onSelect:(ProtoCatalogProduct)->Unit){var query by remember{mutableStateOf("")};val filtered=products.filter{query.isBlank()||it.sku.contains(query,true)||it.name.contains(query,true)};ProtoScaffold("Каталог производства","Выберите модель — артикул подставится автоматически",onBack){item{ProtoField(query,{query=it},"Поиск по артикулу или названию")};items(filtered,key={it.sku}){p->ProtoSectionCard(Modifier.clickable{onSelect(p)}){Row(verticalAlignment=Alignment.CenterVertically){ProtoProductImage(p,Modifier.size(58.dp).clip(RoundedCornerShape(10.dp)));Spacer(Modifier.width(10.dp));Column(Modifier.weight(1f)){Text(p.name,color=ProtoText,fontWeight=FontWeight.SemiBold);Text("Арт. ${p.sku} · ${p.quality} · ${p.size}",color=ProtoMuted,fontSize=11.sp)};Icon(Icons.Outlined.ChevronRight,null,tint=ProtoGold)}}}}}
 
 @Composable
-private fun ProtoProductionEntryScreen(product:ProtoCatalogProduct?,qty:Int,assembler:String,onBack:()->Unit,onMinus:()->Unit,onPlus:()->Unit,onAssembler:(String)->Unit,onAddDraft:()->Unit,onPostNow:()->Unit){val p=product?:return;ProtoScaffold("Приход продукции","Выбранная позиция каталога",onBack){item{ProtoSectionCard{Row(verticalAlignment=Alignment.CenterVertically){ProtoProductImage(p,Modifier.size(82.dp).clip(RoundedCornerShape(12.dp)));Spacer(Modifier.width(12.dp));Column{Text(p.name,color=ProtoText,fontSize=20.sp,fontWeight=FontWeight.Bold);Text("Арт. ${p.sku}",color=ProtoGoldSoft);Text("${p.quality} · ${p.size}",color=ProtoMuted)}}}};item{Text("Сборщица",color=ProtoGoldSoft,fontWeight=FontWeight.SemiBold);Row(horizontalArrangement=Arrangement.spacedBy(6.dp)){listOf("Анна К.","Мария С.","Елена П.").forEach{name->FilterChip(selected=assembler==name,onClick={onAssembler(name)},label={Text(name)},colors=FilterChipDefaults.filterChipColors(selectedContainerColor=ProtoGold,selectedLabelColor=Color.Black,labelColor=ProtoText))}}};item{Text("Количество",color=ProtoGoldSoft,fontWeight=FontWeight.SemiBold);Row(Modifier.fillMaxWidth(),verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.Center){ProtoQtyButton(Icons.Outlined.Remove,onMinus,52.dp);Text(qty.toString(),color=ProtoText,fontSize=34.sp,fontWeight=FontWeight.Bold,modifier=Modifier.padding(horizontal=28.dp));ProtoQtyButton(Icons.Outlined.Add,onPlus,52.dp)}};item{Button(onClick=onAddDraft,modifier=Modifier.fillMaxWidth().height(54.dp),colors=ButtonDefaults.buttonColors(containerColor=ProtoGold)){Text("Добавить в выпуск дня",color=Color.Black,fontWeight=FontWeight.Bold)};OutlinedButton(onClick=onPostNow,modifier=Modifier.fillMaxWidth().padding(top=8.dp),border=BorderStroke(1.dp,ProtoGold)){Text("Оприходовать на склад сразу",color=ProtoGold,fontWeight=FontWeight.Bold)}}}}
+private fun ProtoProductionEntryScreen(product:ProtoCatalogProduct?,qty:Int,assembler:String,selectedDate:LocalDate,onBack:()->Unit,onMinus:()->Unit,onPlus:()->Unit,onAssembler:(String)->Unit,onAddDraft:()->Unit,onPostNow:()->Unit){
+    val p=product?:return
+    val dateLabel=selectedDate.format(DateTimeFormatter.ofPattern("d MMMM yyyy",ruLocale))
+    ProtoScaffold("Приход продукции",dateLabel,onBack){
+        item{ProtoSectionCard{Row(verticalAlignment=Alignment.CenterVertically){ProtoProductImage(p,Modifier.size(88.dp).clip(RoundedCornerShape(12.dp)));Spacer(Modifier.width(12.dp));Column{Text(p.name,color=ProtoText,fontSize=20.sp,fontWeight=FontWeight.Bold);Text("Арт. " + p.sku,color=ProtoGoldSoft);Text(p.quality + " · " + p.size,color=ProtoMuted)}}}}
+        item{Text("Сборщица",color=ProtoGoldSoft,fontSize=16.sp,fontWeight=FontWeight.SemiBold);Spacer(Modifier.height(6.dp));Column(verticalArrangement=Arrangement.spacedBy(6.dp)){listOf("Анна К.","Мария С.","Елена П.").forEach{name->FilterChip(selected=assembler==name,onClick={onAssembler(name)},label={Text(name,fontSize=14.sp)},modifier=Modifier.fillMaxWidth().height(48.dp),colors=FilterChipDefaults.filterChipColors(selectedContainerColor=ProtoGold,selectedLabelColor=Color.Black,labelColor=ProtoText))}}}
+        item{Text("Количество",color=ProtoGoldSoft,fontSize=16.sp,fontWeight=FontWeight.SemiBold);Spacer(Modifier.height(8.dp));Row(Modifier.fillMaxWidth(),verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.Center){ProtoQtyButton(Icons.Outlined.Remove,onMinus,56.dp);Text(qty.toString(),color=ProtoText,fontSize=38.sp,fontWeight=FontWeight.Bold,modifier=Modifier.padding(horizontal=32.dp));ProtoQtyButton(Icons.Outlined.Add,onPlus,56.dp)}}
+        item{Button(onClick=onAddDraft,modifier=Modifier.fillMaxWidth().height(56.dp),colors=ButtonDefaults.buttonColors(containerColor=ProtoGold),shape=RoundedCornerShape(14.dp)){Text("Добавить в выпуск дня",color=Color.Black,fontSize=15.sp,fontWeight=FontWeight.Bold)};OutlinedButton(onClick=onPostNow,modifier=Modifier.fillMaxWidth().height(54.dp).padding(top=8.dp),border=BorderStroke(1.dp,ProtoGold),shape=RoundedCornerShape(14.dp)){Text("Оприходовать на склад сразу",color=ProtoGold,fontWeight=FontWeight.Bold)}}
+    }
+}
+
+@Composable
+private fun ProtoProductionCalendarDialog(selectedDate:LocalDate,onDismiss:()->Unit,onSelect:(LocalDate)->Unit){
+    var month by remember(selectedDate){mutableStateOf(YearMonth.from(selectedDate))}
+    val first=month.atDay(1)
+    val daysInMonth=month.lengthOfMonth()
+    val shift=(first.dayOfWeek.value-1).coerceAtLeast(0)
+    AlertDialog(
+        onDismissRequest=onDismiss,
+        containerColor=ProtoPanel,
+        title={
+            Row(Modifier.fillMaxWidth(),verticalAlignment=Alignment.CenterVertically){
+                IconButton(onClick={month=month.minusMonths(1)}){Icon(Icons.Outlined.ChevronLeft,null,tint=ProtoGold)}
+                Text(month.format(DateTimeFormatter.ofPattern("LLLL yyyy",ruLocale)).replaceFirstChar{if(it.isLowerCase())it.titlecase(ruLocale)else it.toString()},color=ProtoText,fontSize=18.sp,fontWeight=FontWeight.Bold,modifier=Modifier.weight(1f),textAlign=androidx.compose.ui.text.style.TextAlign.Center)
+                IconButton(onClick={month=month.plusMonths(1)}){Icon(Icons.Outlined.ChevronRight,null,tint=ProtoGold)}
+            }
+        },
+        text={
+            Column{
+                Row(Modifier.fillMaxWidth()){
+                    listOf("Пн","Вт","Ср","Чт","Пт","Сб","Вс").forEach{d->Text(d,color=ProtoMuted,fontSize=10.sp,modifier=Modifier.weight(1f),textAlign=androidx.compose.ui.text.style.TextAlign.Center)}
+                }
+                Spacer(Modifier.height(6.dp))
+                val cells=(shift+daysInMonth).let{((it+6)/7)*7}
+                (0 until cells).chunked(7).forEach{week->
+                    Row(Modifier.fillMaxWidth()){
+                        week.forEach{cell->
+                            val day=cell-shift+1
+                            if(day in 1..daysInMonth){
+                                val date=month.atDay(day)
+                                val selected=date==selectedDate
+                                Box(
+                                    Modifier.weight(1f).aspectRatio(1f).padding(2.dp)
+                                        .clip(CircleShape)
+                                        .background(if(selected)ProtoGold else Color.Transparent)
+                                        .clickable{onSelect(date)},
+                                    contentAlignment=Alignment.Center
+                                ){Text(day.toString(),color=if(selected)Color.Black else ProtoText,fontSize=12.sp,fontWeight=if(selected)FontWeight.Bold else FontWeight.Normal)}
+                            } else Spacer(Modifier.weight(1f).aspectRatio(1f))
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton={TextButton(onClick={onSelect(LocalDate.now())}){Text("Сегодня",color=ProtoGold)}},
+        dismissButton={TextButton(onClick=onDismiss){Text("Закрыть",color=ProtoMuted)}}
+    )
+}
+
+@Composable
+private fun ProtoProductionReportScreen(selectedDate:LocalDate,ops:List<ProtoProductionOp>,products:List<ProtoCatalogProduct>,onBack:()->Unit){
+    val totalQty=ops.sumOf{it.qty}
+    val wreathQty=ops.filter{op->products.firstOrNull{it.sku==op.sku}?.type?.contains("Венки",true)==true}.sumOf{it.qty}
+    val totalValue=ops.sumOf{op->(products.firstOrNull{it.sku==op.sku}?.price?:0)*op.qty}
+    val byAssembler=ops.groupBy{it.assembler}.mapValues{(_,items)->items.sumOf{it.qty}}.toList().sortedByDescending{it.second}
+    val bySku=ops.groupBy{it.sku}.map{(sku,items)->Triple(sku,items.firstOrNull()?.name.orEmpty(),items.sumOf{it.qty})}.sortedByDescending{it.third}
+    val byQuality=ops.groupBy{op->products.firstOrNull{it.sku==op.sku}?.quality?.ifBlank{"Без категории"}?:"Без категории"}.mapValues{(_,items)->items.sumOf{it.qty}}.toList().sortedByDescending{it.second}
+    val dateLabel=selectedDate.format(DateTimeFormatter.ofPattern("d MMMM yyyy",ruLocale))
+
+    ProtoScaffold("Отчёт производства",dateLabel,onBack){
+        item{
+            Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.spacedBy(8.dp)){
+                ProtoMetricCard("Всего",totalQty.toString(),"изделий",Modifier.weight(1f),{})
+                ProtoMetricCard("Венки",wreathQty.toString(),"шт.",Modifier.weight(1f),{})
+            }
+        }
+        item{ProtoMetricCard("Сумма выпуска",protoMoney(totalValue),"по текущим ценам каталога",Modifier.fillMaxWidth(),{})}
+
+        item{Text("По сборщицам",color=ProtoText,fontSize=21.sp,fontWeight=FontWeight.Bold)}
+        if(byAssembler.isEmpty()) item{ProtoSectionCard{Text("За выбранный день операций нет",color=ProtoMuted)}}
+        else items(byAssembler){(name,qty)->ProtoSectionCard{Row(Modifier.fillMaxWidth()){Text(name,color=ProtoText,fontWeight=FontWeight.SemiBold);Spacer(Modifier.weight(1f));Text(qty.toString()+" шт.",color=ProtoGoldSoft,fontWeight=FontWeight.Bold)}}}
+
+        item{Text("По артикулам",color=ProtoText,fontSize=21.sp,fontWeight=FontWeight.Bold)}
+        items(bySku){(sku,name,qty)->ProtoSectionCard{Text(name,color=ProtoText,fontWeight=FontWeight.SemiBold);Row(Modifier.fillMaxWidth()){Text(sku,color=ProtoMuted,fontSize=11.sp);Spacer(Modifier.weight(1f));Text(qty.toString()+" шт.",color=ProtoGoldSoft,fontWeight=FontWeight.Bold)}}}
+
+        item{Text("По качеству",color=ProtoText,fontSize=21.sp,fontWeight=FontWeight.Bold)}
+        items(byQuality){(quality,qty)->ProtoSectionCard{Row(Modifier.fillMaxWidth()){Text(quality,color=ProtoText,fontWeight=FontWeight.SemiBold);Spacer(Modifier.weight(1f));Text(qty.toString()+" шт.",color=ProtoGoldSoft,fontWeight=FontWeight.Bold)}}}
+    }
+}
 
 @Composable
 private fun ProtoProductionHistoryScreen(ops:List<ProtoProductionOp>,products:List<ProtoCatalogProduct>,onBack:()->Unit){
