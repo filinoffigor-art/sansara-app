@@ -172,6 +172,7 @@ private fun currentDateLong(): String = LocalDate.now().format(DateTimeFormatter
 private fun currentDateShort(): String = LocalDate.now().format(DateTimeFormatter.ofPattern("dd.MM.yyyy"))
 private fun currentTimeShort(): String = LocalDateTime.now().format(DateTimeFormatter.ofPattern("HH:mm"))
 private fun currentMonthLabel(): String = LocalDate.now().format(DateTimeFormatter.ofPattern("LLLL yyyy", ruLocale)).replaceFirstChar { if (it.isLowerCase()) it.titlecase(ruLocale) else it.toString() }
+private fun protoNormalizePhone(value:String):String = value.filter { it.isDigit() }.takeLast(10)
 
 @Composable
 fun SansaraVisualPrototype() {
@@ -377,13 +378,37 @@ fun SansaraVisualPrototype() {
                     go(ProtoScreen.Home)
                 } else toast("Код доступа не найден")
             })
-            ProtoScreen.Registration -> ProtoRegistrationScreen(onBack = { back() }, onSubmit = { reg ->
-                registrations.add(0, reg)
-                lastRegistration = reg
-                registrationsTotalThisMonth += 1
-                sendRegistrationEvent(reg)
-                go(ProtoScreen.RegistrationSent)
-            })
+            ProtoScreen.Registration -> ProtoRegistrationScreen(
+                onBack = { back() },
+                onRequestPhoneCode = { phone ->
+                    val normalized = protoNormalizePhone(phone)
+                    val client = clients.firstOrNull { protoNormalizePhone(it.phone) == normalized }
+                    if (client != null) {
+                        toast("Код отправлен")
+                        client.accessCode
+                    } else {
+                        toast("Телефон не найден среди зарегистрированных клиентов")
+                        null
+                    }
+                },
+                onPhoneLogin = { phone, code ->
+                    val normalized = protoNormalizePhone(phone)
+                    val client = clients.firstOrNull { protoNormalizePhone(it.phone) == normalized && it.accessCode == code }
+                    if (client != null) {
+                        selectedClientId = client.id
+                        prefs.edit().putString("last_client_id", client.id).apply()
+                        history.clear()
+                        screen = ProtoScreen.Home
+                    } else toast("Неверный телефон или код")
+                },
+                onSubmit = { reg ->
+                    registrations.add(0, reg)
+                    lastRegistration = reg
+                    registrationsTotalThisMonth += 1
+                    sendRegistrationEvent(reg)
+                    go(ProtoScreen.RegistrationSent)
+                }
+            )
             ProtoScreen.RegistrationSent -> ProtoRegistrationSentScreen(lastRegistration, onBack = { history.clear(); screen = ProtoScreen.Welcome })
 
             ProtoScreen.Home -> ProtoClientHomeScreen(
@@ -680,7 +705,12 @@ private fun ProtoLoginScreen(onBack:()->Unit,onLogin:(String)->Unit) {
 }
 
 @Composable
-private fun ProtoRegistrationScreen(onBack:()->Unit,onSubmit:(ProtoRegistration)->Unit) {
+private fun ProtoRegistrationScreen(
+    onBack:()->Unit,
+    onRequestPhoneCode:(String)->String?,
+    onPhoneLogin:(String,String)->Unit,
+    onSubmit:(ProtoRegistration)->Unit
+) {
     var organization by remember { mutableStateOf("") }
     var inn by remember { mutableStateOf("") }
     var contact1 by remember { mutableStateOf("") }
@@ -690,65 +720,262 @@ private fun ProtoRegistrationScreen(onBack:()->Unit,onSubmit:(ProtoRegistration)
     var address by remember { mutableStateOf("") }
     var type by remember { mutableStateOf(ProtoClientType.AGENT.label) }
     var consent by remember { mutableStateOf(false) }
+
     var showSecond by remember { mutableStateOf(false) }
     var contact2 by remember { mutableStateOf("") }
     var phone2 by remember { mutableStateOf("") }
-    var email2 by remember { mutableStateOf("") }
-    val valid = organization.isNotBlank() && inn.isNotBlank() && contact1.isNotBlank() && phone1.isNotBlank() && email.isNotBlank() && city.isNotBlank() && consent
+
+    var showPhoneLogin by remember { mutableStateOf(false) }
+    var loginPhone by remember { mutableStateOf("") }
+    var loginCode by remember { mutableStateOf("") }
+    var expectedCode by remember { mutableStateOf<String?>(null) }
+
+    val valid = organization.isNotBlank() &&
+        inn.isNotBlank() &&
+        contact1.isNotBlank() &&
+        phone1.isNotBlank() &&
+        email.isNotBlank() &&
+        city.isNotBlank() &&
+        consent
 
     Box(Modifier.fillMaxSize().background(ProtoBg)) {
-        Image(painterResource(R.drawable.screen_registration), null, Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
-        Box(Modifier.fillMaxWidth().height(42.dp).background(ProtoBg).align(Alignment.TopCenter))
+        // Visual Source of Truth: the approved registration reference remains the screen.
+        Image(
+            painterResource(R.drawable.screen_registration),
+            null,
+            Modifier.fillMaxSize(),
+            contentScale = ContentScale.Crop
+        )
+
+        // Hide only the phone status strip. Do not cover the SANSARA wordmark.
+        Box(
+            Modifier.fillMaxWidth().height(24.dp)
+                .background(ProtoBg)
+                .align(Alignment.TopCenter)
+        )
+
         BoxWithConstraints(Modifier.fillMaxSize()) {
             @Composable
-            fun visualField(value:String,onChange:(String)->Unit,placeholder:String,x:Float,y:Float,w:Float,h:Float,keyboardType:KeyboardType=KeyboardType.Text) {
-                Box(Modifier.offset(maxWidth*x,maxHeight*y).size(maxWidth*w,maxHeight*h).background(ProtoPanel.copy(alpha=.985f),RoundedCornerShape(8.dp)).padding(horizontal=5.dp),contentAlignment=Alignment.CenterStart){
-                    BasicTextField(
-                        value=value,onValueChange=onChange,singleLine=true,
-                        textStyle=LocalTextStyle.current.copy(color=ProtoText,fontSize=14.sp),
-                        keyboardOptions=KeyboardOptions(keyboardType=keyboardType),
-                        modifier=Modifier.fillMaxWidth(),
-                        decorationBox={inner->Box{if(value.isBlank())Text(placeholder,color=ProtoMuted,fontSize=14.sp,maxLines=1,overflow=TextOverflow.Ellipsis);inner()}}
-                    )
-                }
+            fun referenceInput(
+                value:String,
+                onChange:(String)->Unit,
+                x:Float,
+                y:Float,
+                w:Float,
+                h:Float,
+                keyboardType:KeyboardType = KeyboardType.Text
+            ){
+                // Only the text area is interactive. The approved border/icon remain from the reference.
+                BasicTextField(
+                    value=value,
+                    onValueChange=onChange,
+                    singleLine=true,
+                    textStyle=LocalTextStyle.current.copy(color=ProtoText,fontSize=14.sp),
+                    keyboardOptions=KeyboardOptions(keyboardType=keyboardType),
+                    modifier=Modifier
+                        .offset(maxWidth*x,maxHeight*y)
+                        .size(maxWidth*w,maxHeight*h)
+                        .background(
+                            if(value.isBlank()) Color.Transparent else ProtoPanel.copy(alpha=.985f),
+                            RoundedCornerShape(5.dp)
+                        )
+                        .padding(horizontal=4.dp,vertical=2.dp)
+                )
             }
-            visualField(organization,{organization=it},"Название организации / ФИО",.18f,.218f,.73f,.045f)
-            visualField(inn,{inn=it},"ИНН",.18f,.282f,.73f,.045f,KeyboardType.Number)
-            visualField(contact1,{contact1=it},"Контактное лицо",.18f,.346f,.67f,.045f)
-            visualField(phone1,{phone1=it},"Телефон",.18f,.409f,.73f,.048f,KeyboardType.Phone)
-            visualField(email,{email=it},"E-mail",.18f,.475f,.73f,.045f,KeyboardType.Email)
-            visualField(city,{city=it},"Город",.18f,.539f,.64f,.045f)
-            visualField(address,{address=it},"Адрес доставки",.18f,.603f,.73f,.045f)
 
-            Box(Modifier.offset(maxWidth*.83f,maxHeight*.342f).size(42.dp).clip(CircleShape).background(Color(0xAA1A1815)).border(1.dp,ProtoGold,CircleShape).clickable{showSecond=true},contentAlignment=Alignment.Center){Text("+",color=ProtoGold,fontSize=23.sp)}
+            // All fields keep the exact reference position/size; only text entry is added.
+            referenceInput(organization,{organization=it},.185f,.218f,.70f,.045f)
+            referenceInput(inn,{inn=it},.185f,.282f,.70f,.045f,KeyboardType.Number)
+            referenceInput(contact1,{contact1=it},.185f,.346f,.57f,.045f)
+            referenceInput(phone1,{phone1=it},.185f,.409f,.70f,.048f,KeyboardType.Phone)
+            referenceInput(email,{email=it},.185f,.475f,.70f,.045f,KeyboardType.Email)
+            referenceInput(city,{city=it},.185f,.539f,.60f,.045f)
+            referenceInput(address,{address=it},.185f,.603f,.70f,.045f)
 
-            Row(Modifier.offset(maxWidth*.045f,maxHeight*.689f).size(maxWidth*.91f,maxHeight*.047f).background(ProtoPanel.copy(alpha=.985f),RoundedCornerShape(14.dp)).border(1.dp,ProtoGold.copy(alpha=.75f),RoundedCornerShape(14.dp))){
+            // Plus is INSIDE the approved "Контактное лицо" field.
+            Box(
+                Modifier
+                    .offset(maxWidth*.805f,maxHeight*.344f)
+                    .size(38.dp)
+                    .clip(CircleShape)
+                    .background(ProtoGold)
+                    .clickable{showSecond=true},
+                contentAlignment=Alignment.Center
+            ){
+                Icon(Icons.Outlined.Add,null,tint=Color.Black,modifier=Modifier.size(23.dp))
+            }
+
+            // Mask only the static type-selector area and recreate the SAME two-button control once.
+            Box(
+                Modifier.offset(maxWidth*.045f,maxHeight*.687f)
+                    .size(maxWidth*.91f,maxHeight*.052f)
+                    .background(ProtoBg)
+            )
+            Row(
+                Modifier.offset(maxWidth*.045f,maxHeight*.689f)
+                    .size(maxWidth*.91f,maxHeight*.047f)
+                    .background(ProtoPanel,RoundedCornerShape(14.dp))
+                    .border(1.dp,ProtoGold.copy(alpha=.78f),RoundedCornerShape(14.dp))
+            ){
                 listOf(ProtoClientType.AGENT.label,ProtoClientType.TRADING.label).forEach{option->
-                    Box(Modifier.weight(1f).fillMaxHeight().clip(RoundedCornerShape(13.dp)).background(if(type==option)ProtoGold.copy(alpha=.55f)else Color.Transparent).clickable{type=option},contentAlignment=Alignment.Center){Text(option,color=if(type==option)ProtoText else ProtoMuted,fontSize=11.sp,fontWeight=if(type==option)FontWeight.Bold else FontWeight.Normal,maxLines=1)}
+                    val selected=type==option
+                    Box(
+                        Modifier.weight(1f).fillMaxHeight()
+                            .clip(RoundedCornerShape(13.dp))
+                            .background(if(selected)ProtoGold else Color.Transparent)
+                            .clickable{type=option},
+                        contentAlignment=Alignment.Center
+                    ){
+                        Text(
+                            option,
+                            color=if(selected)Color.Black else ProtoText,
+                            fontSize=12.sp,
+                            fontWeight=FontWeight.SemiBold,
+                            maxLines=1
+                        )
+                    }
                 }
             }
+
+            // Consent keeps the reference text; only the checkbox state changes.
             if(consent){
-                Box(Modifier.offset(maxWidth*.05f,maxHeight*.765f).size(32.dp).background(ProtoGold,RoundedCornerShape(7.dp)),contentAlignment=Alignment.Center){Icon(Icons.Outlined.Check,null,tint=Color.Black,modifier=Modifier.size(20.dp))}
+                Box(
+                    Modifier.offset(maxWidth*.05f,maxHeight*.765f)
+                        .size(32.dp)
+                        .background(ProtoGold,RoundedCornerShape(7.dp)),
+                    contentAlignment=Alignment.Center
+                ){
+                    Icon(Icons.Outlined.Check,null,tint=Color.Black,modifier=Modifier.size(20.dp))
+                }
             }
-            Box(Modifier.offset(maxWidth*.04f,maxHeight*.755f).size(maxWidth*.90f,maxHeight*.055f).clickable{consent=!consent})
-            Box(Modifier.offset(maxWidth*.05f,maxHeight*.817f).size(maxWidth*.90f,maxHeight*.065f).clickable{
-                if(valid) onSubmit(ProtoRegistration(organization,organization,inn,contact1,phone1,email,city,address,type,contact2,phone2,email2))
-            })
-            Box(Modifier.offset(maxWidth*.28f,maxHeight*.918f).size(maxWidth*.44f,maxHeight*.045f).clickable{onBack()})
+            PrototypeClickArea(maxWidth,maxHeight,.04f,.755f,.90f,.055f){consent=!consent}
+
+            // Reference submit button stays untouched visually.
+            PrototypeClickArea(maxWidth,maxHeight,.05f,.817f,.90f,.065f){
+                if(valid){
+                    onSubmit(
+                        ProtoRegistration(
+                            organization=organization,
+                            fio=organization,
+                            inn=inn,
+                            contact1=contact1,
+                            phone1=phone1,
+                            email=email,
+                            city=city,
+                            address=address,
+                            type=type,
+                            contact2=contact2,
+                            phone2=phone2,
+                            email2=""
+                        )
+                    )
+                } else {
+                    // No new visual element: only validate existing mechanics.
+                }
+            }
+
+            // "Уже есть аккаунт? Войти" opens phone -> code fallback.
+            PrototypeClickArea(maxWidth,maxHeight,.28f,.918f,.44f,.045f){
+                showPhoneLogin=true
+                loginPhone=""
+                loginCode=""
+                expectedCode=null
+            }
         }
+
         ProtoBackButton(onClick=onBack)
     }
 
     if(showSecond){
-        AlertDialog(
-            onDismissRequest={showSecond=false}, containerColor=ProtoPanel,
-            title={Text("Дополнительное контактное лицо",color=ProtoText)},
-            text={Column{ProtoField(contact2,{contact2=it},"ФИО");ProtoField(phone2,{phone2=it},"Телефон",KeyboardType.Phone);ProtoField(email2,{email2=it},"E-mail",KeyboardType.Email)}},
-            confirmButton={TextButton(onClick={showSecond=false}){Text("Сохранить",color=ProtoGold)}},
-            dismissButton={TextButton(onClick={contact2="";phone2="";email2="";showSecond=false}){Text("Удалить",color=ProtoMuted)}}
-        )
+        ModalBottomSheet(
+            onDismissRequest={showSecond=false},
+            containerColor=ProtoPanel,
+            contentColor=ProtoText,
+            dragHandle={BottomSheetDefaults.DragHandle(color=ProtoMuted)}
+        ){
+            Column(
+                Modifier.fillMaxWidth().padding(horizontal=18.dp,vertical=8.dp),
+                verticalArrangement=Arrangement.spacedBy(10.dp)
+            ){
+                Row(verticalAlignment=Alignment.CenterVertically){
+                    Text("Добавить контактное лицо",color=ProtoText,fontSize=21.sp,fontWeight=FontWeight.Bold,modifier=Modifier.weight(1f))
+                    IconButton(onClick={showSecond=false}){Icon(Icons.Outlined.Close,null,tint=ProtoGold)}
+                }
+                ProtoField(contact2,{contact2=it},"ФИО")
+                ProtoField(phone2,{phone2=it},"Телефон",KeyboardType.Phone)
+                Button(
+                    onClick={showSecond=false},
+                    enabled=contact2.isNotBlank() && phone2.isNotBlank(),
+                    modifier=Modifier.fillMaxWidth().height(54.dp),
+                    colors=ButtonDefaults.buttonColors(containerColor=ProtoGold),
+                    shape=RoundedCornerShape(14.dp)
+                ){
+                    Text("Добавить",color=Color.Black,fontWeight=FontWeight.Bold)
+                }
+                Spacer(Modifier.height(18.dp))
+            }
+        }
+    }
+
+    if(showPhoneLogin){
+        ModalBottomSheet(
+            onDismissRequest={showPhoneLogin=false},
+            containerColor=ProtoPanel,
+            contentColor=ProtoText,
+            dragHandle={BottomSheetDefaults.DragHandle(color=ProtoMuted)}
+        ){
+            Column(
+                Modifier.fillMaxWidth().padding(horizontal=18.dp,vertical=8.dp),
+                verticalArrangement=Arrangement.spacedBy(10.dp)
+            ){
+                Row(verticalAlignment=Alignment.CenterVertically){
+                    Text(
+                        if(expectedCode==null)"Вход по телефону" else "Введите код",
+                        color=ProtoText,
+                        fontSize=21.sp,
+                        fontWeight=FontWeight.Bold,
+                        modifier=Modifier.weight(1f)
+                    )
+                    IconButton(onClick={showPhoneLogin=false}){Icon(Icons.Outlined.Close,null,tint=ProtoGold)}
+                }
+
+                if(expectedCode==null){
+                    Text("Введите телефон, указанный при регистрации",color=ProtoMuted,fontSize=12.sp)
+                    ProtoField(loginPhone,{loginPhone=it},"Телефон",KeyboardType.Phone)
+                    Button(
+                        onClick={expectedCode=onRequestPhoneCode(loginPhone)},
+                        enabled=loginPhone.isNotBlank(),
+                        modifier=Modifier.fillMaxWidth().height(54.dp),
+                        colors=ButtonDefaults.buttonColors(containerColor=ProtoGold),
+                        shape=RoundedCornerShape(14.dp)
+                    ){
+                        Text("Получить код",color=Color.Black,fontWeight=FontWeight.Bold)
+                    }
+                }else{
+                    Text("Код отправлен на " + loginPhone,color=ProtoMuted,fontSize=12.sp)
+                    ProtoField(loginCode,{loginCode=it},"Код из SMS",KeyboardType.Number)
+                    Button(
+                        onClick={onPhoneLogin(loginPhone,loginCode.trim())},
+                        enabled=loginCode.isNotBlank(),
+                        modifier=Modifier.fillMaxWidth().height(54.dp),
+                        colors=ButtonDefaults.buttonColors(containerColor=ProtoGold),
+                        shape=RoundedCornerShape(14.dp)
+                    ){
+                        Text("Войти",color=Color.Black,fontWeight=FontWeight.Bold)
+                    }
+                    TextButton(
+                        onClick={expectedCode=onRequestPhoneCode(loginPhone);loginCode=""},
+                        modifier=Modifier.fillMaxWidth()
+                    ){
+                        Text("Отправить код ещё раз",color=ProtoGold)
+                    }
+                }
+                Spacer(Modifier.height(18.dp))
+            }
+        }
     }
 }
+
 @Composable
 private fun ProtoClientHomeScreen(client:ProtoClient,products:List<ProtoCatalogProduct>,stockOverrides:SnapshotStateMap<String,Int>,availableStock:(ProtoCatalogProduct)->Int,cartCount:Int,query:String,onQuery:(String)->Unit,onSearch:()->Unit,onAvailability:(String)->Unit,onCategory:(String)->Unit,onOpenProduct:(ProtoCatalogProduct)->Unit,onCart:()->Unit,onOrders:()->Unit,onProfile:()->Unit,onCatalog:()->Unit,onSeeAll:()->Unit) {
     var searchOpen by remember { mutableStateOf(false) }
