@@ -11,6 +11,8 @@ import androidx.room.Query
 import androidx.room.Room
 import androidx.room.RoomDatabase
 import androidx.room.withTransaction
+import androidx.room.migration.Migration
+import androidx.sqlite.db.SupportSQLiteDatabase
 import org.json.JSONArray
 import org.json.JSONObject
 import java.security.MessageDigest
@@ -101,7 +103,12 @@ data class OrderEntity(
     val historyJson: String,
     val deliveryMethod: String,
     val deliveryAddress: String,
-    val comment: String
+    val comment: String,
+    val recipient: String,
+    val contact: String,
+    val deliveryDate: String,
+    val deliveryTime: String,
+    val discountPct: Int
 )
 
 @Entity(tableName = "production_ops")
@@ -205,7 +212,7 @@ interface SansaraDao {
         ProductionOpEntity::class,
         CartEntity::class
     ],
-    version = 1,
+    version = 2,
     exportSchema = false
 )
 abstract class SansaraDatabase : RoomDatabase() {
@@ -214,21 +221,40 @@ abstract class SansaraDatabase : RoomDatabase() {
     companion object {
         @Volatile private var instance: SansaraDatabase? = null
 
+        private val MIGRATION_1_2 = object : Migration(1,2) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE orders ADD COLUMN recipient TEXT NOT NULL DEFAULT ''")
+                db.execSQL("ALTER TABLE orders ADD COLUMN contact TEXT NOT NULL DEFAULT ''")
+                db.execSQL("ALTER TABLE orders ADD COLUMN deliveryDate TEXT NOT NULL DEFAULT ''")
+                db.execSQL("ALTER TABLE orders ADD COLUMN deliveryTime TEXT NOT NULL DEFAULT ''")
+                db.execSQL("ALTER TABLE orders ADD COLUMN discountPct INTEGER NOT NULL DEFAULT 0")
+            }
+        }
+
         fun get(context: Context): SansaraDatabase =
             instance ?: synchronized(this) {
                 instance ?: Room.databaseBuilder(
                     context.applicationContext,
                     SansaraDatabase::class.java,
                     "sansara.db"
-                ).build().also { instance = it }
+                ).addMigrations(MIGRATION_1_2).build().also { instance = it }
             }
     }
 }
+
+data class ClientUserOption(
+    val userId: String,
+    val name: String,
+    val phone: String,
+    val email: String,
+    val enabled: Boolean
+)
 
 data class SansaraPersistedSnapshot(
     val products: List<ProtoCatalogProduct>,
     val stockOverrides: Map<String, Int>,
     val clients: List<ProtoClient>,
+    val clientUsers: Map<String, List<ClientUserOption>>,
     val registrations: List<ProtoRegistration>,
     val orders: List<ProtoOrder>,
     val productionOps: List<ProtoProductionOp>,
@@ -356,6 +382,12 @@ class SansaraRepository private constructor(
             products=productEntities.map { it.toProto() },
             stockOverrides=productEntities.mapNotNull { e -> e.physicalOverride?.let { e.sku to it } }.toMap(),
             clients=clients,
+            clientUsers=accountsByClient.mapValues { (_,items) ->
+                items.map { a ->
+                    val fullName=listOf(a.firstName,a.lastName,a.middleName).filter { it.isNotBlank() }.joinToString(" ").ifBlank { "Контактное лицо" }
+                    ClientUserOption(a.userId,fullName,a.phone,a.email,a.enabled)
+                }
+            },
             registrations=dao.registrations().map { it.toProto() },
             orders=dao.orders().map { it.toProto() },
             productionOps=dao.productionOps().map { it.toProto() },
@@ -506,7 +538,7 @@ private fun ProtoOrder.toEntity():OrderEntity {
     val events=JSONArray().apply { this@toEntity.history.forEach { event -> put(JSONObject().apply {
         put("status",event.status);put("dateTime",event.dateTime);put("actor",event.actor)
     }) } }
-    return OrderEntity(id,clientName,dateTime,lines.toString(),status,events.toString(),deliveryMethod,deliveryAddress,comment)
+    return OrderEntity(id,clientName,dateTime,lines.toString(),status,events.toString(),deliveryMethod,deliveryAddress,comment,recipient,contact,deliveryDate,deliveryTime,discountPct)
 }
 private fun OrderEntity.toProto():ProtoOrder {
     val lineArray=JSONArray(linesJson)
@@ -517,7 +549,7 @@ private fun OrderEntity.toProto():ProtoOrder {
     val events=(0 until eventArray.length()).map { i -> eventArray.getJSONObject(i).let {
         ProtoOrderEvent(it.getString("status"),it.getString("dateTime"),it.getString("actor"))
     } }
-    return ProtoOrder(id,clientName,dateTime,lines,status,events,deliveryMethod,deliveryAddress,comment)
+    return ProtoOrder(id,clientName,dateTime,lines,status,events,deliveryMethod,deliveryAddress,comment,recipient,contact,deliveryDate,deliveryTime,discountPct)
 }
 
 private fun ProtoProductionOp.toEntity(id:String)=ProductionOpEntity(id,date,time,sku,name,qty,assembler,postedBy,status)
