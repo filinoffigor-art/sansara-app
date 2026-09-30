@@ -9,17 +9,31 @@ function auth_(body) { return body && body.apiKey && body.apiKey === props_().ge
 
 function doGet() { return json_({ok:true, service:'SANSARA API', version:'0.2-alpha'}); }
 
+function eventAction_(event) {
+  if (event === 'registration') return 'registerClient';
+  if (event === 'order') return 'createOrder';
+  if (event === 'presence') return 'presence';
+  return event || '';
+}
+
+function payload_(body) {
+  return body && body.payload ? body.payload : body;
+}
+
 function doPost(e) {
   var body = JSON.parse((e.postData && e.postData.contents) || '{}');
   if (!auth_(body)) return json_({ok:false, error:'UNAUTHORIZED'});
+  var action = body.action || eventAction_(body.event);
+  var payload = payload_(body);
   try {
-    switch (body.action) {
+    switch (action) {
       case 'catalog': return json_({ok:true, items:getCatalog_()});
-      case 'registerClient': return json_(registerClient_(body));
-      case 'updateClient': return json_(updateClient_(body));
-      case 'postProduction': return json_(postProduction_(body));
-      case 'createOrder': return json_(createOrder_(body));
+      case 'registerClient': return json_(registerClient_(payload));
+      case 'updateClient': return json_(updateClient_(payload));
+      case 'postProduction': return json_(postProduction_(payload));
+      case 'createOrder': return json_(createOrder_(payload));
       case 'orders': return json_({ok:true, orders:rows_('Orders')});
+      case 'presence': return json_(presence_(payload));
       default: return json_({ok:false, error:'UNKNOWN_ACTION'});
     }
   } catch (err) {
@@ -88,6 +102,26 @@ function updateClient_(b) {
   return {ok:true};
 }
 
+function presence_(b) {
+  var sh = sheet_().getSheetByName('ClientUsers');
+  if (!sh || sh.getLastRow() < 2) return {ok:true, updated:false};
+  var data = sh.getDataRange().getValues();
+  var headers = data[0];
+  var userCol = headers.indexOf('UserID');
+  var seenCol = headers.indexOf('LastSeen');
+  if (seenCol < 0) {
+    seenCol = headers.length;
+    sh.getRange(1, seenCol + 1).setValue('LastSeen');
+  }
+  for (var i = 1; i < data.length; i++) {
+    if (String(data[i][userCol]) === String(b.userId || '')) {
+      sh.getRange(i + 1, seenCol + 1).setValue(new Date(Number(b.lastSeen || Date.now())));
+      return {ok:true, updated:true};
+    }
+  }
+  return {ok:true, updated:false};
+}
+
 function postProduction_(b) {
   (b.lines || []).forEach(function(line){
     if (Number(line.qty) <= 0) return;
@@ -111,7 +145,7 @@ function setupSansaraSheets() {
   var schemas = {
     Products:['SKU','ModelID','Name','CategoryID','Size','BasePrice','ProductionLeadDays','Active','ImageUrl'],
     Clients:['ClientID','Type','Name','INN','Phone','Email','City','Address','Status','DiscountPct','OrderingEnabled','ManagerID','CreatedAt'],
-    ClientUsers:['UserID','ClientID','Name','Phone','Email','Role','Enabled','LastLogin'],
+    ClientUsers:['UserID','ClientID','Name','Phone','Email','Role','Enabled','LastLogin','LastSeen'],
     StockMovements:['Timestamp','MovementType','SKU','Qty','UserID','Comment'],
     Orders:['OrderID','ClientID','Status','DeliveryMethod','DeliveryAddress','Total','CreatedAt','ManagerID'],
     OrderItems:['OrderID','SKU','Qty','UnitPrice','DiscountPct','LineTotal'],

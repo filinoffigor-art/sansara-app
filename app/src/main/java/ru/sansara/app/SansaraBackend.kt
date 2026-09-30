@@ -18,7 +18,15 @@ object SansaraBackend {
         if (baseUrl.isBlank()) return@withContext BackendPostResult(false, "Backend API не настроен")
         require(baseUrl.startsWith("https://") || baseUrl.startsWith("http://")) { "Некорректный BACKEND_API_URL" }
 
+        val action = when (event) {
+            "registration" -> "registerClient"
+            "order" -> "createOrder"
+            "presence" -> "presence"
+            else -> event
+        }
         val body = JSONObject().apply {
+            put("apiKey", BuildConfig.BACKEND_API_KEY)
+            put("action", action)
             put("event", event)
             put("source", "SANSARA_ANDROID")
             put("payload", JSONObject(payload))

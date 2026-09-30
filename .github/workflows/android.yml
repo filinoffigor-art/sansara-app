@@ -2,7 +2,7 @@ name: Build SANSARA APK
 
 on:
   push:
-    branches: [ main, stage-1-compose-visual-lock ]
+    branches: [ main, stage-1-compose-visual-lock, stage-2-data-auth-presence ]
   workflow_dispatch:
 
 jobs:
