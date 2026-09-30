@@ -2,7 +2,7 @@ name: Build SANSARA APK
 
 on:
   push:
-    branches: [ main ]
+    branches: [ main, stage1-ui-cleanup-manrope ]
   workflow_dispatch:
 
 jobs:
