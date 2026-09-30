@@ -639,8 +639,6 @@ fun SansaraVisualPrototype() {
                     onProfile = { if (currentClient().status == "Приостановлен") go(ProtoScreen.Suspended) else go(ProtoScreen.Profile) }
                 )
             }
-            ProtoScreen.OrderSent ->
-
             ProtoScreen.OrderSent -> ProtoOrderSentScreen(orders.firstOrNull { it.id == selectedOrderId }, onView = { go(ProtoScreen.OrderDetail) }, onCatalog = { history.clear(); screen = ProtoScreen.Catalog }, onHome = { history.clear(); screen = ProtoScreen.Home }, onCart = { go(ProtoScreen.Cart) }, onOrders = { go(ProtoScreen.OrderList) }, onProfile = { if (currentClient().status == "Приостановлен") go(ProtoScreen.Suspended) else go(ProtoScreen.Profile) })
             ProtoScreen.OrderList -> ProtoOrderListScreen(orders.filter { it.clientName == (clients.firstOrNull { c -> c.id == selectedClientId }?.name ?: "") }, cartCount = cart.size, onBack = { back() }, onOpen = { selectedOrderId = it.id; go(ProtoScreen.OrderDetail) }, onHome = { history.clear(); screen = ProtoScreen.Home }, onCatalog = { go(ProtoScreen.Catalog) }, onCart = { go(ProtoScreen.Cart) }, onProfile = { go(ProtoScreen.Profile) })
             ProtoScreen.OrderDetail -> ProtoOrderDetailScreen(
@@ -668,8 +666,6 @@ fun SansaraVisualPrototype() {
                     }
                 }
             )
-            ProtoScreen.Profile ->
-
             ProtoScreen.Profile -> ProtoProfileScreen(clients.firstOrNull { it.id == selectedClientId } ?: clients.first(), cartCount = cart.size, onBack = { back() }, onCall = { protoDial(context) }, onLogout = { authProvider.signOut(); session = null; history.clear(); screen = ProtoScreen.Welcome }, onHome = { history.clear(); screen = ProtoScreen.Home }, onCatalog = { go(ProtoScreen.Catalog) }, onCart = { go(ProtoScreen.Cart) }, onOrders = { go(ProtoScreen.OrderList) })
             ProtoScreen.Suspended -> ProtoSuspendedScreen(cartCount = cart.size, onCall = { protoDial(context) }, onMessage = { protoMessage(context) }, onBack = { back() }, onCatalog = { go(ProtoScreen.Catalog) }, onHome = { history.clear(); screen = ProtoScreen.Home }, onOrders = { go(ProtoScreen.OrderList) })
 
