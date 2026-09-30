@@ -1491,7 +1491,7 @@ private fun ProtoOrderSentScreen(
             bottomBar = {
                 ProtoClientBottomBar(
                     current = ProtoScreen.OrderSent,
-                    cartCount = cartCount,
+                    cartCount = 0,
                     onHome = onHome,
                     onCatalog = onCatalog,
                     onCart = onCart,
