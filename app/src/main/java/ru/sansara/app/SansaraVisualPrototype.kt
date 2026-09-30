@@ -749,7 +749,7 @@ fun SansaraVisualPrototype() {
                     } else toast("Статус заказа нельзя переводить назад")
                 }
             })
-            ProtoScreen.AdminCatalog -> ProtoAdminCatalogScreen(products, stockOverrides, onBack = { back() })
+            ProtoScreen.AdminCatalog -> ProtoAdminCatalogScreen(products, stockOverrides, syncStatus = catalogSyncStatus, lastSync = lastCatalogSync, onSync = { syncTildaCatalog() }, onBack = { back() })
             ProtoScreen.AdminSettings -> ProtoAdminSettingsMenuScreen(
                 syncStatus = catalogSyncStatus, lastSync = lastCatalogSync, lowStockThreshold = lowStockThreshold,
                 onBack = { back() }, onOpen = { section ->
@@ -1764,7 +1764,64 @@ private fun ProtoAdminSearchScreen(clients:List<ProtoClient>,orders:List<ProtoOr
 }
 
 @Composable
-private fun ProtoAdminClientsScreen(clients:List<ProtoClient>,onBack:()->Unit,onOpen:(ProtoClient)->Unit){var q by remember{mutableStateOf("")};val filtered=clients.filter{q.isBlank()||it.name.contains(q,true)||it.contact.contains(q,true)};ProtoScaffold("Клиенты","Оборот за ${currentMonthLabel().lowercase(ruLocale)}",onBack){item{ProtoField(q,{q=it},"Поиск клиента")};items(filtered,key={it.id}){c->Card(colors=CardDefaults.cardColors(containerColor=ProtoPanel),border=BorderStroke(1.dp,ProtoBorder),modifier=Modifier.fillMaxWidth().clickable{onOpen(c)}){Row(Modifier.padding(13.dp),verticalAlignment=Alignment.CenterVertically){Column(Modifier.weight(1f)){Text(c.name,color=ProtoText,fontWeight=FontWeight.SemiBold);Text("${c.status} · ${c.orderCount} заказов",color=ProtoMuted,fontSize=12.sp)};Column(horizontalAlignment=Alignment.End){Text(protoMoney(c.monthTurnover),color=ProtoGoldSoft,fontWeight=FontWeight.Bold);Icon(Icons.Outlined.ChevronRight,null,tint=ProtoGold)}}}}}}
+private fun ProtoAdminClientsScreen(clients:List<ProtoClient>,onBack:()->Unit,onOpen:(ProtoClient)->Unit){
+    var q by remember{mutableStateOf("")}
+    var filter by remember{mutableStateOf("Все")}
+    val filters=listOf("Все","Активный","Оптовик","VIP","Приостановлен","Онлайн")
+    val filtered=clients.filter{c->
+        val queryOk=q.isBlank()||c.name.contains(q,true)||c.contact.contains(q,true)||c.phone.contains(q,true)||c.id.contains(q,true)
+        val filterOk=when(filter){
+            "Онлайн"->c.online
+            "Все"->true
+            else->c.status==filter
+        }
+        queryOk&&filterOk
+    }
+    ProtoScaffold("Клиенты","Оборот за "+currentMonthLabel().lowercase(ruLocale),onBack){
+        item{ProtoField(q,{q=it},"Поиск клиента")}
+        item{
+            LazyRow(horizontalArrangement=Arrangement.spacedBy(7.dp)){
+                items(filters){label->
+                    FilterChip(
+                        selected=filter==label,
+                        onClick={filter=label},
+                        label={Text(label)},
+                        colors=FilterChipDefaults.filterChipColors(
+                            selectedContainerColor=ProtoGold,
+                            selectedLabelColor=Color.Black,
+                            labelColor=ProtoText
+                        )
+                    )
+                }
+            }
+        }
+        if(filtered.isEmpty())item{Text("Клиенты по выбранному фильтру не найдены",color=ProtoMuted)}
+        else items(filtered,key={it.id}){c->
+            Card(
+                colors=CardDefaults.cardColors(containerColor=ProtoPanel),
+                border=BorderStroke(1.dp,ProtoBorder),
+                modifier=Modifier.fillMaxWidth().clickable{onOpen(c)}
+            ){
+                Row(Modifier.padding(13.dp),verticalAlignment=Alignment.CenterVertically){
+                    Box(
+                        Modifier.size(9.dp)
+                            .background(if(c.online)ProtoGreen else ProtoMuted,CircleShape)
+                    )
+                    Spacer(Modifier.width(9.dp))
+                    Column(Modifier.weight(1f)){
+                        Text(c.name,color=ProtoText,fontWeight=FontWeight.SemiBold)
+                        Text(c.status+" · "+c.orderCount+" заказов",color=ProtoMuted,fontSize=12.sp)
+                        Text(if(c.online)"Онлайн" else "Был в сети "+c.lastSeen,color=if(c.online)ProtoGreen else ProtoMuted,fontSize=10.sp)
+                    }
+                    Column(horizontalAlignment=Alignment.End){
+                        Text(protoMoney(c.monthTurnover),color=ProtoGoldSoft,fontWeight=FontWeight.Bold)
+                        Icon(Icons.Outlined.ChevronRight,null,tint=ProtoGold)
+                    }
+                }
+            }
+        }
+    }
+}
 
 @Composable
 private fun ProtoAdminClientScreen(
@@ -1887,10 +1944,79 @@ private fun ProtoAdminClientScreen(
 }
 
 @Composable
-private fun ProtoAdminOrdersScreen(orders:List<ProtoOrder>,onBack:()->Unit,onOpen:(ProtoOrder)->Unit){ProtoScaffold("Заказы",currentMonthLabel(),onBack){items(orders,key={it.id}){o->ProtoOrderRow(o){onOpen(o)}}}}
+private fun ProtoAdminOrdersScreen(orders:List<ProtoOrder>,onBack:()->Unit,onOpen:(ProtoOrder)->Unit){
+    var q by remember{mutableStateOf("")}
+    var filter by remember{mutableStateOf("Все")}
+    val statuses=listOf("Все","Получен","Подтверждён","Собирается","Доставляется","Доставлен","Отменён")
+    val filtered=orders.filter{o->
+        val queryOk=q.isBlank()||o.id.contains(q,true)||o.clientName.contains(q,true)
+        val filterOk=filter=="Все"||o.status==filter
+        queryOk&&filterOk
+    }
+    ProtoScaffold("Заказы",currentMonthLabel(),onBack){
+        item{ProtoField(q,{q=it},"Поиск по номеру или клиенту")}
+        item{
+            LazyRow(horizontalArrangement=Arrangement.spacedBy(7.dp)){
+                items(statuses){label->
+                    FilterChip(
+                        selected=filter==label,
+                        onClick={filter=label},
+                        label={Text(label)},
+                        colors=FilterChipDefaults.filterChipColors(
+                            selectedContainerColor=ProtoGold,
+                            selectedLabelColor=Color.Black,
+                            labelColor=ProtoText
+                        )
+                    )
+                }
+            }
+        }
+        if(filtered.isEmpty())item{Text("Заказы по выбранному фильтру не найдены",color=ProtoMuted)}
+        else items(filtered,key={it.id}){o->ProtoOrderRow(o){onOpen(o)}}
+    }
+}
 
 @Composable
-private fun ProtoAdminCatalogScreen(products:List<ProtoCatalogProduct>,stockOverrides:SnapshotStateMap<String,Int>,onBack:()->Unit){ProtoScaffold("Каталог","Все тестовые позиции",onBack){items(products,key={it.sku}){p->ProtoSectionCard{Row(verticalAlignment=Alignment.CenterVertically){ProtoProductImage(p,Modifier.size(46.dp).clip(RoundedCornerShape(8.dp)));Spacer(Modifier.width(10.dp));Column(Modifier.weight(1f)){Text(p.name,color=ProtoText,fontWeight=FontWeight.SemiBold);Text("${p.sku} · ${p.type} · ${p.size}",color=ProtoMuted,fontSize=11.sp)};Text("${stockOverrides[p.sku]?:p.stock} шт.",color=ProtoGoldSoft,fontWeight=FontWeight.Bold)}}}}}
+private fun ProtoAdminCatalogScreen(
+    products:List<ProtoCatalogProduct>,
+    stockOverrides:SnapshotStateMap<String,Int>,
+    syncStatus:String,
+    lastSync:String,
+    onSync:()->Unit,
+    onBack:()->Unit
+){
+    ProtoScaffold("Каталог","Данные каталога синхронизируются с Tilda",onBack){
+        item{
+            ProtoSectionCard{
+                ProtoInfoRow("Синхронизация",syncStatus)
+                ProtoInfoRow("Последнее обновление",lastSync.ifBlank{"ещё не выполнялось"})
+                OutlinedButton(
+                    onClick=onSync,
+                    modifier=Modifier.fillMaxWidth().padding(top=8.dp),
+                    border=BorderStroke(1.dp,ProtoGold)
+                ){
+                    Icon(Icons.Outlined.Sync,null,tint=ProtoGold)
+                    Spacer(Modifier.width(7.dp))
+                    Text("Обновить из Tilda",color=ProtoGold)
+                }
+                Text("Цена и описание изменяются в источнике каталога, а не в приложении.",color=ProtoMuted,fontSize=10.sp,modifier=Modifier.padding(top=8.dp))
+            }
+        }
+        items(products,key={it.sku}){p->
+            ProtoSectionCard{
+                Row(verticalAlignment=Alignment.CenterVertically){
+                    ProtoProductImage(p,Modifier.size(46.dp).clip(RoundedCornerShape(8.dp)))
+                    Spacer(Modifier.width(10.dp))
+                    Column(Modifier.weight(1f)){
+                        Text(p.name,color=ProtoText,fontWeight=FontWeight.SemiBold)
+                        Text(p.sku+" · "+p.type+" · "+p.size,color=ProtoMuted,fontSize=11.sp)
+                    }
+                    Text((stockOverrides[p.sku]?:p.stock).toString()+" шт.",color=ProtoGoldSoft,fontWeight=FontWeight.Bold)
+                }
+            }
+        }
+    }
+}
 
 @Composable
 private fun ProtoAdminSettingsMenuScreen(syncStatus:String,lastSync:String,lowStockThreshold:Int,onBack:()->Unit,onOpen:(String)->Unit,onCall:()->Unit){
