@@ -1,5 +1,5 @@
 /**
- * SANSARA Apps Script API 0.2-alpha.
+ * SANSARA Apps Script API 0.3-alpha.
  * Store SHEET_ID and API_KEY in Script Properties, never in GitHub.
  */
 function props_() { return PropertiesService.getScriptProperties(); }
@@ -7,13 +7,14 @@ function sheet_() { return SpreadsheetApp.openById(props_().getProperty('SHEET_I
 function json_(data) { return ContentService.createTextOutput(JSON.stringify(data)).setMimeType(ContentService.MimeType.JSON); }
 function auth_(body) { return body && body.apiKey && body.apiKey === props_().getProperty('API_KEY'); }
 
-function doGet() { return json_({ok:true, service:'SANSARA API', version:'0.2-alpha'}); }
+function doGet() { return json_({ok:true, service:'SANSARA API', version:'0.3-alpha'}); }
 
 function doPost(e) {
   var body = JSON.parse((e.postData && e.postData.contents) || '{}');
   if (!auth_(body)) return json_({ok:false, error:'UNAUTHORIZED'});
   try {
     switch (body.action) {
+      case 'event': return json_(event_(body));
       case 'catalog': return json_({ok:true, items:getCatalog_()});
       case 'registerClient': return json_(registerClient_(body));
       case 'updateClient': return json_(updateClient_(body));
@@ -39,6 +40,40 @@ function appendObject_(name, obj) {
   var sh = sheet_().getSheetByName(name);
   var headers = sh.getRange(1,1,1,sh.getLastColumn()).getValues()[0];
   sh.appendRow(headers.map(function(h){ return obj[h] === undefined ? '' : obj[h]; }));
+}
+
+function event_(b) {
+  var p = b.payload || {};
+  if (b.event === 'presence') return presence_(p);
+  appendObject_('AppEvents',{
+    Timestamp:new Date(), Event:String(b.event||''), Source:String(b.source||''),
+    UserID:String(p.userId||''), ClientID:String(p.clientId||''), Payload:JSON.stringify(p)
+  });
+  return {ok:true};
+}
+
+function presence_(p) {
+  var sh = sheet_().getSheetByName('Presence');
+  if (!sh) throw new Error('PRESENCE_SHEET_MISSING');
+  var data = sh.getDataRange().getValues();
+  var headers = data[0];
+  var userCol = headers.indexOf('UserID');
+  var rowIndex = -1;
+  for (var i=1;i<data.length;i++) {
+    if (String(data[i][userCol]) === String(p.userId||'')) { rowIndex=i+1; break; }
+  }
+  var row = {
+    UserID:String(p.userId||''), ClientID:String(p.clientId||''), Role:String(p.role||''),
+    Phone:String(p.phone||''), LastSeen:new Date(Number(p.lastSeenEpochMs||Date.now())), Online:true
+  };
+  if (rowIndex < 0) {
+    appendObject_('Presence',row);
+  } else {
+    headers.forEach(function(h,idx){
+      if (row[h] !== undefined) sh.getRange(rowIndex,idx+1).setValue(row[h]);
+    });
+  }
+  return {ok:true,lastSeen:row.LastSeen};
 }
 
 function getCatalog_() {
@@ -112,6 +147,8 @@ function setupSansaraSheets() {
     Products:['SKU','ModelID','Name','CategoryID','Size','BasePrice','ProductionLeadDays','Active','ImageUrl'],
     Clients:['ClientID','Type','Name','INN','Phone','Email','City','Address','Status','DiscountPct','OrderingEnabled','ManagerID','CreatedAt'],
     ClientUsers:['UserID','ClientID','Name','Phone','Email','Role','Enabled','LastLogin'],
+    Presence:['UserID','ClientID','Role','Phone','LastSeen','Online'],
+    AppEvents:['Timestamp','Event','Source','UserID','ClientID','Payload'],
     StockMovements:['Timestamp','MovementType','SKU','Qty','UserID','Comment'],
     Orders:['OrderID','ClientID','Status','DeliveryMethod','DeliveryAddress','Total','CreatedAt','ManagerID'],
     OrderItems:['OrderID','SKU','Qty','UnitPrice','DiscountPct','LineTotal'],
