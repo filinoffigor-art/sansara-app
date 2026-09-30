@@ -134,6 +134,9 @@ interface SansaraDao {
     @Query("SELECT * FROM accounts")
     suspend fun accounts(): List<AccountEntity>
 
+    @Query("SELECT * FROM accounts WHERE clientId = :clientId AND enabled = 1 ORDER BY firstName, lastName")
+    suspend fun accountsForClient(clientId: String): List<AccountEntity>
+
     @Query("SELECT * FROM accounts WHERE accessCodeHash = :hash AND enabled = 1 LIMIT 1")
     suspend fun accountByAccessCodeHash(hash: String): AccountEntity?
 
@@ -239,6 +242,13 @@ data class ApprovalResult(
     val client: ProtoClient,
     val primaryCode: String,
     val secondaryCode: String?
+)
+
+data class SansaraCompanyContact(
+    val userId: String,
+    val name: String,
+    val phone: String,
+    val email: String
 )
 
 class SansaraRepository private constructor(
@@ -388,6 +398,22 @@ class SansaraRepository private constructor(
         }
     }
 
+    suspend fun contactsForClient(clientId: String): List<SansaraCompanyContact> =
+        dao.accountsForClient(clientId).map { account ->
+            val fullName = listOf(account.lastName, account.firstName, account.middleName)
+                .filter { it.isNotBlank() }
+                .joinToString(" ")
+                .ifBlank { account.firstName.ifBlank { "Контактное лицо" } }
+            SansaraCompanyContact(account.userId, fullName, account.phone, account.email)
+        }
+
+    suspend fun nextOrderId(): String {
+        val max = dao.orders()
+            .mapNotNull { it.id.removePrefix("S-").toIntOrNull() }
+            .maxOrNull() ?: 2383
+        return "S-" + (max + 1).toString().padStart(6, '0')
+    }
+
     suspend fun authenticate(code: String): SansaraSession? {
         val account = dao.accountByAccessCodeHash(hashCode(code.trim())) ?: return null
         return SansaraSession(
@@ -500,24 +526,72 @@ private fun RegistrationEntity.toProto()=ProtoRegistration(
 )
 
 private fun ProtoOrder.toEntity():OrderEntity {
-    val lines=JSONArray().apply { this@toEntity.lines.forEach { line -> put(JSONObject().apply {
-        put("sku",line.sku);put("name",line.name);put("qty",line.qty);put("price",line.price)
-    }) } }
-    val events=JSONArray().apply { this@toEntity.history.forEach { event -> put(JSONObject().apply {
-        put("status",event.status);put("dateTime",event.dateTime);put("actor",event.actor)
-    }) } }
-    return OrderEntity(id,clientName,dateTime,lines.toString(),status,events.toString(),deliveryMethod,deliveryAddress,comment)
+    val lines=JSONArray().apply {
+        this@toEntity.lines.forEach { line ->
+            put(JSONObject().apply {
+                put("sku",line.sku)
+                put("name",line.name)
+                put("qty",line.qty)
+                put("price",line.price)
+                put("discountPct",line.discountPct)
+            })
+        }
+    }
+    val payload=JSONObject().apply {
+        put("lines",lines)
+        put("recipient",this@toEntity.recipient)
+        put("contactPhone",this@toEntity.contactPhone)
+        put("deliveryDate",this@toEntity.deliveryDate)
+        put("deliveryTime",this@toEntity.deliveryTime)
+    }
+    val events=JSONArray().apply {
+        this@toEntity.history.forEach { event ->
+            put(JSONObject().apply {
+                put("status",event.status)
+                put("dateTime",event.dateTime)
+                put("actor",event.actor)
+            })
+        }
+    }
+    return OrderEntity(id,clientName,dateTime,payload.toString(),status,events.toString(),deliveryMethod,deliveryAddress,comment)
 }
+
 private fun OrderEntity.toProto():ProtoOrder {
-    val lineArray=JSONArray(linesJson)
-    val lines=(0 until lineArray.length()).map { i -> lineArray.getJSONObject(i).let {
-        ProtoOrderLine(it.getString("sku"),it.getString("name"),it.getInt("qty"),it.getInt("price"))
-    } }
+    val raw=linesJson.trim()
+    val payload=if(raw.startsWith("[")) null else runCatching { JSONObject(raw) }.getOrNull()
+    val lineArray=payload?.optJSONArray("lines") ?: JSONArray(raw)
+    val lines=(0 until lineArray.length()).map { i ->
+        lineArray.getJSONObject(i).let {
+            ProtoOrderLine(
+                sku=it.getString("sku"),
+                name=it.getString("name"),
+                qty=it.getInt("qty"),
+                price=it.getInt("price"),
+                discountPct=it.optInt("discountPct",0)
+            )
+        }
+    }
     val eventArray=JSONArray(historyJson)
-    val events=(0 until eventArray.length()).map { i -> eventArray.getJSONObject(i).let {
-        ProtoOrderEvent(it.getString("status"),it.getString("dateTime"),it.getString("actor"))
-    } }
-    return ProtoOrder(id,clientName,dateTime,lines,status,events,deliveryMethod,deliveryAddress,comment)
+    val events=(0 until eventArray.length()).map { i ->
+        eventArray.getJSONObject(i).let {
+            ProtoOrderEvent(it.getString("status"),it.getString("dateTime"),it.getString("actor"))
+        }
+    }
+    return ProtoOrder(
+        id=id,
+        clientName=clientName,
+        dateTime=dateTime,
+        lines=lines,
+        status=status,
+        history=events,
+        deliveryMethod=deliveryMethod,
+        deliveryAddress=deliveryAddress,
+        comment=comment,
+        recipient=payload?.optString("recipient").orEmpty(),
+        contactPhone=payload?.optString("contactPhone").orEmpty(),
+        deliveryDate=payload?.optString("deliveryDate").orEmpty(),
+        deliveryTime=payload?.optString("deliveryTime").orEmpty()
+    )
 }
 
 private fun ProtoProductionOp.toEntity(id:String)=ProductionOpEntity(id,date,time,sku,name,qty,assembler,postedBy,status)
