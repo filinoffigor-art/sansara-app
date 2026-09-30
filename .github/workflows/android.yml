@@ -2,7 +2,7 @@ name: Build SANSARA APK
 
 on:
   push:
-    branches: [ main ]
+    branches: [ main, stage-1-compose-visual-lock ]
   workflow_dispatch:
 
 jobs:

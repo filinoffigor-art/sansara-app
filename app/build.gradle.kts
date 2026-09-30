@@ -12,8 +12,8 @@ android {
         applicationId = "ru.sansara.app"
         minSdk = 26
         targetSdk = 35
-        versionCode = 14
-        versionName = "0.9.4-production-dashboard"
+        versionCode = 15
+        versionName = "0.10.0-stage1-compose"
         buildConfigField("String", "ADMIN_PHONE", "\"+79263046019\"")
         buildConfigField("String", "TILDA_YML_URL", "\"\"")
         buildConfigField("String", "BACKEND_API_URL", "\"\"")
