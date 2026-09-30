@@ -11,6 +11,8 @@ import androidx.room.Query
 import androidx.room.Room
 import androidx.room.RoomDatabase
 import androidx.room.withTransaction
+import androidx.room.migration.Migration
+import androidx.sqlite.db.SupportSQLiteDatabase
 import org.json.JSONArray
 import org.json.JSONObject
 import java.security.MessageDigest
@@ -120,6 +122,57 @@ data class ProductionOpEntity(
 @Entity(tableName = "cart")
 data class CartEntity(@PrimaryKey val sku: String, val qty: Int)
 
+@Entity(tableName = "assemblers")
+data class AssemblerEntity(
+    @PrimaryKey val id: String,
+    val name: String,
+    val enabled: Boolean = true,
+    val createdAt: Long = System.currentTimeMillis()
+)
+
+@Entity(tableName = "production_rates")
+data class ProductionRateEntity(
+    @PrimaryKey val sku: String,
+    val rateRub: Int,
+    val updatedAt: Long = System.currentTimeMillis()
+)
+
+@Entity(tableName = "production_receipts")
+data class ProductionReceiptEntity(
+    @PrimaryKey val documentId: String,
+    val date: String,
+    val time: String,
+    val userId: String,
+    val totalQty: Int,
+    val totalAmount: Int,
+    val createdAt: Long = System.currentTimeMillis(),
+    val reversedByDocumentId: String? = null
+)
+
+@Entity(tableName = "production_receipt_lines")
+data class ProductionReceiptLineEntity(
+    @PrimaryKey val lineId: String,
+    val documentId: String,
+    val opId: String,
+    val sku: String,
+    val name: String,
+    val assemblerId: String,
+    val assemblerName: String,
+    val qty: Int,
+    val rateRub: Int,
+    val amountRub: Int
+)
+
+@Entity(tableName = "stock_adjustments")
+data class StockAdjustmentEntity(
+    @PrimaryKey val adjustmentId: String,
+    val sku: String,
+    val qtyDelta: Int,
+    val reason: String,
+    val userId: String,
+    val createdAt: Long = System.currentTimeMillis()
+)
+
 @Dao
 interface SansaraDao {
     @Query("SELECT COUNT(*) FROM products")
@@ -152,6 +205,27 @@ interface SansaraDao {
     @Query("SELECT * FROM cart")
     suspend fun cart(): List<CartEntity>
 
+    @Query("SELECT COUNT(*) FROM assemblers")
+    suspend fun assemblerCount(): Int
+
+    @Query("SELECT * FROM assemblers ORDER BY enabled DESC, name")
+    suspend fun assemblers(): List<AssemblerEntity>
+
+    @Query("SELECT * FROM assemblers WHERE enabled = 1 ORDER BY name")
+    suspend fun activeAssemblers(): List<AssemblerEntity>
+
+    @Query("SELECT * FROM production_rates")
+    suspend fun productionRates(): List<ProductionRateEntity>
+
+    @Query("SELECT * FROM production_receipt_lines")
+    suspend fun productionReceiptLines(): List<ProductionReceiptLineEntity>
+
+    @Query("SELECT * FROM production_receipts ORDER BY createdAt DESC")
+    suspend fun productionReceipts(): List<ProductionReceiptEntity>
+
+    @Query("SELECT * FROM products WHERE sku = :sku LIMIT 1")
+    suspend fun productBySku(sku: String): ProductEntity?
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun putProducts(items: List<ProductEntity>)
 
@@ -172,6 +246,24 @@ interface SansaraDao {
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun putCart(items: List<CartEntity>)
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun putAssemblers(items: List<AssemblerEntity>)
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun putProductionRates(items: List<ProductionRateEntity>)
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun putProductionReceipts(items: List<ProductionReceiptEntity>)
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun putProductionReceiptLines(items: List<ProductionReceiptLineEntity>)
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun putStockAdjustments(items: List<StockAdjustmentEntity>)
+
+    @Query("UPDATE assemblers SET enabled = :enabled WHERE id = :id")
+    suspend fun setAssemblerEnabled(id: String, enabled: Boolean)
 
     @Query("DELETE FROM products")
     suspend fun clearProducts()
@@ -206,9 +298,14 @@ interface SansaraDao {
         RegistrationEntity::class,
         OrderEntity::class,
         ProductionOpEntity::class,
-        CartEntity::class
+        CartEntity::class,
+        AssemblerEntity::class,
+        ProductionRateEntity::class,
+        ProductionReceiptEntity::class,
+        ProductionReceiptLineEntity::class,
+        StockAdjustmentEntity::class
     ],
-    version = 1,
+    version = 2,
     exportSchema = false
 )
 abstract class SansaraDatabase : RoomDatabase() {
@@ -217,13 +314,26 @@ abstract class SansaraDatabase : RoomDatabase() {
     companion object {
         @Volatile private var instance: SansaraDatabase? = null
 
+        private val MIGRATION_1_2 = object : Migration(1, 2) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("CREATE TABLE IF NOT EXISTS assemblers (id TEXT NOT NULL, name TEXT NOT NULL, enabled INTEGER NOT NULL, createdAt INTEGER NOT NULL, PRIMARY KEY(id))")
+                db.execSQL("CREATE TABLE IF NOT EXISTS production_rates (sku TEXT NOT NULL, rateRub INTEGER NOT NULL, updatedAt INTEGER NOT NULL, PRIMARY KEY(sku))")
+                db.execSQL("CREATE TABLE IF NOT EXISTS production_receipts (documentId TEXT NOT NULL, date TEXT NOT NULL, time TEXT NOT NULL, userId TEXT NOT NULL, totalQty INTEGER NOT NULL, totalAmount INTEGER NOT NULL, createdAt INTEGER NOT NULL, reversedByDocumentId TEXT, PRIMARY KEY(documentId))")
+                db.execSQL("CREATE TABLE IF NOT EXISTS production_receipt_lines (lineId TEXT NOT NULL, documentId TEXT NOT NULL, opId TEXT NOT NULL, sku TEXT NOT NULL, name TEXT NOT NULL, assemblerId TEXT NOT NULL, assemblerName TEXT NOT NULL, qty INTEGER NOT NULL, rateRub INTEGER NOT NULL, amountRub INTEGER NOT NULL, PRIMARY KEY(lineId))")
+                db.execSQL("CREATE TABLE IF NOT EXISTS stock_adjustments (adjustmentId TEXT NOT NULL, sku TEXT NOT NULL, qtyDelta INTEGER NOT NULL, reason TEXT NOT NULL, userId TEXT NOT NULL, createdAt INTEGER NOT NULL, PRIMARY KEY(adjustmentId))")
+            }
+        }
+
         fun get(context: Context): SansaraDatabase =
             instance ?: synchronized(this) {
                 instance ?: Room.databaseBuilder(
                     context.applicationContext,
                     SansaraDatabase::class.java,
                     "sansara.db"
-                ).build().also { instance = it }
+                )
+                    .addMigrations(MIGRATION_1_2)
+                    .build()
+                    .also { instance = it }
             }
     }
 }
@@ -235,7 +345,9 @@ data class SansaraPersistedSnapshot(
     val registrations: List<ProtoRegistration>,
     val orders: List<ProtoOrder>,
     val productionOps: List<ProtoProductionOp>,
-    val cart: Map<String, Int>
+    val cart: Map<String, Int>,
+    val assemblers: List<SansaraAssembler>,
+    val productionRates: Map<String, Int>
 )
 
 data class ApprovalResult(
@@ -251,6 +363,27 @@ data class SansaraCompanyContact(
     val email: String
 )
 
+data class SansaraAssembler(
+    val id: String,
+    val name: String,
+    val enabled: Boolean
+)
+
+data class ProductionPostingLine(
+    val sku: String,
+    val name: String,
+    val assemblerId: String,
+    val assemblerName: String,
+    val qty: Int,
+    val rateRub: Int
+)
+
+data class ProductionReceiptResult(
+    val documentId: String,
+    val totalQty: Int,
+    val totalAmount: Int
+)
+
 class SansaraRepository private constructor(
     private val context: Context,
     private val db: SansaraDatabase,
@@ -260,7 +393,19 @@ class SansaraRepository private constructor(
     private val random = SecureRandom()
 
     suspend fun seedDebugIfNeeded() {
-        if (!BuildConfig.DEBUG || dao.productCount() > 0) return
+        if (!BuildConfig.DEBUG) return
+        if (dao.productCount() > 0) {
+            if (dao.assemblerCount() == 0) {
+                dao.putAssemblers(
+                    listOf(
+                        AssemblerEntity("ASM-001","Анна К."),
+                        AssemblerEntity("ASM-002","Мария С."),
+                        AssemblerEntity("ASM-003","Елена П.")
+                    )
+                )
+            }
+            return
+        }
         val root = JSONObject(context.assets.open("demo_data.json").bufferedReader().use { it.readText() })
         val array = root.getJSONArray("products")
         val products = (0 until array.length()).map { i ->
@@ -342,6 +487,13 @@ class SansaraRepository private constructor(
             dao.putRegistrations(registrations.map { it.toEntity() })
             dao.putOrders(orders.map { it.toEntity() })
             dao.putProductionOps(ops.mapIndexed { i, item -> item.toEntity("seed-"+i) })
+            dao.putAssemblers(
+                listOf(
+                    AssemblerEntity("ASM-001","Анна К."),
+                    AssemblerEntity("ASM-002","Мария С."),
+                    AssemblerEntity("ASM-003","Елена П.")
+                )
+            )
         }
     }
 
@@ -362,14 +514,25 @@ class SansaraRepository private constructor(
             )
         }
         val productEntities = dao.products()
+        val receiptLinesByOp = dao.productionReceiptLines().associateBy { it.opId }
+        val rates = dao.productionRates().associate { it.sku to it.rateRub }
         return SansaraPersistedSnapshot(
             products=productEntities.map { it.toProto() },
             stockOverrides=productEntities.mapNotNull { e -> e.physicalOverride?.let { e.sku to it } }.toMap(),
             clients=clients,
             registrations=dao.registrations().map { it.toProto() },
             orders=dao.orders().map { it.toProto() },
-            productionOps=dao.productionOps().map { it.toProto() },
-            cart=dao.cart().associate { it.sku to it.qty }
+            productionOps=dao.productionOps().map { op ->
+                val meta = receiptLinesByOp[op.opId]
+                op.toProto(
+                    rateRub = meta?.rateRub ?: 0,
+                    amountRub = meta?.amountRub ?: 0,
+                    documentId = meta?.documentId.orEmpty()
+                )
+            },
+            cart=dao.cart().associate { it.sku to it.qty },
+            assemblers=dao.assemblers().map { SansaraAssembler(it.id,it.name,it.enabled) },
+            productionRates=rates
         )
     }
 
@@ -412,6 +575,106 @@ class SansaraRepository private constructor(
             .mapNotNull { it.id.removePrefix("S-").toIntOrNull() }
             .maxOrNull() ?: 2383
         return "S-" + (max + 1).toString().padStart(6, '0')
+    }
+
+    suspend fun saveAssembler(id:String?, name:String): SansaraAssembler {
+        val clean=name.trim()
+        require(clean.isNotBlank()) { "Имя сборщицы не заполнено" }
+        val entity=AssemblerEntity(
+            id ?: ("ASM-"+java.util.UUID.randomUUID().toString().replace("-","").take(8).uppercase()),
+            clean,
+            true
+        )
+        dao.putAssemblers(listOf(entity))
+        return SansaraAssembler(entity.id,entity.name,entity.enabled)
+    }
+
+    suspend fun setAssemblerEnabled(id:String,enabled:Boolean) {
+        dao.setAssemblerEnabled(id,enabled)
+    }
+
+    suspend fun setProductionRate(sku:String,rateRub:Int) {
+        dao.putProductionRates(listOf(ProductionRateEntity(sku,rateRub.coerceAtLeast(0))))
+    }
+
+    suspend fun postProductionReceipt(
+        date:String,
+        userId:String,
+        lines:List<ProductionPostingLine>
+    ): ProductionReceiptResult {
+        require(lines.isNotEmpty()) { "Выпуск пуст" }
+        val documentId="PR-"+java.util.UUID.randomUUID().toString().replace("-","").take(10).uppercase()
+        val time=java.time.LocalTime.now().format(DateTimeFormatter.ofPattern("HH:mm"))
+        val receiptLines=mutableListOf<ProductionReceiptLineEntity>()
+        val ops=mutableListOf<ProductionOpEntity>()
+        val productsToUpdate=mutableListOf<ProductEntity>()
+        db.withTransaction {
+            lines.forEach { line ->
+                require(line.qty>0) { "Количество должно быть больше нуля" }
+                val product=dao.productBySku(line.sku) ?: error("Товар " + line.sku + " не найден")
+                val physical=product.physicalOverride ?: product.stock
+                productsToUpdate += product.copy(physicalOverride=physical+line.qty,updatedAt=System.currentTimeMillis())
+                val opId="OP-"+java.util.UUID.randomUUID().toString().replace("-","").take(10).uppercase()
+                ops += ProductionOpEntity(opId,date,time,line.sku,line.name,line.qty,line.assemblerName,userId,"Проведен")
+                receiptLines += ProductionReceiptLineEntity(
+                    lineId="RL-"+java.util.UUID.randomUUID().toString().replace("-","").take(10).uppercase(),
+                    documentId=documentId,
+                    opId=opId,
+                    sku=line.sku,
+                    name=line.name,
+                    assemblerId=line.assemblerId,
+                    assemblerName=line.assemblerName,
+                    qty=line.qty,
+                    rateRub=line.rateRub.coerceAtLeast(0),
+                    amountRub=line.qty*line.rateRub.coerceAtLeast(0)
+                )
+                dao.putProductionRates(listOf(ProductionRateEntity(line.sku,line.rateRub.coerceAtLeast(0))))
+            }
+            dao.putProducts(productsToUpdate)
+            dao.putProductionOps(ops)
+            dao.putProductionReceiptLines(receiptLines)
+            dao.putProductionReceipts(
+                listOf(
+                    ProductionReceiptEntity(
+                        documentId=documentId,
+                        date=date,
+                        time=time,
+                        userId=userId,
+                        totalQty=receiptLines.sumOf { it.qty },
+                        totalAmount=receiptLines.sumOf { it.amountRub }
+                    )
+                )
+            )
+        }
+        return ProductionReceiptResult(documentId,receiptLines.sumOf { it.qty },receiptLines.sumOf { it.amountRub })
+    }
+
+    suspend fun adjustStock(sku:String,qtyDelta:Int,reason:String,userId:String) {
+        require(qtyDelta!=0) { "Корректировка равна нулю" }
+        require(reason.trim().isNotBlank()) { "Укажите причину" }
+        db.withTransaction {
+            val product=dao.productBySku(sku) ?: error("Товар не найден")
+            val physical=product.physicalOverride ?: product.stock
+            dao.putProducts(
+                listOf(
+                    product.copy(
+                        physicalOverride=(physical+qtyDelta).coerceAtLeast(0),
+                        updatedAt=System.currentTimeMillis()
+                    )
+                )
+            )
+            dao.putStockAdjustments(
+                listOf(
+                    StockAdjustmentEntity(
+                        adjustmentId="ADJ-"+java.util.UUID.randomUUID().toString().replace("-","").take(10).uppercase(),
+                        sku=sku,
+                        qtyDelta=qtyDelta,
+                        reason=reason.trim(),
+                        userId=userId
+                    )
+                )
+            )
+        }
     }
 
     suspend fun authenticate(code: String): SansaraSession? {
@@ -595,4 +858,8 @@ private fun OrderEntity.toProto():ProtoOrder {
 }
 
 private fun ProtoProductionOp.toEntity(id:String)=ProductionOpEntity(id,date,time,sku,name,qty,assembler,postedBy,status)
-private fun ProductionOpEntity.toProto()=ProtoProductionOp(date,time,sku,name,qty,assembler,postedBy,status)
+private fun ProductionOpEntity.toProto(
+    rateRub:Int=0,
+    amountRub:Int=0,
+    documentId:String=""
+)=ProtoProductionOp(date,time,sku,name,qty,assembler,postedBy,status,rateRub,amountRub,documentId)
