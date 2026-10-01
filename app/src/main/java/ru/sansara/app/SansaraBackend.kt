@@ -16,7 +16,7 @@ data class BackendPostResult(val ok: Boolean, val message: String)
 object SansaraBackend {
     suspend fun postEvent(baseUrl: String, event: String, payload: Map<String, Any?>): BackendPostResult = withContext(Dispatchers.IO) {
         if (baseUrl.isBlank()) return@withContext BackendPostResult(false, "Backend API не настроен")
-        require(baseUrl.startsWith("https://") || baseUrl.startsWith("http://")) { "Некорректный BACKEND_API_URL" }
+        if (!baseUrl.startsWith("https://") && !baseUrl.startsWith("http://")) return@withContext BackendPostResult(false, "Некорректный BACKEND_API_URL")
 
         val action = when (event) {
             "registration" -> "registerClient"
