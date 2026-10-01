@@ -1248,19 +1248,172 @@ fun SansaraVisualPrototype() {
             ProtoScreen.ReserveList -> ProtoReserveListScreen(orders, onBack = { back() })
             ProtoScreen.NewClients -> ProtoNewClientsScreen(clients, onBack = { back() }, onOpen = { selectedClientId = it.id; go(ProtoScreen.AdminClient) })
             ProtoScreen.Export -> ProtoExportScreen(onBack = { back() }, onExport = { report -> protoExportCsv(context, report, products, stockOverrides, orders, clients, productionOps, reservedForSku = { reservedForSku(it) }, toast = { toast(it) }) })
-            ProtoScreen.AgentClients,
-            ProtoScreen.AgentClientDetail,
-            ProtoScreen.RetailHome,
-            ProtoScreen.RetailCatalog,
-            ProtoScreen.RetailFilter,
-            ProtoScreen.RetailProductList,
-            ProtoScreen.RetailProductDetail,
-            ProtoScreen.RetailCart,
-            ProtoScreen.RetailCheckout,
+            ProtoScreen.AgentClients -> {
+                val ownerId=currentClient().id
+                ProtoAgentClientsScreen(
+                    customers=agentCustomers.filter{it.ownerClientId==ownerId},
+                    settings=ownerAgentSettings(ownerId),
+                    onBack={back()},
+                    onSaveSettings={enabled,pct->
+                        scope.launch {
+                            runCatching{repository.saveAgentSettings(ownerId,enabled,pct)}
+                                .onSuccess{refreshAgentData();toast("Настройки наценки сохранены")}
+                                .onFailure{toast(it.message?:"Ошибка сохранения")}
+                        }
+                    },
+                    onAdd={name,phone,email,city,address,comment->
+                        scope.launch {
+                            runCatching{repository.saveAgentCustomer(null,ownerId,name,phone,email,city,address,comment)}
+                                .onSuccess{customer->selectedAgentCustomerId=customer.id;refreshAgentData();toast("Клиент сохранён")}
+                                .onFailure{toast(it.message?:"Ошибка сохранения")}
+                        }
+                    },
+                    onOpen={customer->selectedAgentCustomerId=customer.id;go(ProtoScreen.AgentClientDetail)}
+                )
+            }
+            ProtoScreen.AgentClientDetail -> {
+                val ownerId=currentClient().id
+                val customer=agentCustomers.firstOrNull{it.id==selectedAgentCustomerId}
+                ProtoAgentClientDetailScreen(
+                    customer=customer,
+                    markups=agentMarkups.filter{it.customerId==selectedAgentCustomerId},
+                    reminders=agentReminders.filter{it.customerId==selectedAgentCustomerId},
+                    onBack={back()},
+                    onSaveComment={comment->
+                        val c=customer ?: return@ProtoAgentClientDetailScreen
+                        scope.launch {
+                            runCatching{repository.saveAgentCustomer(c.id,c.ownerClientId,c.fullName,c.phone,c.email,c.city,c.address,comment)}
+                                .onSuccess{refreshAgentData();toast("Комментарий сохранён")}
+                                .onFailure{toast(it.message?:"Ошибка сохранения")}
+                        }
+                    },
+                    onMarkup={category,pct->
+                        val c=customer ?: return@ProtoAgentClientDetailScreen
+                        scope.launch {
+                            runCatching{repository.setAgentCustomerMarkup(c.id,c.ownerClientId,category,pct)}
+                                .onSuccess{refreshAgentData()}
+                                .onFailure{toast(it.message?:"Ошибка наценки")}
+                        }
+                    },
+                    onReminder={epoch,note->
+                        val c=customer ?: return@ProtoAgentClientDetailScreen
+                        scope.launch {
+                            runCatching{repository.saveAgentReminder(c.ownerClientId,c.id,c.fullName,epoch,note)}
+                                .onSuccess{reminder->SansaraReminderScheduler.schedule(context,reminder);refreshAgentData();toast("Напоминание установлено")}
+                                .onFailure{toast(it.message?:"Ошибка напоминания")}
+                        }
+                    },
+                    onRetail={
+                        if(customer==null)toast("Клиент не выбран")
+                        else{retailCart.clear();retailSelectedProduct=null;history.add(screen);screen=ProtoScreen.RetailHome}
+                    }
+                )
+            }
+            ProtoScreen.RetailHome -> {
+                val ownerId=currentClient().id
+                val customer=agentCustomers.firstOrNull{it.id==selectedAgentCustomerId}
+                val retail=retailProducts(ownerId,customer?.id.orEmpty())
+                val retailClient=ProtoClient(customer?.id?:"RETAIL",customer?.fullName?:"Частный клиент",customer?.fullName.orEmpty(),customer?.phone.orEmpty(),"Активный",0,0,0,"",false,"сейчас",email=customer?.email.orEmpty(),city=customer?.city.orEmpty(),address=customer?.address.orEmpty(),firstName=customer?.fullName?.substringBefore(" ").orEmpty().ifBlank{"Клиент"})
+                ProtoClientHomeScreen(
+                    client=retailClient,products=retail,stockOverrides=stockOverrides,
+                    availableStock={rp->products.firstOrNull{it.sku==rp.sku}?.let{availableStock(it)}?:0},
+                    cartCount=retailCart.size,query=searchQuery,onQuery={searchQuery=it},onSearch={resetFilters();go(ProtoScreen.RetailProductList)},
+                    unreadCount=0,onNotifications={},onAvailability={st->if(st=="Все")resetFilters() else resetFilters(availability=st);go(ProtoScreen.RetailProductList)},
+                    onCategory={type->if(type!="Венки")toast("Раздел «$type» в разработке") else{resetFilters(type="Венки");go(ProtoScreen.RetailFilter)}},
+                    onOpenProduct={p->retailSelectedProduct=p;retailDetailQty=1;go(ProtoScreen.RetailProductDetail)},
+                    onCart={go(ProtoScreen.RetailCart)},onOrders={},onProfile={},onCatalog={go(ProtoScreen.RetailCatalog)},
+                    onSeeAll={searchQuery="";resetFilters();go(ProtoScreen.RetailProductList)},retailMode=true,onRetailExit={history.clear();screen=ProtoScreen.AgentClientDetail}
+                )
+            }
+            ProtoScreen.RetailCatalog -> ProtoCatalogHomeScreen(
+                cartCount=retailCart.size,onBack={back()},onSearch={q->searchQuery=q;resetFilters();go(ProtoScreen.RetailProductList)},
+                onCategory={type->if(type!="Венки")toast("Раздел «$type» в разработке") else{resetFilters(type="Венки");go(ProtoScreen.RetailFilter)}},
+                onAvailability={st->searchQuery="";if(st=="Все")resetFilters() else resetFilters(availability=st);go(ProtoScreen.RetailProductList)},
+                onHome={history.clear();screen=ProtoScreen.RetailHome},onCart={go(ProtoScreen.RetailCart)},onOrders={},onProfile={},
+                retailMode=true,onRetailExit={history.clear();screen=ProtoScreen.AgentClientDetail}
+            )
+            ProtoScreen.RetailFilter -> {
+                val ownerId=currentClient().id
+                val customerId=selectedAgentCustomerId.orEmpty()
+                val retail=retailProducts(ownerId,customerId)
+                ProtoFilterScreen(
+                    products=retail.filter{it.type=="Венки"},selectedTypes=selectedTypes,selectedQualities=selectedQualities,selectedSizes=selectedSizes,
+                    selectedAvailability=selectedAvailability,minPrice=minPriceFilter,maxPrice=maxPriceFilter,
+                    availableStock={rp->products.firstOrNull{it.sku==rp.sku}?.let{availableStock(it)}?:0},
+                    onApply={types,qualities,sizes,availability,minPrice,maxPrice->selectedTypes=types;selectedQualities=qualities;selectedSizes=sizes;selectedAvailability=availability;minPriceFilter=minPrice;maxPriceFilter=maxPrice;searchQuery="";go(ProtoScreen.RetailProductList)},
+                    onBack={back()}
+                )
+            }
+            ProtoScreen.RetailProductList -> {
+                val ownerId=currentClient().id
+                val customerId=selectedAgentCustomerId.orEmpty()
+                val retail=retailProducts(ownerId,customerId)
+                val filtered=retail.filter{p->
+                    (searchQuery.isBlank()||p.sku.contains(searchQuery,true)||p.name.contains(searchQuery,true)) &&
+                    (selectedTypes.isEmpty()||p.type in selectedTypes) &&
+                    (selectedQualities.isEmpty()||p.quality=="—"||p.quality in selectedQualities) &&
+                    (selectedSizes.isEmpty()||p.size in selectedSizes) &&
+                    (selectedAvailability.isEmpty()||(if((products.firstOrNull{it.sku==p.sku}?.let{availableStock(it)}?:0)>0)"В наличии" else "Под заказ") in selectedAvailability) &&
+                    (minPriceFilter==null||p.price>=minPriceFilter!!) && (maxPriceFilter==null||p.price<=maxPriceFilter!!)
+                }
+                ProtoProductListScreen(
+                    products=filtered,cart=retailCart,stockOverrides=stockOverrides,
+                    availableStock={rp->products.firstOrNull{it.sku==rp.sku}?.let{availableStock(it)}?:0},discount=0,
+                    initialIndex=productListIndex,initialOffset=productListOffset,onBack={back()},onOpenFilter={go(ProtoScreen.RetailFilter)},
+                    onOpenProduct={p,index,offset->productListIndex=index;productListOffset=offset;retailSelectedProduct=p;retailDetailQty=retailCart[p.sku]?:1;go(ProtoScreen.RetailProductDetail)},
+                    onHome={history.clear();screen=ProtoScreen.RetailHome},onCatalog={go(ProtoScreen.RetailCatalog)},onCart={go(ProtoScreen.RetailCart)},onOrders={},onProfile={},
+                    retailMode=true,onRetailExit={history.clear();screen=ProtoScreen.AgentClientDetail}
+                )
+            }
+            ProtoScreen.RetailProductDetail -> {
+                val p=retailSelectedProduct
+                ProtoProductDetailScreen(
+                    product=p,currentStock=p?.let{rp->products.firstOrNull{it.sku==rp.sku}?.let{availableStock(it)}?:0}?:0,qty=retailDetailQty,discount=0,cartCount=retailCart.size,editingCart=p?.sku?.let{retailCart.containsKey(it)}==true,
+                    onBack={back()},onMinus={retailDetailQty=(retailDetailQty-1).coerceAtLeast(1)},onPlus={retailDetailQty+=1},
+                    onAdd={p?.let{retailCart[it.sku]=retailDetailQty};back()},onHome={history.clear();screen=ProtoScreen.RetailHome},onCatalog={go(ProtoScreen.RetailCatalog)},onCart={go(ProtoScreen.RetailCart)},onOrders={},onProfile={},
+                    retailMode=true,onRetailExit={history.clear();screen=ProtoScreen.AgentClientDetail}
+                )
+            }
+            ProtoScreen.RetailCart -> {
+                val ownerId=currentClient().id
+                val customerId=selectedAgentCustomerId.orEmpty()
+                val retail=retailProducts(ownerId,customerId)
+                ProtoCartScreen(
+                    products=retail,cart=retailCart,discount=0,availableStock={rp->products.firstOrNull{it.sku==rp.sku}?.let{availableStock(it)}?:0},
+                    onBack={back()},onPlus={p->retailCart[p.sku]=(retailCart[p.sku]?:0)+1},onMinus={p->val n=(retailCart[p.sku]?:1)-1;if(n<=0)retailCart.remove(p.sku)else retailCart[p.sku]=n},
+                    onDelete={retailCart.remove(it.sku)},onOpenProduct={p->retailSelectedProduct=p;retailDetailQty=retailCart[p.sku]?:1;go(ProtoScreen.RetailProductDetail)},onCheckout={go(ProtoScreen.RetailCheckout)},
+                    onHome={history.clear();screen=ProtoScreen.RetailHome},onCatalog={go(ProtoScreen.RetailCatalog)},onOrders={},onProfile={},retailMode=true,onRetailExit={history.clear();screen=ProtoScreen.AgentClientDetail}
+                )
+            }
+            ProtoScreen.RetailCheckout -> {
+                val ownerId=currentClient().id
+                val customer=agentCustomers.firstOrNull{it.id==selectedAgentCustomerId}
+                val retail=retailProducts(ownerId,customer?.id.orEmpty())
+                val baseTotal=retailCart.entries.sumOf{(sku,q)->retail.firstOrNull{it.sku==sku}?.price?.times(q)?:0}
+                val totalPieces=retailCart.values.sum()
+                val shortages=retailCart.mapNotNull{(sku,qty)->retail.firstOrNull{it.sku==sku}?.let{rp->val available=products.firstOrNull{it.sku==sku}?.let{availableStock(it)}?:0;if(qty>available)"${rp.sku}: ${qty-available} шт." else null}}
+                val maxDays=retailCart.keys.mapNotNull{sku->retail.firstOrNull{it.sku==sku}?.productionDays}.maxOrNull()?:0
+                val contact=SansaraCompanyContact(customer?.id?:"RETAIL",customer?.fullName?:"Частный клиент",customer?.phone.orEmpty(),customer?.email.orEmpty())
+                ProtoCheckoutScreen(
+                    cartPositions=retailCart.size,totalPieces=totalPieces,baseTotal=baseTotal,finalTotal=baseTotal,discount=0,defaultAddress=customer?.address.orEmpty(),contacts=listOf(contact),
+                    clientStatus="Режим «Для клиентов»",earliestDate=LocalDate.now().plusDays(maxDays.toLong()),shortages=shortages,onBack={back()},
+                    onSubmit={method,address,comment,recipient,phone,date,time->
+                        scope.launch {
+                            val id=repository.nextOrderId()
+                            val lines=retailCart.mapNotNull{(sku,q)->retail.firstOrNull{it.sku==sku}?.let{ProtoOrderLine(it.sku,it.name,q,it.price,0)}}
+                            val order=ProtoOrder(id,currentClient().name+" / "+(customer?.fullName?:"Частный клиент"),LocalDateTime.now().format(DateTimeFormatter.ofPattern("dd.MM.yyyy HH:mm")),lines,"Получен",deliveryMethod=method,deliveryAddress=address,comment=comment,recipient=recipient,contactPhone=phone,deliveryDate=date,deliveryTime=time)
+                            orders.add(0,order);retailLastTotal=order.total;retailCart.clear();persistAll();sendOrderEvent(order)
+                            addNotification("ADMIN","", "Новый заказ "+order.id, order.clientName+" · "+protoMoney(order.total))
+                            history.clear();screen=ProtoScreen.RetailOrderSent
+                        }
+                    },
+                    onHome={history.clear();screen=ProtoScreen.RetailHome},onCatalog={go(ProtoScreen.RetailCatalog)},onCart={go(ProtoScreen.RetailCart)},onOrders={},onProfile={},retailMode=true,onRetailExit={history.clear();screen=ProtoScreen.AgentClientDetail}
+                )
+            }
             ProtoScreen.RetailOrderSent -> ProtoSimpleMessageScreen(
-                "Для клиентов",
-                "Раздел подключается к сохранённым клиентам агента и общей базе товаров.",
-                onBack = { back() }
+                "Заказ отправлен",
+                "Заказ на "+protoMoney(retailLastTotal)+" передан администратору. Закупочные цены клиенту не показываются.",
+                onBack={history.clear();screen=ProtoScreen.AgentClientDetail}
             )
         }
 
@@ -1288,6 +1441,7 @@ fun SansaraVisualPrototype() {
                     showClientMenu=false
                     if(currentClient().status=="Приостановлен") go(ProtoScreen.Suspended) else go(ProtoScreen.Profile)
                 },
+                onCustomers = { showClientMenu=false; refreshAgentData(); go(ProtoScreen.AgentClients) },
                 onReports = { showClientMenu=false; go(ProtoScreen.ClientReports) },
                 onSettings = { showClientMenu=false; go(ProtoScreen.ClientSettings) }
             )
@@ -2548,6 +2702,7 @@ private fun ProtoClientMenuOverlay(
     onDismiss:()->Unit,
     onChat:()->Unit,
     onProfile:()->Unit,
+    onCustomers:()->Unit,
     onReports:()->Unit,
     onSettings:()->Unit
 ){
@@ -2566,6 +2721,7 @@ private fun ProtoClientMenuOverlay(
                 listOf(
                     Triple("Чат с менеджером",Icons.Outlined.ChatBubbleOutline,onChat),
                     Triple("Профиль",Icons.Outlined.Person,onProfile),
+                    Triple("Для клиентов",Icons.Outlined.Storefront,onCustomers),
                     Triple("Формирование отчётности",Icons.Outlined.Assessment,onReports),
                     Triple("Настройки",Icons.Outlined.Settings,onSettings)
                 ).forEach { (title,icon,action) ->
@@ -2612,6 +2768,115 @@ private fun ProtoClientSettingsScreen(notificationsEnabled:Boolean,onNotificatio
         item{ProtoSectionCard{ProtoInfoRow("Версия",BuildConfig.VERSION_NAME);ProtoInfoRow("Режим","Клиент")}}
     }
 }
+
+@Composable
+private fun ProtoAgentClientsScreen(
+    customers:List<SansaraAgentCustomer>,
+    settings:SansaraAgentSettings,
+    onBack:()->Unit,
+    onSaveSettings:(Boolean,Int)->Unit,
+    onAdd:(String,String,String,String,String,String)->Unit,
+    onOpen:(SansaraAgentCustomer)->Unit
+){
+    var enabled by remember(settings.ownerClientId,settings.generalMarkupEnabled){mutableStateOf(settings.generalMarkupEnabled)}
+    var pctText by remember(settings.ownerClientId,settings.generalMarkupPct){mutableStateOf(settings.generalMarkupPct.toString())}
+    var showAdd by remember{mutableStateOf(false)}
+    ProtoScaffold("Для клиентов","Частные клиенты и розничная наценка",onBack){
+        item{
+            ProtoSectionCard{
+                ProtoSwitchRow("Общая наценка",enabled){enabled=it}
+                ProtoField(pctText,{pctText=it.filter(Char::isDigit).take(3)},"Наценка, %",KeyboardType.Number)
+                ProtoPrimaryButton("Сохранить наценку",{onSaveSettings(enabled,pctText.toIntOrNull()?:0)})
+            }
+        }
+        item{ProtoPrimaryButton("Добавить частного клиента",{showAdd=true})}
+        if(customers.isEmpty())item{ProtoSectionCard{Text("Частных клиентов пока нет",color=ProtoMuted)}}
+        items(customers,key={it.id}){c->
+            ProtoSectionCard(Modifier.clickable{onOpen(c)}){
+                Row(verticalAlignment=Alignment.CenterVertically){
+                    Box(Modifier.size(44.dp).background(ProtoPanel2,CircleShape),contentAlignment=Alignment.Center){Text(c.fullName.take(1).uppercase(),color=ProtoGold,fontWeight=FontWeight.Bold)}
+                    Spacer(Modifier.width(10.dp))
+                    Column(Modifier.weight(1f)){Text(c.fullName,color=ProtoText,fontWeight=FontWeight.Bold);Text(c.phone,color=ProtoMuted,fontSize=11.sp);if(c.comment.isNotBlank())Text(c.comment,color=ProtoGoldSoft,fontSize=10.sp,maxLines=1,overflow=TextOverflow.Ellipsis)}
+                    Icon(Icons.Outlined.ChevronRight,null,tint=ProtoGold)
+                }
+            }
+        }
+    }
+    if(showAdd)ProtoAgentCustomerDialog(onDismiss={showAdd=false},onSave={n,p,e,c,a,comment->onAdd(n,p,e,c,a,comment);showAdd=false})
+}
+
+@Composable
+private fun ProtoAgentCustomerDialog(onDismiss:()->Unit,onSave:(String,String,String,String,String,String)->Unit){
+    var name by remember{mutableStateOf("")};var phone by remember{mutableStateOf("")};var email by remember{mutableStateOf("")};var city by remember{mutableStateOf("")};var address by remember{mutableStateOf("")};var comment by remember{mutableStateOf("")}
+    Dialog(onDismissRequest=onDismiss){
+        Surface(color=ProtoPanel,shape=RoundedCornerShape(20.dp),border=BorderStroke(1.dp,ProtoBorder)){
+            Column(Modifier.padding(16.dp).heightIn(max=620.dp)){
+                Row(verticalAlignment=Alignment.CenterVertically){Text("Новый частный клиент",color=ProtoText,fontSize=20.sp,fontWeight=FontWeight.Bold,modifier=Modifier.weight(1f));IconButton(onClick=onDismiss){Icon(Icons.Outlined.Close,null,tint=ProtoGold)}}
+                LazyColumn(Modifier.weight(1f,false)){
+                    item{ProtoField(name,{name=it},"ФИО")}
+                    item{ProtoField(phone,{phone=it},"Телефон",KeyboardType.Phone)}
+                    item{ProtoField(email,{email=it},"E-mail",KeyboardType.Email)}
+                    item{ProtoField(city,{city=it},"Город")}
+                    item{ProtoField(address,{address=it},"Адрес")}
+                    item{OutlinedTextField(value=comment,onValueChange={comment=it},label={Text("Комментарий")},modifier=Modifier.fillMaxWidth().padding(vertical=4.dp),minLines=2,maxLines=4,colors=protoFieldColors())}
+                }
+                Spacer(Modifier.height(8.dp))
+                ProtoPrimaryButton("Сохранить",{onSave(name,phone,email,city,address,comment)},name.isNotBlank()&&phone.isNotBlank())
+            }
+        }
+    }
+}
+
+@Composable
+private fun ProtoAgentClientDetailScreen(
+    customer:SansaraAgentCustomer?,
+    markups:List<SansaraAgentMarkup>,
+    reminders:List<SansaraAgentReminder>,
+    onBack:()->Unit,
+    onSaveComment:(String)->Unit,
+    onMarkup:(String,Int)->Unit,
+    onReminder:(Long,String)->Unit,
+    onRetail:()->Unit
+){
+    val c=customer
+    if(c==null){ProtoSimpleMessageScreen("Клиент","Клиент не найден",onBack);return}
+    var comment by remember(c.id,c.comment){mutableStateOf(c.comment)}
+    var reminderText by remember{mutableStateOf(LocalDateTime.now().plusHours(2).format(DateTimeFormatter.ofPattern("dd.MM.yyyy HH:mm")))}
+    var reminderNote by remember{mutableStateOf("")}
+    val categories=listOf("Венки","Гробы","Кресты","Ленты","Одежда")
+    ProtoScaffold(c.fullName,"Карточка частного клиента",onBack){
+        item{ProtoSectionCard{ProtoInfoRow("Телефон",c.phone);if(c.email.isNotBlank())ProtoInfoRow("E-mail",c.email);if(c.city.isNotBlank())ProtoInfoRow("Город",c.city);if(c.address.isNotBlank())ProtoInfoRow("Адрес",c.address)}}
+        item{OutlinedTextField(value=comment,onValueChange={comment=it},label={Text("Комментарий")},modifier=Modifier.fillMaxWidth(),minLines=3,maxLines=5,colors=protoFieldColors());Spacer(Modifier.height(8.dp));ProtoPrimaryButton("Сохранить комментарий",{onSaveComment(comment)})}
+        item{Text("Индивидуальная наценка",color=ProtoText,fontSize=19.sp,fontWeight=FontWeight.Bold)}
+        items(categories){category->
+            var value by remember(c.id,category,markups){mutableStateOf((markups.firstOrNull{it.category==category}?.markupPct?:0).toString())}
+            ProtoSectionCard{
+                Text(category,color=ProtoGoldSoft,fontWeight=FontWeight.SemiBold)
+                Row(verticalAlignment=Alignment.CenterVertically){
+                    OutlinedTextField(value=value,onValueChange={value=it.filter(Char::isDigit).take(3)},label={Text("%")},singleLine=true,modifier=Modifier.weight(1f),keyboardOptions=KeyboardOptions(keyboardType=KeyboardType.Number),colors=protoFieldColors())
+                    Spacer(Modifier.width(10.dp))
+                    Button(onClick={onMarkup(category,value.toIntOrNull()?:0)},colors=ButtonDefaults.buttonColors(containerColor=ProtoGold)){Text("Сохранить",color=Color.Black)}
+                }
+            }
+        }
+        item{Text("Напоминание",color=ProtoText,fontSize=19.sp,fontWeight=FontWeight.Bold)}
+        item{
+            ProtoSectionCard{
+                ProtoField(reminderText,{reminderText=it},"Дата и время · ДД.ММ.ГГГГ ЧЧ:ММ")
+                ProtoField(reminderNote,{reminderNote=it},"Текст напоминания")
+                ProtoPrimaryButton("Установить напоминание",{
+                    val dt=runCatching{LocalDateTime.parse(reminderText,DateTimeFormatter.ofPattern("dd.MM.yyyy HH:mm"))}.getOrNull()
+                    if(dt!=null)onReminder(dt.atZone(java.time.ZoneId.systemDefault()).toInstant().toEpochMilli(),reminderNote)
+                })
+                reminders.filter{it.active}.take(3).forEach{r->Text("• "+protoReminderTime(r.remindAtEpochMs)+" · "+r.note,color=ProtoMuted,fontSize=10.sp,modifier=Modifier.padding(top=4.dp))}
+            }
+        }
+        item{ProtoPrimaryButton("Открыть режим «Для клиентов»",onRetail)}
+    }
+}
+
+private fun protoReminderTime(epoch:Long):String=
+    Instant.ofEpochMilli(epoch).atZone(java.time.ZoneId.systemDefault()).toLocalDateTime().format(DateTimeFormatter.ofPattern("dd.MM.yyyy HH:mm"))
 
 @Composable
 private fun ProtoAdminChatsScreen(
