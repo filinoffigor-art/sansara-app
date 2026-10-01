@@ -993,6 +993,8 @@ fun SansaraVisualPrototype() {
                 onProduction = { go(ProtoScreen.Production) }, onStock = { go(ProtoScreen.Server) }, onCatalog = { go(ProtoScreen.AdminCatalog) }, onSettings = { go(ProtoScreen.AdminSettings) },
                 onAttention = { go(ProtoScreen.AdminAttention) }, onOnline = { go(ProtoScreen.OnlineController) }, onLowStock = { go(ProtoScreen.LowStockList) },
                 onChats = { go(ProtoScreen.AdminChats) },
+                onWorkshop = { refreshOperationsData(); go(ProtoScreen.AdminWorkshop) },
+                onReports = { refreshOperationsData(); go(ProtoScreen.AdminReports) },
                 unreadCount = notifications.count { it.audienceRole == "ADMIN" && !it.read },
                 onNotifications = { go(ProtoScreen.AdminNotifications) }
             )
@@ -1044,7 +1046,8 @@ fun SansaraVisualPrototype() {
                 onOpen = { client ->
                     selectedChatClientId = client.id
                     go(ProtoScreen.AdminChat)
-                }
+                },
+                onProduction = { go(ProtoScreen.AdminProductionChat) }
             )
             ProtoScreen.AdminChat -> {
                 val client = clients.firstOrNull { it.id == selectedChatClientId }
@@ -1059,6 +1062,18 @@ fun SansaraVisualPrototype() {
                     onSend = { body, uri, name, mime ->
                         sendChat(conversationId,"ADMIN",session?.userId ?: "U-ADMIN",body,uri,name,mime)
                     }
+                )
+            }
+            ProtoScreen.AdminProductionChat -> {
+                val conversationId="STAFF:ADMIN_PRODUCTION"
+                ProtoChatScreen(
+                    title="Производство",
+                    subtitle="Чат администратора с цехом",
+                    messages=chatMessages.filter{it.conversationId==conversationId},
+                    currentRole="ADMIN",
+                    onBack={back()},
+                    onRead={markChatRead(conversationId,"ADMIN")},
+                    onSend={body,uri,name,mime->sendChat(conversationId,"ADMIN",session?.userId?:"U-ADMIN",body,uri,name,mime)}
                 )
             }
             ProtoScreen.AdminNotifications -> ProtoNotificationsScreen(
@@ -1087,6 +1102,10 @@ fun SansaraVisualPrototype() {
                     when (section) {
                         "Клиенты" -> go(ProtoScreen.AdminClients)
                         "Сборщицы" -> go(ProtoScreen.AdminAssemblers)
+                        "Администраторы" -> { refreshOperationsData(); go(ProtoScreen.AdminAdmins) }
+                        "Задание в цех" -> { refreshOperationsData(); go(ProtoScreen.AdminWorkshop) }
+                        "Табель рабочего времени" -> { refreshOperationsData(); go(ProtoScreen.AdminAttendance) }
+                        "Отчёты" -> { refreshOperationsData(); go(ProtoScreen.AdminReports) }
                         "Экспорт данных" -> go(ProtoScreen.Export)
                         else -> { settingsSection = section; go(ProtoScreen.AdminSettingsDetail) }
                     }
@@ -1134,6 +1153,67 @@ fun SansaraVisualPrototype() {
                     scope.launch {
                         repository.setAssemblerEnabled(assembler.id,!assembler.enabled)
                         applySnapshot(repository.snapshot())
+                    }
+                }
+            )
+
+            ProtoScreen.AdminAdmins -> ProtoAdminAccountsScreen(
+                admins=adminAccounts,
+                currentUserId=session?.userId.orEmpty(),
+                onBack={back()},
+                onAdd={name->
+                    scope.launch {
+                        runCatching{repository.addAdmin(name,session?.userId?:"")}
+                            .onSuccess{refreshOperationsData();toast("Администратор добавлен под общим паролем")}
+                            .onFailure{toast(it.message?:"Ошибка")}
+                    }
+                },
+                onToggle={admin->
+                    scope.launch {
+                        runCatching{repository.setAdminEnabled(admin.userId,!admin.enabled,session?.userId?:"")}
+                            .onSuccess{refreshOperationsData()}
+                            .onFailure{toast(it.message?:"Ошибка")}
+                    }
+                }
+            )
+            ProtoScreen.AdminWorkshop -> ProtoWorkshopTasksScreen(
+                tasks=workshopTasks,
+                productionMode=false,
+                onBack={back()},
+                onCreate={date,linesJson,comment,commentOnly->
+                    scope.launch {
+                        runCatching{repository.createWorkshopTask(date,linesJson,comment,commentOnly,session?.userId?:"U-ADMIN")}
+                            .onSuccess{task->refreshOperationsData();addNotification("PRODUCTION","", "Задание получено", task.id+" · "+task.taskDate);toast("Задание отправлено в цех")}
+                            .onFailure{toast(it.message?:"Ошибка")}
+                    }
+                },
+                onFact={_,_,_->}
+            )
+            ProtoScreen.AdminAttendance -> ProtoAttendanceScreen(
+                selectedDate=selectedProductionDate,
+                assemblers=assemblers,
+                rows=attendanceRows,
+                editable=true,
+                onBack={back()},
+                onDate={selectedProductionDate=it;refreshOperationsData()},
+                onSave={person,status,comment->
+                    scope.launch {
+                        repository.saveAttendance(selectedProductionDate.format(DateTimeFormatter.ofPattern("dd.MM.yyyy")),person.id,person.name,status,comment)
+                        refreshOperationsData()
+                    }
+                }
+            )
+            ProtoScreen.AdminReports -> ProtoAdminReportsScreen(
+                tasks=workshopTasks,
+                attendance=attendanceRows,
+                presence=presenceSessions,
+                productionOps=productionOps,
+                dailyStatus=adminDailyStatus,
+                onBack={back()},
+                onDailyStatus={dayOff,reason->
+                    scope.launch {
+                        repository.saveAdminDailyStatus(currentDateShort(),dayOff,reason)
+                        refreshOperationsData()
                     }
                 }
             )
