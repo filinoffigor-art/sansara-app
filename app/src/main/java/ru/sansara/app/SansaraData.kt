@@ -173,6 +173,20 @@ data class StockAdjustmentEntity(
     val createdAt: Long = System.currentTimeMillis()
 )
 
+@Entity(tableName = "chat_messages")
+data class ChatMessageEntity(
+    @PrimaryKey val id: String,
+    val conversationId: String,
+    val senderRole: String,
+    val senderId: String,
+    val body: String,
+    val attachmentUri: String,
+    val attachmentName: String,
+    val attachmentMime: String,
+    val createdAt: Long,
+    val read: Boolean = false
+)
+
 @Dao
 interface SansaraDao {
     @Query("SELECT COUNT(*) FROM products")
@@ -225,6 +239,18 @@ interface SansaraDao {
 
     @Query("SELECT * FROM products WHERE sku = :sku LIMIT 1")
     suspend fun productBySku(sku: String): ProductEntity?
+
+    @Query("SELECT * FROM chat_messages ORDER BY createdAt ASC")
+    suspend fun chatMessages(): List<ChatMessageEntity>
+
+    @Query("SELECT * FROM chat_messages WHERE conversationId = :conversationId ORDER BY createdAt ASC")
+    suspend fun chatMessages(conversationId: String): List<ChatMessageEntity>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun putChatMessages(items: List<ChatMessageEntity>)
+
+    @Query("UPDATE chat_messages SET read = 1 WHERE conversationId = :conversationId AND senderRole != :readerRole")
+    suspend fun markConversationRead(conversationId: String, readerRole: String)
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun putProducts(items: List<ProductEntity>)
@@ -303,9 +329,10 @@ interface SansaraDao {
         ProductionRateEntity::class,
         ProductionReceiptEntity::class,
         ProductionReceiptLineEntity::class,
-        StockAdjustmentEntity::class
+        StockAdjustmentEntity::class,
+        ChatMessageEntity::class
     ],
-    version = 2,
+    version = 3,
     exportSchema = false
 )
 abstract class SansaraDatabase : RoomDatabase() {
@@ -324,6 +351,14 @@ abstract class SansaraDatabase : RoomDatabase() {
             }
         }
 
+        private val MIGRATION_2_3 = object : Migration(2, 3) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("CREATE TABLE IF NOT EXISTS chat_messages (id TEXT NOT NULL, conversationId TEXT NOT NULL, senderRole TEXT NOT NULL, senderId TEXT NOT NULL, body TEXT NOT NULL, attachmentUri TEXT NOT NULL, attachmentName TEXT NOT NULL, attachmentMime TEXT NOT NULL, createdAt INTEGER NOT NULL, read INTEGER NOT NULL, PRIMARY KEY(id))")
+                db.execSQL("CREATE INDEX IF NOT EXISTS index_chat_messages_conversationId ON chat_messages(conversationId)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS index_chat_messages_createdAt ON chat_messages(createdAt)")
+            }
+        }
+
         fun get(context: Context): SansaraDatabase =
             instance ?: synchronized(this) {
                 instance ?: Room.databaseBuilder(
@@ -331,7 +366,7 @@ abstract class SansaraDatabase : RoomDatabase() {
                     SansaraDatabase::class.java,
                     "sansara.db"
                 )
-                    .addMigrations(MIGRATION_1_2)
+                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3)
                     .build()
                     .also { instance = it }
             }
@@ -382,6 +417,19 @@ data class ProductionReceiptResult(
     val documentId: String,
     val totalQty: Int,
     val totalAmount: Int
+)
+
+data class SansaraChatMessage(
+    val id: String,
+    val conversationId: String,
+    val senderRole: String,
+    val senderId: String,
+    val body: String,
+    val attachmentUri: String,
+    val attachmentName: String,
+    val attachmentMime: String,
+    val createdAt: Long,
+    val read: Boolean
 )
 
 class SansaraRepository private constructor(
@@ -649,6 +697,42 @@ class SansaraRepository private constructor(
         return ProductionReceiptResult(documentId,receiptLines.sumOf { it.qty },receiptLines.sumOf { it.amountRub })
     }
 
+    suspend fun chatMessages(conversationId:String):List<SansaraChatMessage> =
+        dao.chatMessages(conversationId).map { it.toModel() }
+
+    suspend fun allChatMessages():List<SansaraChatMessage> =
+        dao.chatMessages().map { it.toModel() }
+
+    suspend fun sendChatMessage(
+        conversationId:String,
+        senderRole:String,
+        senderId:String,
+        body:String,
+        attachmentUri:String="",
+        attachmentName:String="",
+        attachmentMime:String=""
+    ):SansaraChatMessage {
+        require(body.isNotBlank() || attachmentUri.isNotBlank()) { "Сообщение пустое" }
+        val entity=ChatMessageEntity(
+            id="MSG-"+java.util.UUID.randomUUID().toString().replace("-","").take(12).uppercase(),
+            conversationId=conversationId,
+            senderRole=senderRole,
+            senderId=senderId,
+            body=body.trim(),
+            attachmentUri=attachmentUri,
+            attachmentName=attachmentName,
+            attachmentMime=attachmentMime,
+            createdAt=System.currentTimeMillis(),
+            read=false
+        )
+        dao.putChatMessages(listOf(entity))
+        return entity.toModel()
+    }
+
+    suspend fun markConversationRead(conversationId:String,readerRole:String) {
+        dao.markConversationRead(conversationId,readerRole)
+    }
+
     suspend fun adjustStock(sku:String,qtyDelta:Int,reason:String,userId:String) {
         require(qtyDelta!=0) { "Корректировка равна нулю" }
         require(reason.trim().isNotBlank()) { "Укажите причину" }
@@ -863,3 +947,17 @@ private fun ProductionOpEntity.toProto(
     amountRub:Int=0,
     documentId:String=""
 )=ProtoProductionOp(date,time,sku,name,qty,assembler,postedBy,status,rateRub,amountRub,documentId)
+
+
+private fun ChatMessageEntity.toModel()=SansaraChatMessage(
+    id=id,
+    conversationId=conversationId,
+    senderRole=senderRole,
+    senderId=senderId,
+    body=body,
+    attachmentUri=attachmentUri,
+    attachmentName=attachmentName,
+    attachmentMime=attachmentMime,
+    createdAt=createdAt,
+    read=read
+)
