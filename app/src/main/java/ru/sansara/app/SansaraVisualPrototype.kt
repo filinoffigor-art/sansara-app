@@ -3044,12 +3044,25 @@ private fun ProtoAdminChatsScreen(
     clients:List<ProtoClient>,
     messages:List<SansaraChatMessage>,
     onBack:()->Unit,
-    onOpen:(ProtoClient)->Unit
+    onOpen:(ProtoClient)->Unit,
+    onProduction:()->Unit
 ){
     var query by remember{mutableStateOf("")}
     val filtered=clients.filter{query.isBlank()||it.name.contains(query,true)||it.contact.contains(query,true)}
         .sortedByDescending { client -> messages.filter{it.conversationId=="CLIENT:"+client.id}.maxOfOrNull{it.createdAt} ?: 0L }
     ProtoScaffold("Чаты","Переписка с клиентами",onBack){
+        item{
+            val productionThread=messages.filter{it.conversationId=="STAFF:ADMIN_PRODUCTION"}
+            val unread=productionThread.count{!it.read&&it.senderRole=="PRODUCTION"}
+            ProtoSectionCard(Modifier.clickable{onProduction()}){
+                Row(verticalAlignment=Alignment.CenterVertically){
+                    Box(Modifier.size(46.dp).background(ProtoPanel2,CircleShape),contentAlignment=Alignment.Center){Icon(Icons.Outlined.Factory,null,tint=ProtoGold)}
+                    Spacer(Modifier.width(11.dp))
+                    Column(Modifier.weight(1f)){Text("Производство",color=ProtoText,fontWeight=FontWeight.Bold);Text(productionThread.maxByOrNull{it.createdAt}?.body?.ifBlank{"Вложение"}?:"Чат с цехом",color=ProtoMuted,fontSize=11.sp,maxLines=1,overflow=TextOverflow.Ellipsis)}
+                    if(unread>0)Badge(containerColor=ProtoGold){Text(unread.toString(),color=Color.Black)}
+                }
+            }
+        }
         item{ProtoField(query,{query=it},"Поиск клиента")}
         items(filtered,key={it.id}){client->
             val conversation="CLIENT:"+client.id
@@ -3186,6 +3199,8 @@ private fun ProtoAdminHomeScreen(
     onOnline:()->Unit,
     onLowStock:()->Unit,
     onChats:()->Unit,
+    onWorkshop:()->Unit,
+    onReports:()->Unit,
     unreadCount:Int,
     onNotifications:()->Unit
 ){
@@ -3211,6 +3226,7 @@ private fun ProtoAdminHomeScreen(
                 item{Text("Быстрые действия",color=ProtoText,fontSize=22.sp,fontWeight=FontWeight.Bold)}
                 item{Row(horizontalArrangement=Arrangement.spacedBy(8.dp)){ProtoQuickButton("Клиенты",Icons.Outlined.Groups,Modifier.weight(1f),onClients);ProtoQuickButton("Заказы",Icons.Outlined.ReceiptLong,Modifier.weight(1f),onOrders);ProtoQuickButton("Чаты",Icons.Outlined.ChatBubbleOutline,Modifier.weight(1f),onChats)}}
                 item{Row(horizontalArrangement=Arrangement.spacedBy(8.dp)){ProtoQuickButton("Производство",Icons.Outlined.Factory,Modifier.weight(1f),onProduction);ProtoQuickButton("Каталог",Icons.Outlined.Inventory2,Modifier.weight(1f),onCatalog);ProtoQuickButton("Настройки",Icons.Outlined.Settings,Modifier.weight(1f),onSettings)}}
+                item{Row(horizontalArrangement=Arrangement.spacedBy(8.dp)){ProtoQuickButton("Задание в цех",Icons.Outlined.Assignment,Modifier.weight(1f),onWorkshop);ProtoQuickButton("Отчёты",Icons.Outlined.Assessment,Modifier.weight(1f),onReports);Spacer(Modifier.weight(1f))}}
                 item{ProtoSectionCard(Modifier.clickable{onAttention()}){ProtoInfoRow("Новые регистрации",registrationsTotal.toString());ProtoInfoRow("Заказы на сборке",orders.count{it.status=="Собирается"}.toString());ProtoInfoRow("Низкие остатки",lowCount.toString())}}
                 item{ProtoSectionCard(Modifier.clickable{onOnline()}){ProtoInfoRow("Онлайн сейчас",clients.count{it.online}.toString());ProtoInfoRow("Синхронизация","автоматическая")}}
             }
@@ -3483,6 +3499,10 @@ private fun ProtoAdminSettingsMenuScreen(syncStatus:String,lastSync:String,lowSt
     val rows=listOf(
         Triple("Профиль компании",Icons.Outlined.Business,"Данные SANSARA и контакты"),
         Triple("Пользователи и роли",Icons.Outlined.Groups,"Администраторы и производство"),
+        Triple("Администраторы",Icons.Outlined.AdminPanelSettings,"Главный аккаунт и дополнительные админы"),
+        Triple("Задание в цех",Icons.Outlined.Assignment,"План, комментарии и план/факт"),
+        Triple("Табель рабочего времени",Icons.Outlined.EventAvailable,"Кто и когда выходил"),
+        Triple("Отчёты",Icons.Outlined.Assessment,"Все показатели и отчёты"),
         Triple("Клиенты",Icons.Outlined.PersonSearch,"Доступ, статусы и скидки"),
         Triple("Сборщицы",Icons.Outlined.Badge,"Справочник производства и доступ"),
         Triple("Каталог и синхронизация",Icons.Outlined.Sync,"$syncStatus · $lastSync"),
@@ -3558,6 +3578,9 @@ private fun ProtoProductionHomeScreen(
     onReport:()->Unit,
     onPayments:()->Unit,
     onStock:()->Unit,
+    onWorkshop:()->Unit,
+    onAttendance:()->Unit,
+    onChat:()->Unit,
     onHome:()->Unit,
     onProfile:()->Unit
 ){
@@ -3642,6 +3665,8 @@ private fun ProtoProductionHomeScreen(
                 item{ProtoSecondaryButton("История приходов",onHistory)}
                 item{ProtoSecondaryButton("Отчёт за день",onReport)}
                 item{ProtoSecondaryButton("Сборщицы и выплаты",onPayments)}
+                item{Row(horizontalArrangement=Arrangement.spacedBy(8.dp)){ProtoSecondaryButton("Задания цеху",onWorkshop,Modifier.weight(1f));ProtoSecondaryButton("Табель",onAttendance,Modifier.weight(1f))}}
+                item{ProtoSecondaryButton("Чат с админом",onChat)}
             }
         }
     }
