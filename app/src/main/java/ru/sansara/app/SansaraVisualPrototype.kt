@@ -59,6 +59,7 @@ import org.json.JSONObject
 import org.json.JSONArray
 import java.text.NumberFormat
 import java.io.File
+import java.time.Instant
 import java.time.LocalDate
 import java.time.LocalDateTime
 import java.time.YearMonth
@@ -2451,7 +2452,7 @@ private fun ProtoChatScreen(
                     maxLines=4,
                     colors=protoFieldColors()
                 )
-                IconButton(onClick={if(text.isNotBlank()){{val value=text;text="";onSend(value,"","","")}} else {{}}}){
+                IconButton(onClick={if(text.isNotBlank()){val value=text;text="";onSend(value,"","","")}}){
                     Icon(Icons.Outlined.Send,contentDescription="Отправить",tint=if(text.isNotBlank())ProtoGold else ProtoMuted)
                 }
             }
