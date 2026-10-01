@@ -4210,40 +4210,93 @@ private fun ProtoStockListScreen(
     onBack:()->Unit,
     onAdjust:(ProtoCatalogProduct,Int,String)->Unit
 ){
+    var category by remember{mutableStateOf<String?>(null)}
+    var group by remember{mutableStateOf<String?>(null)}
     var query by remember{mutableStateOf("")}
     var adjustProduct by remember{mutableStateOf<ProtoCatalogProduct?>(null)}
     var deltaText by remember{mutableStateOf("")}
     var reason by remember{mutableStateOf("")}
-    val filtered=products.filter{query.isBlank()||it.sku.contains(query,true)||it.name.contains(query,true)}
-    ProtoScaffold("Остатки на складе","Физический остаток − резерв = доступно",onBack){
-        item{ProtoField(query,{query=it},"Поиск по артикулу или названию")}
-        items(filtered,key={it.sku}){p->
-            val physical=stockOverrides[p.sku]?:p.stock
-            val reserved=reservedForSku(p.sku)
-            val available=(physical-reserved).coerceAtLeast(0)
-            ProtoSectionCard(Modifier.clickable(enabled=canAdjust){adjustProduct=p;deltaText="";reason=""}){
-                Row(verticalAlignment=Alignment.CenterVertically){
-                    ProtoProductImage(p,Modifier.size(52.dp).clip(RoundedCornerShape(8.dp)));Spacer(Modifier.width(10.dp))
-                    Column(Modifier.weight(1f)){Text(p.name,color=ProtoText,fontWeight=FontWeight.SemiBold);Text(p.sku,color=ProtoMuted,fontSize=11.sp);Text("Факт: "+physical+" · Резерв: "+reserved,color=ProtoMuted,fontSize=10.sp)}
-                    Column(horizontalAlignment=Alignment.End){Text(available.toString()+" шт.",color=if(available>0)ProtoGreen else ProtoRed,fontWeight=FontWeight.Bold);Text("доступно",color=ProtoMuted,fontSize=9.sp);if(canAdjust)Text("Корректировать",color=ProtoGold,fontSize=9.sp)}
+    fun physical(p:ProtoCatalogProduct)=stockOverrides[p.sku]?:p.stock
+    fun available(p:ProtoCatalogProduct)=(physical(p)-reservedForSku(p.sku)).coerceAtLeast(0)
+    fun categoryOf(p:ProtoCatalogProduct)=protoProductCategoryKey(p.type)
+    fun groupOf(p:ProtoCatalogProduct):String {
+        val cat=categoryOf(p)
+        return when(cat){
+            "Венки"->p.quality.ifBlank{"Без группы"}
+            else->p.quality.takeIf{it.isNotBlank()&&it!="—"}?:p.type.ifBlank{"Без группы"}
+        }
+    }
+    val allTotal=products.sumOf{physical(it)}
+    val allAvailable=products.sumOf{available(it)}
+    val categories=products.groupBy{categoryOf(it)}.toSortedMap()
+    val title=when{
+        category==null->"Склад"
+        group==null->category!!
+        else->category+" · "+group
+    }
+    val subtitle=when{
+        category==null->"Все категории · физический остаток "+allTotal+" шт. · доступно "+allAvailable+" шт."
+        group==null->"Группы товаров"
+        else->"Артикулы и остатки"
+    }
+    ProtoScaffold(title,subtitle,onBack={
+        when{
+            group!=null->group=null
+            category!=null->category=null
+            else->onBack()
+        }
+    }){
+        when{
+            category==null->{
+                item{ProtoSectionCard{ProtoInfoRow("Остатки всего",allTotal.toString()+" шт.");ProtoInfoRow("Доступно",allAvailable.toString()+" шт.");ProtoInfoRow("Резерв",products.sumOf{reservedForSku(it.sku)}.toString()+" шт.")}}
+                items(categories.entries.toList(),key={it.key}){entry->
+                    val physicalQty=entry.value.sumOf{physical(it)}
+                    val availableQty=entry.value.sumOf{available(it)}
+                    ProtoSectionCard(Modifier.clickable{category=entry.key;group=null}){
+                        Row(verticalAlignment=Alignment.CenterVertically){
+                            Box(Modifier.size(44.dp).background(ProtoPanel2,RoundedCornerShape(12.dp)),contentAlignment=Alignment.Center){Icon(protoIconForType(entry.key),null,tint=ProtoGold)}
+                            Spacer(Modifier.width(10.dp))
+                            Column(Modifier.weight(1f)){Text(entry.key,color=ProtoText,fontWeight=FontWeight.Bold);Text(entry.value.size.toString()+" артикулов",color=ProtoMuted,fontSize=10.sp)}
+                            Column(horizontalAlignment=Alignment.End){Text(physicalQty.toString()+" шт.",color=ProtoGoldSoft,fontWeight=FontWeight.Bold);Text("доступно "+availableQty,color=ProtoMuted,fontSize=9.sp)}
+                            Icon(Icons.Outlined.ChevronRight,null,tint=ProtoGold)
+                        }
+                    }
+                }
+            }
+            group==null->{
+                val subset=products.filter{categoryOf(it)==category}
+                val groups=subset.groupBy{groupOf(it)}.toSortedMap()
+                items(groups.entries.toList(),key={it.key}){entry->
+                    ProtoSectionCard(Modifier.clickable{group=entry.key}){
+                        Row(verticalAlignment=Alignment.CenterVertically){
+                            Column(Modifier.weight(1f)){Text(entry.key,color=ProtoText,fontWeight=FontWeight.Bold);Text(entry.value.size.toString()+" артикулов",color=ProtoMuted,fontSize=10.sp)}
+                            Column(horizontalAlignment=Alignment.End){Text(entry.value.sumOf{physical(it)}.toString()+" шт.",color=ProtoGoldSoft,fontWeight=FontWeight.Bold);Text("доступно "+entry.value.sumOf{available(it)},color=ProtoMuted,fontSize=9.sp)}
+                            Icon(Icons.Outlined.ChevronRight,null,tint=ProtoGold)
+                        }
+                    }
+                }
+            }
+            else->{
+                item{ProtoField(query,{query=it},"Поиск по артикулу или названию")}
+                val filtered=products.filter{categoryOf(it)==category&&groupOf(it)==group&&(query.isBlank()||it.sku.contains(query,true)||it.name.contains(query,true))}
+                items(filtered,key={it.sku}){p->
+                    val ph=physical(p);val reserved=reservedForSku(p.sku);val av=available(p)
+                    ProtoSectionCard(Modifier.clickable(enabled=canAdjust){adjustProduct=p;deltaText="";reason=""}){
+                        Row(verticalAlignment=Alignment.CenterVertically){
+                            ProtoProductImage(p,Modifier.size(52.dp).clip(RoundedCornerShape(8.dp)));Spacer(Modifier.width(10.dp))
+                            Column(Modifier.weight(1f)){Text(p.name,color=ProtoText,fontWeight=FontWeight.SemiBold);ProtoSkuText(p.sku,fontSize=12);Text("Факт: "+ph+" · Резерв: "+reserved,color=ProtoMuted,fontSize=10.sp)}
+                            Column(horizontalAlignment=Alignment.End){Text(av.toString()+" шт.",color=if(av>0)ProtoGreen else ProtoRed,fontWeight=FontWeight.Bold);Text("доступно",color=ProtoMuted,fontSize=9.sp);if(canAdjust)Text("Корректировать",color=ProtoGold,fontSize=9.sp)}
+                        }
+                    }
                 }
             }
         }
     }
-    val product=adjustProduct
-    if(product!=null){
+    adjustProduct?.let{product->
         AlertDialog(
-            onDismissRequest={adjustProduct=null},
-            containerColor=ProtoPanel,
+            onDismissRequest={adjustProduct=null},containerColor=ProtoPanel,
             title={Text("Корректировка склада",color=ProtoText)},
-            text={
-                Column{
-                    Text(product.name,color=ProtoGoldSoft,fontWeight=FontWeight.SemiBold)
-                    ProtoField(deltaText,{value->deltaText=value.filter{it.isDigit()||it=='-'}},"Изменение количества",KeyboardType.Number)
-                    ProtoField(reason,{reason=it},"Причина")
-                    Text("Положительное число увеличит остаток, отрицательное уменьшит.",color=ProtoMuted,fontSize=10.sp)
-                }
-            },
+            text={Column{Text(product.name,color=ProtoGoldSoft,fontWeight=FontWeight.SemiBold);ProtoField(deltaText,{v->deltaText=v.filter{it.isDigit()||it=='-'}},"Изменение количества",KeyboardType.Number);ProtoField(reason,{reason=it},"Причина");Text("Положительное число увеличит остаток, отрицательное уменьшит.",color=ProtoMuted,fontSize=10.sp)}},
             confirmButton={TextButton(onClick={val delta=deltaText.toIntOrNull()?:0;if(delta!=0&&reason.isNotBlank()){onAdjust(product,delta,reason);adjustProduct=null}}){Text("Провести",color=ProtoGold)}},
             dismissButton={TextButton(onClick={adjustProduct=null}){Text("Отмена",color=ProtoMuted)}}
         )
