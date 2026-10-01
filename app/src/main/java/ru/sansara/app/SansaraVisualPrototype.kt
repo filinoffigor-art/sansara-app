@@ -1001,7 +1001,10 @@ fun SansaraVisualPrototype() {
             ProtoScreen.AdminSearch -> ProtoAdminSearchScreen(clients, orders, products, stockOverrides, onBack = { back() }, onClient = { selectedClientId = it.id; go(ProtoScreen.AdminClient) }, onOrder = { selectedOrderId = it.id; go(ProtoScreen.AdminOrderDetail) }, onProduct = { selectedProduct = it; go(ProtoScreen.ProductDetail) })
             ProtoScreen.AdminClients -> ProtoAdminClientsScreen(clients, onBack = { back() }, onOpen = { selectedClientId = it.id; go(ProtoScreen.AdminClient) })
             ProtoScreen.AdminClient -> ProtoAdminClientScreen(
-                client = clients.firstOrNull { it.id == selectedClientId }, onBack = { back() },
+                client = clients.firstOrNull { it.id == selectedClientId },
+                retailCustomers = agentCustomers.filter { it.ownerClientId == selectedClientId },
+                retailMarkups = agentMarkups.filter { it.ownerClientId == selectedClientId },
+                onBack = { back() },
                 onStatus = { status -> val i=clients.indexOfFirst{it.id==selectedClientId};if(i>=0){val c=clients[i];clients[i]=c.copy(status=status,orderingEnabled=if(status=="Приостановлен")false else c.orderingEnabled);persistAll()} },
                 onToggleBlock = { val i=clients.indexOfFirst{it.id==selectedClientId};if(i>=0){val c=clients[i];clients[i]=c.copy(status=if(c.status=="Приостановлен")"Активный" else "Приостановлен",orderingEnabled=c.status=="Приостановлен");persistAll()} },
                 onToggleOrdering = { val i=clients.indexOfFirst{it.id==selectedClientId};if(i>=0){val c=clients[i];clients[i]=c.copy(orderingEnabled=!c.orderingEnabled);persistAll()} },
@@ -3557,6 +3560,8 @@ private fun ProtoAdminClientsScreen(clients:List<ProtoClient>,onBack:()->Unit,on
 @Composable
 private fun ProtoAdminClientScreen(
     client: ProtoClient?,
+    retailCustomers: List<SansaraAgentCustomer>,
+    retailMarkups: List<SansaraAgentMarkup>,
     onBack: () -> Unit,
     onStatus: (String) -> Unit,
     onToggleBlock: () -> Unit,
@@ -3654,6 +3659,19 @@ private fun ProtoAdminClientScreen(
             }
 
             item { ProtoSecondaryButton("Позвонить", onCall) }
+
+            if(retailCustomers.isNotEmpty()){
+                item { Text("Клиенты агента · наценки", color = ProtoText, fontSize = 20.sp, fontWeight = FontWeight.Bold) }
+                items(retailCustomers,key={it.id}){customer->
+                    val marks=retailMarkups.filter{it.customerId==customer.id}.sortedBy{it.category}
+                    ProtoSectionCard{
+                        Text(customer.fullName,color=ProtoText,fontWeight=FontWeight.Bold)
+                        Text(customer.phone,color=ProtoMuted,fontSize=11.sp)
+                        if(marks.isEmpty())Text("Индивидуальная наценка не задана",color=ProtoMuted,fontSize=10.sp,modifier=Modifier.padding(top=5.dp))
+                        else marks.forEach{m->ProtoInfoRow(m.category,m.markupPct.toString()+"%")}
+                    }
+                }
+            }
 
             item {
                 Text("Пользователи компании", color = ProtoText, fontSize = 20.sp, fontWeight = FontWeight.Bold)
