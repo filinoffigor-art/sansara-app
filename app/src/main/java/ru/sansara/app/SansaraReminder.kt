@@ -13,6 +13,10 @@ import androidx.core.app.NotificationManagerCompat
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import java.time.LocalDate
+import java.time.LocalDateTime
+import java.time.ZoneId
+import java.time.format.DateTimeFormatter
 
 object SansaraReminderScheduler {
     const val CHANNEL_ID = "sansara_agent_reminders"
@@ -88,6 +92,135 @@ class SansaraBootReceiver:BroadcastReceiver(){
                 repository.activeAgentReminders()
                     .filter{it.remindAtEpochMs>System.currentTimeMillis()}
                     .forEach{SansaraReminderScheduler.schedule(context,it)}
+                SansaraAdminOpsReminderScheduler.scheduleAll(context)
+            }
+            pendingResult.finish()
+        }
+    }
+}
+
+
+object SansaraAdminOpsReminderScheduler {
+    const val CHANNEL_ID = "sansara_admin_operations"
+    const val ACTION_CHECK = "ru.sansara.app.ADMIN_OPS_CHECK"
+    const val ACTION_EVENING = "ru.sansara.app.ADMIN_EVENING_REPORT"
+    private const val REQUEST_CHECK = 8100
+    private const val REQUEST_EVENING = 1900
+
+    fun ensureChannel(context:Context){
+        if(Build.VERSION.SDK_INT>=Build.VERSION_CODES.O){
+            val manager=context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+            manager.createNotificationChannel(
+                NotificationChannel(CHANNEL_ID,"Контроль администратора",NotificationManager.IMPORTANCE_HIGH).apply {
+                    description="Табель, выпуск, приход, задания в цех и вечерний отчёт"
+                }
+            )
+        }
+    }
+
+    fun scheduleAll(context:Context){
+        ensureChannel(context)
+        scheduleNextCheck(context)
+        scheduleEvening(context)
+    }
+
+    fun scheduleNextCheck(context:Context,repeat:Boolean=false){
+        val now=LocalDateTime.now()
+        val target=if(repeat){
+            now.plusMinutes(10)
+        }else{
+            val todayAt8=now.toLocalDate().atTime(8,0)
+            when{
+                now.isBefore(todayAt8)->todayAt8
+                now.toLocalTime().isBefore(java.time.LocalTime.of(20,0))->now.plusSeconds(15)
+                else->now.toLocalDate().plusDays(1).atTime(8,0)
+            }
+        }
+        schedule(context,ACTION_CHECK,REQUEST_CHECK,target)
+    }
+
+    fun scheduleTomorrow(context:Context){
+        schedule(context,ACTION_CHECK,REQUEST_CHECK,LocalDate.now().plusDays(1).atTime(8,0))
+    }
+
+    fun scheduleEvening(context:Context){
+        val now=LocalDateTime.now()
+        val today=now.toLocalDate().atTime(19,0)
+        val target=if(now.isBefore(today))today else now.toLocalDate().plusDays(1).atTime(19,0)
+        schedule(context,ACTION_EVENING,REQUEST_EVENING,target)
+    }
+
+    private fun schedule(context:Context,action:String,requestCode:Int,target:LocalDateTime){
+        val alarmManager=context.getSystemService(Context.ALARM_SERVICE) as AlarmManager
+        val intent=Intent(context,SansaraAdminOpsReminderReceiver::class.java).apply{this.action=action}
+        val pending=PendingIntent.getBroadcast(
+            context,requestCode,intent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+        val epoch=target.atZone(ZoneId.systemDefault()).toInstant().toEpochMilli()
+        if(Build.VERSION.SDK_INT>=Build.VERSION_CODES.S && !alarmManager.canScheduleExactAlarms()){
+            alarmManager.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP,epoch,pending)
+        }else{
+            alarmManager.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP,epoch,pending)
+        }
+    }
+}
+
+class SansaraAdminOpsReminderReceiver:BroadcastReceiver(){
+    override fun onReceive(context:Context,intent:Intent){
+        SansaraAdminOpsReminderScheduler.ensureChannel(context)
+        val pendingResult=goAsync()
+        CoroutineScope(Dispatchers.IO).launch {
+            runCatching {
+                val repository=SansaraRepository.get(context)
+                when(intent.action){
+                    SansaraAdminOpsReminderScheduler.ACTION_EVENING->{
+                        val presence=repository.presenceToday()
+                        val unique=presence.map{it.userId}.distinct().size
+                        val minutes=presence.sumOf{it.durationMs}/60_000L
+                        val notification=NotificationCompat.Builder(context,SansaraAdminOpsReminderScheduler.CHANNEL_ID)
+                            .setSmallIcon(R.drawable.sansara_app_icon)
+                            .setContentTitle("SANSARA · вечерний отчёт")
+                            .setContentText("Сегодня заходили: "+unique+" · время в приложении: "+minutes+" мин.")
+                            .setStyle(NotificationCompat.BigTextStyle().bigText("Сегодня заходили: "+unique+" пользователей. Суммарное время в приложении: "+minutes+" минут. Подробности доступны в разделе «Отчёты»."))
+                            .setPriority(NotificationCompat.PRIORITY_HIGH)
+                            .setAutoCancel(true)
+                            .build()
+                        runCatching{NotificationManagerCompat.from(context).notify(1900,notification)}
+                        SansaraAdminOpsReminderScheduler.scheduleEvening(context)
+                    }
+                    else->{
+                        val date=LocalDate.now().format(DateTimeFormatter.ofPattern("dd.MM.yyyy"))
+                        val daily=repository.adminDailyStatus(date)
+                        if(daily?.dayOff==true || !daily?.reason.isNullOrBlank()){
+                            SansaraAdminOpsReminderScheduler.scheduleTomorrow(context)
+                        }else{
+                            val missing=mutableListOf<String>()
+                            if(repository.attendance(date).isEmpty())missing+="заполнить табель"
+                            if(repository.workshopTasks().none{it.taskDate==date})missing+="отправить задание в цех"
+                            val ops=repository.snapshot().productionOps.filter{it.date==date&&it.status!="Удален"}
+                            if(ops.isEmpty()){
+                                missing+="сделать выпуск"
+                                missing+="оприходовать продукцию"
+                            }
+                            if(missing.isEmpty()){
+                                SansaraAdminOpsReminderScheduler.scheduleTomorrow(context)
+                            }else{
+                                val text="Не выполнено: "+missing.joinToString(", ")
+                                val notification=NotificationCompat.Builder(context,SansaraAdminOpsReminderScheduler.CHANNEL_ID)
+                                    .setSmallIcon(R.drawable.sansara_app_icon)
+                                    .setContentTitle("SANSARA · контроль 08:00")
+                                    .setContentText(text)
+                                    .setStyle(NotificationCompat.BigTextStyle().bigText(text+". Напоминание повторится через 10 минут, пока задачи не будут закрыты."))
+                                    .setPriority(NotificationCompat.PRIORITY_HIGH)
+                                    .setAutoCancel(true)
+                                    .build()
+                                runCatching{NotificationManagerCompat.from(context).notify(8100,notification)}
+                                SansaraAdminOpsReminderScheduler.scheduleNextCheck(context,repeat=true)
+                            }
+                        }
+                    }
+                }
             }
             pendingResult.finish()
         }
