@@ -1,13 +1,7 @@
 package ru.sansara.app
 
-import androidx.compose.ui.test.assertExists
-import androidx.compose.ui.test.hasClickAction
-import androidx.compose.ui.test.hasSetTextAction
-import androidx.compose.ui.test.hasText
+import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
-import androidx.compose.ui.test.onNode
-import androidx.compose.ui.test.performClick
-import androidx.compose.ui.test.performTextInput
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import org.junit.Rule
 import org.junit.Test
@@ -41,7 +35,7 @@ class SansaraRoleSmokeTest {
         waitText("Поиск по категориям")
         compose.activityRule.scenario.onActivity { it.onBackPressedDispatcher.onBackPressed() }
         waitText("Популярные товары")
-        compose.onNode(androidx.compose.ui.test.hasContentDescription("Меню")).performClick()
+        compose.onNode(hasContentDescription("Меню")).performClick()
         waitText("Для клиентов")
         compose.onNode(hasText("Для клиентов") and hasClickAction()).performClick()
         waitText("Частные клиенты и розничная наценка")
