@@ -719,6 +719,13 @@ data class SansaraAgentReminder(
     val active: Boolean
 )
 
+data class SansaraAdminAccount(
+    val userId: String,
+    val displayName: String,
+    val isMain: Boolean,
+    val enabled: Boolean
+)
+
 class SansaraRepository private constructor(
     private val context: Context,
     private val db: SansaraDatabase,
@@ -730,6 +737,11 @@ class SansaraRepository private constructor(
     suspend fun seedDebugIfNeeded() {
         if (!BuildConfig.DEBUG) return
         if (dao.productCount() > 0) {
+            if (dao.adminControlCount() == 0) {
+                dao.adminAccounts().firstOrNull()?.let { admin ->
+                    dao.putAdminControls(listOf(AdminControlEntity(admin.userId,admin.firstName.ifBlank{"Главный администратор"},true,admin.enabled)))
+                }
+            }
             if (dao.assemblerCount() == 0) {
                 dao.putAssemblers(
                     listOf(
@@ -819,6 +831,7 @@ class SansaraRepository private constructor(
             dao.putProducts(products)
             dao.putClients(clients)
             dao.putAccounts(accounts)
+            dao.putAdminControls(listOf(AdminControlEntity("U-ADMIN","Игорь",true,true)))
             dao.putRegistrations(registrations.map { it.toEntity() })
             dao.putOrders(orders.map { it.toEntity() })
             dao.putProductionOps(ops.mapIndexed { i, item -> item.toEntity("seed-"+i) })
@@ -1144,8 +1157,119 @@ class SansaraRepository private constructor(
         )
     }
 
-    suspend fun updatePresence(userId:String,epoch:Long=System.currentTimeMillis()) {
+    suspend fun updatePresence(userId:String,clientId:String?=null,role:String="",epoch:Long=System.currentTimeMillis()) {
         dao.updateLastSeen(userId,epoch)
+        val day=LocalDate.now().format(DateTimeFormatter.ISO_LOCAL_DATE)
+        val id=day+"_"+userId
+        val current=dao.presenceSession(id)
+        val delta=if(current==null)0L else (epoch-current.lastSeenAt).coerceIn(0L,120_000L)
+        dao.putPresenceSessions(
+            listOf(
+                PresenceSessionEntity(
+                    id=id,userId=userId,clientId=clientId,role=role.ifBlank{current?.role.orEmpty()},day=day,
+                    startedAt=current?.startedAt?:epoch,lastSeenAt=epoch,durationMs=(current?.durationMs?:0L)+delta
+                )
+            )
+        )
+    }
+
+    suspend fun adminAccounts():List<SansaraAdminAccount> {
+        val controls=dao.adminControls().associateBy{it.userId}
+        return dao.adminAccounts().map { account ->
+            val control=controls[account.userId]
+            SansaraAdminAccount(account.userId,control?.displayName?:account.firstName,control?.isMain==true,account.enabled)
+        }.sortedWith(compareByDescending<SansaraAdminAccount>{it.isMain}.thenBy{it.displayName})
+    }
+
+    suspend fun addAdmin(displayName:String,sourceAdminUserId:String):SansaraAdminAccount {
+        val actor=dao.adminControl(sourceAdminUserId)
+        require(actor?.isMain==true) { "Добавлять администраторов может только главный аккаунт" }
+        val source=dao.accountByUserId(sourceAdminUserId) ?: error("Главный администратор не найден")
+        val name=displayName.trim()
+        require(name.isNotBlank()) { "Введите имя администратора" }
+        val id="U-ADM-"+java.util.UUID.randomUUID().toString().replace("-","").take(8).uppercase()
+        val account=AccountEntity(id,null,SansaraRole.ADMIN.name,name,"","",BuildConfig.ADMIN_PHONE,"",source.accessCodeHash,source.accessCodeEncrypted,true,0L)
+        db.withTransaction {
+            dao.putAccounts(listOf(account))
+            dao.putAdminControls(listOf(AdminControlEntity(id,name,false,true)))
+        }
+        return SansaraAdminAccount(id,name,false,true)
+    }
+
+    suspend fun setAdminEnabled(targetUserId:String,enabled:Boolean,actingUserId:String) {
+        val actor=dao.adminControl(actingUserId)
+        require(actor?.isMain==true) { "Отключать администраторов может только главный аккаунт" }
+        require(targetUserId!=actingUserId) { "Главный аккаунт нельзя отключить из самого приложения" }
+        dao.setAccountEnabled(targetUserId,enabled)
+        dao.adminControl(targetUserId)?.let { dao.putAdminControls(listOf(it.copy(enabled=enabled))) }
+    }
+
+    suspend fun workshopTasks():List<WorkshopTaskEntity> = dao.workshopTasks()
+
+    suspend fun createWorkshopTask(taskDate:String,linesJson:String,comment:String,commentOnly:Boolean,createdBy:String):WorkshopTaskEntity {
+        require(commentOnly || linesJson.isNotBlank()) { "Добавьте позиции задания" }
+        require(!commentOnly || comment.trim().isNotBlank()) { "Введите комментарий" }
+        val task=WorkshopTaskEntity(
+            id="WT-"+java.util.UUID.randomUUID().toString().replace("-","").take(10).uppercase(),
+            taskDate=taskDate,linesJson=linesJson,comment=comment.trim(),commentOnly=commentOnly,status="Получено",
+            actualQty=0,createdBy=createdBy
+        )
+        dao.putWorkshopTasks(listOf(task))
+        return task
+    }
+
+    suspend fun updateWorkshopTaskFact(id:String,actualQty:Int,status:String) {
+        val task=dao.workshopTasks().firstOrNull{it.id==id} ?: error("Задание не найдено")
+        dao.putWorkshopTasks(listOf(task.copy(actualQty=actualQty.coerceAtLeast(0),status=status,updatedAt=System.currentTimeMillis())))
+    }
+
+    suspend fun attendance(date:String):List<AttendanceEntity> = dao.attendance(date)
+    suspend fun allAttendance():List<AttendanceEntity> = dao.allAttendance()
+
+    suspend fun saveAttendance(date:String,personId:String,personName:String,status:String,comment:String) {
+        dao.putAttendance(listOf(AttendanceEntity(date,personId,personName,status,comment.trim())))
+    }
+
+    suspend fun productionAudit():List<ProductionAuditEntity> = dao.productionAudit()
+
+    suspend fun changeProductionOp(opId:String,newQty:Int,userId:String,delete:Boolean=false) {
+        val op=dao.productionOpById(opId) ?: error("Выпуск не найден")
+        val line=dao.productionReceiptLineByOp(opId) ?: error("Строка прихода не найдена")
+        val product=dao.productBySku(op.sku) ?: error("Товар не найден")
+        val targetQty=if(delete)0 else newQty.coerceAtLeast(1)
+        val delta=targetQty-op.qty
+        val physical=product.physicalOverride?:product.stock
+        require(physical+delta>=0) { "Недостаточно остатка для корректировки" }
+        val receipt=dao.productionReceipt(line.documentId)
+        val oldJson=JSONObject().put("qty",op.qty).put("status",op.status).toString()
+        db.withTransaction {
+            dao.putProducts(listOf(product.copy(physicalOverride=physical+delta,updatedAt=System.currentTimeMillis())))
+            dao.putProductionOps(listOf(op.copy(qty=targetQty,status=if(delete)"Удален" else "Скорректирован")))
+            dao.putProductionReceiptLines(listOf(line.copy(qty=targetQty,amountRub=targetQty*line.rateRub)))
+            if(receipt!=null){
+                val allLines=dao.productionReceiptLines(line.documentId)
+                dao.putProductionReceipts(listOf(receipt.copy(totalQty=allLines.sumOf{it.qty},totalAmount=allLines.sumOf{it.amountRub})))
+            }
+            dao.putProductionAudit(
+                listOf(
+                    ProductionAuditEntity(
+                        id="PA-"+java.util.UUID.randomUUID().toString().replace("-","").take(10).uppercase(),
+                        documentId=line.documentId,opId=opId,action=if(delete)"DELETE" else "CORRECT",
+                        oldValue=oldJson,newValue=JSONObject().put("qty",targetQty).put("status",if(delete)"Удален" else "Скорректирован").toString(),
+                        userId=userId
+                    )
+                )
+            )
+        }
+    }
+
+    suspend fun presenceToday():List<PresenceSessionEntity> =
+        dao.presenceSessions(LocalDate.now().format(DateTimeFormatter.ISO_LOCAL_DATE))
+
+    suspend fun adminDailyStatus(date:String):AdminDailyStatusEntity? = dao.adminDailyStatus(date)
+
+    suspend fun saveAdminDailyStatus(date:String,dayOff:Boolean,reason:String) {
+        dao.putAdminDailyStatus(listOf(AdminDailyStatusEntity(date,dayOff,reason.trim())))
     }
 
     suspend fun approve(reg: ProtoRegistration): ApprovalResult {
