@@ -229,6 +229,71 @@ data class AgentReminderEntity(
     val createdAt: Long = System.currentTimeMillis()
 )
 
+@Entity(tableName = "admin_controls")
+data class AdminControlEntity(
+    @PrimaryKey val userId: String,
+    val displayName: String,
+    val isMain: Boolean,
+    val enabled: Boolean = true,
+    val createdAt: Long = System.currentTimeMillis()
+)
+
+@Entity(tableName = "workshop_tasks")
+data class WorkshopTaskEntity(
+    @PrimaryKey val id: String,
+    val taskDate: String,
+    val linesJson: String,
+    val comment: String,
+    val commentOnly: Boolean,
+    val status: String,
+    val actualQty: Int,
+    val createdBy: String,
+    val createdAt: Long = System.currentTimeMillis(),
+    val updatedAt: Long = System.currentTimeMillis()
+)
+
+@Entity(tableName = "attendance", primaryKeys = ["date", "personId"])
+data class AttendanceEntity(
+    val date: String,
+    val personId: String,
+    val personName: String,
+    val status: String,
+    val comment: String,
+    val updatedAt: Long = System.currentTimeMillis()
+)
+
+@Entity(tableName = "production_audit")
+data class ProductionAuditEntity(
+    @PrimaryKey val id: String,
+    val documentId: String,
+    val opId: String,
+    val action: String,
+    val oldValue: String,
+    val newValue: String,
+    val userId: String,
+    val createdAt: Long = System.currentTimeMillis()
+)
+
+@Entity(tableName = "presence_sessions")
+data class PresenceSessionEntity(
+    @PrimaryKey val id: String,
+    val userId: String,
+    val clientId: String?,
+    val role: String,
+    val day: String,
+    val startedAt: Long,
+    val lastSeenAt: Long,
+    val durationMs: Long
+)
+
+@Entity(tableName = "admin_daily_status")
+data class AdminDailyStatusEntity(
+    @PrimaryKey val date: String,
+    val dayOff: Boolean,
+    val reason: String,
+    val updatedAt: Long = System.currentTimeMillis()
+)
+
 @Dao
 interface SansaraDao {
     @Query("SELECT COUNT(*) FROM products")
@@ -242,6 +307,15 @@ interface SansaraDao {
 
     @Query("SELECT * FROM accounts")
     suspend fun accounts(): List<AccountEntity>
+
+    @Query("SELECT * FROM accounts WHERE userId = :userId LIMIT 1")
+    suspend fun accountByUserId(userId: String): AccountEntity?
+
+    @Query("SELECT * FROM accounts WHERE role = 'ADMIN' ORDER BY firstName")
+    suspend fun adminAccounts(): List<AccountEntity>
+
+    @Query("UPDATE accounts SET enabled = :enabled WHERE userId = :userId")
+    suspend fun setAccountEnabled(userId: String, enabled: Boolean)
 
     @Query("SELECT * FROM accounts WHERE clientId = :clientId AND enabled = 1 ORDER BY firstName, lastName")
     suspend fun accountsForClient(clientId: String): List<AccountEntity>
@@ -278,6 +352,18 @@ interface SansaraDao {
 
     @Query("SELECT * FROM production_receipts ORDER BY createdAt DESC")
     suspend fun productionReceipts(): List<ProductionReceiptEntity>
+
+    @Query("SELECT * FROM production_receipts WHERE documentId = :documentId LIMIT 1")
+    suspend fun productionReceipt(documentId: String): ProductionReceiptEntity?
+
+    @Query("SELECT * FROM production_receipt_lines WHERE documentId = :documentId")
+    suspend fun productionReceiptLines(documentId: String): List<ProductionReceiptLineEntity>
+
+    @Query("SELECT * FROM production_receipt_lines WHERE opId = :opId LIMIT 1")
+    suspend fun productionReceiptLineByOp(opId: String): ProductionReceiptLineEntity?
+
+    @Query("SELECT * FROM production_ops WHERE opId = :opId LIMIT 1")
+    suspend fun productionOpById(opId: String): ProductionOpEntity?
 
     @Query("SELECT * FROM products WHERE sku = :sku LIMIT 1")
     suspend fun productBySku(sku: String): ProductEntity?
@@ -332,6 +418,57 @@ interface SansaraDao {
 
     @Query("UPDATE agent_reminders SET active = 0 WHERE id = :id")
     suspend fun disableAgentReminder(id: String)
+
+    @Query("SELECT COUNT(*) FROM admin_controls")
+    suspend fun adminControlCount(): Int
+
+    @Query("SELECT * FROM admin_controls ORDER BY isMain DESC, displayName")
+    suspend fun adminControls(): List<AdminControlEntity>
+
+    @Query("SELECT * FROM admin_controls WHERE userId = :userId LIMIT 1")
+    suspend fun adminControl(userId: String): AdminControlEntity?
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun putAdminControls(items: List<AdminControlEntity>)
+
+    @Query("SELECT * FROM workshop_tasks ORDER BY createdAt DESC")
+    suspend fun workshopTasks(): List<WorkshopTaskEntity>
+
+    @Query("SELECT * FROM workshop_tasks WHERE taskDate = :date ORDER BY createdAt DESC")
+    suspend fun workshopTasks(date: String): List<WorkshopTaskEntity>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun putWorkshopTasks(items: List<WorkshopTaskEntity>)
+
+    @Query("SELECT * FROM attendance ORDER BY date DESC, personName")
+    suspend fun allAttendance(): List<AttendanceEntity>
+
+    @Query("SELECT * FROM attendance WHERE date = :date ORDER BY personName")
+    suspend fun attendance(date: String): List<AttendanceEntity>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun putAttendance(items: List<AttendanceEntity>)
+
+    @Query("SELECT * FROM production_audit ORDER BY createdAt DESC")
+    suspend fun productionAudit(): List<ProductionAuditEntity>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun putProductionAudit(items: List<ProductionAuditEntity>)
+
+    @Query("SELECT * FROM presence_sessions WHERE day = :day ORDER BY lastSeenAt DESC")
+    suspend fun presenceSessions(day: String): List<PresenceSessionEntity>
+
+    @Query("SELECT * FROM presence_sessions WHERE id = :id LIMIT 1")
+    suspend fun presenceSession(id: String): PresenceSessionEntity?
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun putPresenceSessions(items: List<PresenceSessionEntity>)
+
+    @Query("SELECT * FROM admin_daily_status WHERE date = :date LIMIT 1")
+    suspend fun adminDailyStatus(date: String): AdminDailyStatusEntity?
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun putAdminDailyStatus(items: List<AdminDailyStatusEntity>)
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun putProducts(items: List<ProductEntity>)
@@ -415,9 +552,15 @@ interface SansaraDao {
         AgentCustomerEntity::class,
         AgentSettingsEntity::class,
         AgentCustomerMarkupEntity::class,
-        AgentReminderEntity::class
+        AgentReminderEntity::class,
+        AdminControlEntity::class,
+        WorkshopTaskEntity::class,
+        AttendanceEntity::class,
+        ProductionAuditEntity::class,
+        PresenceSessionEntity::class,
+        AdminDailyStatusEntity::class
     ],
-    version = 4,
+    version = 5,
     exportSchema = false
 )
 abstract class SansaraDatabase : RoomDatabase() {
@@ -457,6 +600,17 @@ abstract class SansaraDatabase : RoomDatabase() {
             }
         }
 
+        private val MIGRATION_4_5 = object : Migration(4, 5) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("CREATE TABLE IF NOT EXISTS admin_controls (userId TEXT NOT NULL, displayName TEXT NOT NULL, isMain INTEGER NOT NULL, enabled INTEGER NOT NULL, createdAt INTEGER NOT NULL, PRIMARY KEY(userId))")
+                db.execSQL("CREATE TABLE IF NOT EXISTS workshop_tasks (id TEXT NOT NULL, taskDate TEXT NOT NULL, linesJson TEXT NOT NULL, comment TEXT NOT NULL, commentOnly INTEGER NOT NULL, status TEXT NOT NULL, actualQty INTEGER NOT NULL, createdBy TEXT NOT NULL, createdAt INTEGER NOT NULL, updatedAt INTEGER NOT NULL, PRIMARY KEY(id))")
+                db.execSQL("CREATE TABLE IF NOT EXISTS attendance (date TEXT NOT NULL, personId TEXT NOT NULL, personName TEXT NOT NULL, status TEXT NOT NULL, comment TEXT NOT NULL, updatedAt INTEGER NOT NULL, PRIMARY KEY(date, personId))")
+                db.execSQL("CREATE TABLE IF NOT EXISTS production_audit (id TEXT NOT NULL, documentId TEXT NOT NULL, opId TEXT NOT NULL, action TEXT NOT NULL, oldValue TEXT NOT NULL, newValue TEXT NOT NULL, userId TEXT NOT NULL, createdAt INTEGER NOT NULL, PRIMARY KEY(id))")
+                db.execSQL("CREATE TABLE IF NOT EXISTS presence_sessions (id TEXT NOT NULL, userId TEXT NOT NULL, clientId TEXT, role TEXT NOT NULL, day TEXT NOT NULL, startedAt INTEGER NOT NULL, lastSeenAt INTEGER NOT NULL, durationMs INTEGER NOT NULL, PRIMARY KEY(id))")
+                db.execSQL("CREATE TABLE IF NOT EXISTS admin_daily_status (date TEXT NOT NULL, dayOff INTEGER NOT NULL, reason TEXT NOT NULL, updatedAt INTEGER NOT NULL, PRIMARY KEY(date))")
+            }
+        }
+
         fun get(context: Context): SansaraDatabase =
             instance ?: synchronized(this) {
                 instance ?: Room.databaseBuilder(
@@ -464,7 +618,7 @@ abstract class SansaraDatabase : RoomDatabase() {
                     SansaraDatabase::class.java,
                     "sansara.db"
                 )
-                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4)
+                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5)
                     .build()
                     .also { instance = it }
             }
