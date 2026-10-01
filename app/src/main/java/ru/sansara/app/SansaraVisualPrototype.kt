@@ -44,6 +44,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
@@ -1768,8 +1769,21 @@ private fun ProtoLoadingState() {
 @Composable
 private fun ProtoLiveBackground() {
     Box(Modifier.fillMaxSize().background(ProtoBg)) {
-        Image(painter=painterResource(R.drawable.mock_flowers),contentDescription=null,alpha=.045f,contentScale=ContentScale.Crop,modifier=Modifier.align(Alignment.BottomStart).fillMaxWidth().height(230.dp))
-        Image(painter=painterResource(R.drawable.mock_wreath),contentDescription=null,alpha=.025f,contentScale=ContentScale.Crop,modifier=Modifier.align(Alignment.TopEnd).size(180.dp))
+        Box(
+            Modifier
+                .align(Alignment.BottomCenter)
+                .fillMaxWidth()
+                .height(240.dp)
+                .background(
+                    Brush.verticalGradient(
+                        listOf(
+                            Color.Transparent,
+                            ProtoPanel2.copy(alpha=.10f),
+                            ProtoPanel2.copy(alpha=.18f)
+                        )
+                    )
+                )
+        )
     }
 }
 
@@ -1806,7 +1820,7 @@ private fun ProtoBrandHeader(
 }
 @Composable
 private fun ProtoSearchBar(text:String,onClick:()->Unit,placeholder:String="Поиск по артикулу, названию") {
-    Surface(color=ProtoPanel,border=BorderStroke(1.dp,ProtoBorder),shape=RoundedCornerShape(28.dp),modifier=Modifier.fillMaxWidth().height(58.dp).clickable{onClick()}){
+    Surface(color=ProtoPanel,border=BorderStroke(1.dp,ProtoBorder),shape=RoundedCornerShape(24.dp),modifier=Modifier.fillMaxWidth().height(50.dp).clickable{onClick()}){
         Row(Modifier.fillMaxSize().padding(horizontal=18.dp),verticalAlignment=Alignment.CenterVertically){
             Icon(Icons.Outlined.Search,null,tint=ProtoGold,modifier=Modifier.size(25.dp));Spacer(Modifier.width(11.dp))
             Text(if(text.isBlank())placeholder else text,color=if(text.isBlank())ProtoMuted else ProtoText,fontSize=14.sp,maxLines=1,overflow=TextOverflow.Ellipsis)
@@ -1819,7 +1833,7 @@ private fun ProtoAvailabilityChips(selected:String,onSelect:(String)->Unit){
     Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.spacedBy(10.dp)){
         listOf("Все","В наличии","Под заказ").forEach{label->
             val active=label==selected
-            Surface(color=if(active)ProtoGold else ProtoPanel,border=BorderStroke(1.dp,if(active)ProtoGold else ProtoBorder),shape=RoundedCornerShape(28.dp),modifier=Modifier.weight(1f).height(52.dp).clickable{onSelect(label)}){
+            Surface(color=if(active)ProtoGold else ProtoPanel,border=BorderStroke(1.dp,if(active)ProtoGold else ProtoBorder),shape=RoundedCornerShape(22.dp),modifier=Modifier.weight(1f).height(44.dp).clickable{onSelect(label)}){
                 Box(Modifier.fillMaxSize(),contentAlignment=Alignment.Center){Text(label,color=if(active)Color.Black else ProtoText,fontSize=13.sp,fontWeight=FontWeight.SemiBold,maxLines=1)}
             }
         }
@@ -1916,7 +1930,12 @@ private fun ProtoClientHomeScreen(
                 Column(Modifier.padding(horizontal=18.dp)){
                     Text("Здравствуйте, "+client.firstName,color=ProtoText,fontSize=30.sp,fontWeight=FontWeight.Bold)
                     if(retailMode)Text("Режим клиента · закупочные цены скрыты",color=ProtoGoldSoft,fontSize=13.sp)
-                    else Text("Статус: "+client.status+"  ·  Скидка "+client.discount+"%",color=ProtoGoldSoft,fontSize=14.sp)
+                    else Row(verticalAlignment=Alignment.CenterVertically){
+                        Text("Статус: ",color=ProtoGold,fontSize=13.sp,fontWeight=FontWeight.SemiBold)
+                        Text(client.status,color=ProtoText,fontSize=13.sp,fontWeight=FontWeight.SemiBold)
+                        Text("   Скидка: ",color=ProtoGold,fontSize=13.sp,fontWeight=FontWeight.SemiBold)
+                        Text(client.discount.toString()+"%",color=ProtoText,fontSize=13.sp,fontWeight=FontWeight.Bold)
+                    }
                     Spacer(Modifier.height(12.dp))
                     ProtoSearchBar(query,{searchOpen=true})
                     Spacer(Modifier.height(10.dp))
@@ -1998,12 +2017,11 @@ private fun ProtoClientHomeScreen(
 }
 @Composable
 private fun ProtoCatalogHomeScreen(cartCount:Int,onBack:()->Unit,onSearch:(String)->Unit,onCategory:(String)->Unit,onAvailability:(String)->Unit,onHome:()->Unit,onCart:()->Unit,onOrders:()->Unit,onProfile:()->Unit,retailMode:Boolean=false,onRetailExit:()->Unit={}){
-    var searchOpen by remember{mutableStateOf(false)};var searchText by remember{mutableStateOf("")};var mode by remember{mutableStateOf("Все")};val cats=listOf("Венки","Гробы","Одежда","Ленты","Цветы","Услуги")
+    val cats=listOf("Венки","Гробы","Кресты","Одежда","Ленты","Цветы","Услуги")
     Box(Modifier.fillMaxSize()){ProtoLiveBackground();Scaffold(containerColor=Color.Transparent,bottomBar={if(retailMode)ProtoRetailBottomBar(ProtoScreen.RetailCatalog,cartCount,onHome,onCatalog={},onCart,onRetailExit,onOrders) else ProtoClientBottomBar(ProtoScreen.Catalog,cartCount,onHome,onCatalog={},onCart,onOrders,onProfile)}){pad->Column(Modifier.fillMaxSize().padding(pad).padding(horizontal=18.dp)){
-        ProtoBrandHeader(onBack=onBack);Text("Каталог",color=ProtoText,fontSize=32.sp,fontWeight=FontWeight.Bold,modifier=Modifier.padding(vertical=10.dp));ProtoSearchBar(searchText,{searchOpen=true},"Поиск по категориям");Spacer(Modifier.height(12.dp));ProtoAvailabilityChips(mode){mode=it;onAvailability(it)};Spacer(Modifier.height(14.dp))
+        ProtoBrandHeader(onBack=onBack);Text("Каталог",color=ProtoText,fontSize=30.sp,fontWeight=FontWeight.Bold,modifier=Modifier.padding(top=8.dp,bottom=16.dp))
         LazyVerticalGrid(columns=GridCells.Fixed(2),modifier=Modifier.weight(1f),horizontalArrangement=Arrangement.spacedBy(10.dp),verticalArrangement=Arrangement.spacedBy(10.dp),contentPadding=PaddingValues(bottom=12.dp)){items(cats){cat->val enabled=cat=="Венки";Card(colors=CardDefaults.cardColors(containerColor=ProtoPanel),border=BorderStroke(1.dp,ProtoBorder),shape=RoundedCornerShape(20.dp),modifier=Modifier.height(205.dp).clickable(enabled=enabled){onCategory(cat)}){Box(Modifier.fillMaxSize()){Image(painterResource(protoPlaceholderForType(cat)),null,Modifier.fillMaxSize(),contentScale=ContentScale.Crop);Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha=.28f)));Column(Modifier.align(Alignment.BottomStart).padding(12.dp)){Text(cat,color=ProtoText,fontSize=18.sp,fontWeight=FontWeight.Bold);Text(if(cat=="Венки")"126 позиций" else "",color=ProtoMuted,fontSize=13.sp)};Icon(Icons.Outlined.ArrowForward,null,tint=ProtoGold,modifier=Modifier.align(Alignment.BottomEnd).padding(10.dp));if(!enabled)Text("В разработке",color=ProtoMuted,fontSize=10.sp,fontWeight=FontWeight.SemiBold,modifier=Modifier.align(Alignment.CenterEnd).rotate(-90f).offset(x=30.dp))}}}}
     }}}
-    if(searchOpen)AlertDialog(onDismissRequest={searchOpen=false},containerColor=ProtoPanel,title={Text("Поиск по каталогу",color=ProtoText)},text={ProtoField(searchText,{searchText=it},"Артикул или название")},confirmButton={TextButton(onClick={if(searchText.isNotBlank()){searchOpen=false;onSearch(searchText.trim())}}){Text("Найти",color=ProtoGold)}},dismissButton={TextButton(onClick={searchOpen=false}){Text("Отмена",color=ProtoMuted)}})
 }
 
 @Composable
@@ -2073,7 +2091,7 @@ private fun ProtoFilterScreen(
                             options=listOf("Венки","Венки круглые","Корзины","Полянки","Флоретки","Ленты"),
                             selected=draftTypes,
                             toggle={draftTypes=protoToggle(draftTypes,it)},
-                            disabled=setOf("Венки круглые","Корзины","Полянки","Флоретки","Ленты")
+                            disabled=emptySet()
                         )
                     }
                     item{
@@ -2365,7 +2383,17 @@ private fun ProtoCartScreen(
                 ProtoBrandHeader(onBack=onBack)
                 Text("Корзина",color=ProtoText,fontSize=31.sp,fontWeight=FontWeight.Bold,modifier=Modifier.padding(horizontal=18.dp,vertical=8.dp))
                 LazyColumn(Modifier.weight(1f),contentPadding=PaddingValues(horizontal=18.dp),verticalArrangement=Arrangement.spacedBy(10.dp)){
-                    if(lines.isEmpty())item{ProtoSectionCard{Text("Корзина пуста",color=ProtoMuted)}}
+                    if(lines.isEmpty())item{
+                        Box(Modifier.fillParentMaxSize(),contentAlignment=Alignment.Center){
+                            Column(horizontalAlignment=Alignment.CenterHorizontally){
+                                Text("Корзина пуста",color=ProtoRed,fontSize=22.sp,fontWeight=FontWeight.Bold)
+                                Spacer(Modifier.height(14.dp))
+                                OutlinedButton(onClick=onCatalog,border=BorderStroke(1.dp,ProtoGold),shape=RoundedCornerShape(22.dp)){
+                                    Text("Перейти в каталог",color=ProtoGold,fontWeight=FontWeight.SemiBold)
+                                }
+                            }
+                        }
+                    }
                     items(lines,key={it.first.sku}){pair->
                         val p=pair.first
                         val q=pair.second
@@ -3543,9 +3571,18 @@ private fun ProtoChatScreen(
                 Text(title,color=ProtoText,fontSize=26.sp,fontWeight=FontWeight.Bold,maxLines=1,overflow=TextOverflow.Ellipsis)
                 Text(subtitle,color=ProtoMuted,fontSize=11.sp)
             }
+            Surface(
+                color=Color.White,
+                border=BorderStroke(1.dp,ProtoGold),
+                shape=RoundedCornerShape(18.dp),
+                modifier=Modifier
+                    .weight(1f)
+                    .fillMaxWidth()
+                    .padding(horizontal=14.dp,vertical=10.dp)
+            ){
             LazyColumn(
-                modifier=Modifier.weight(1f),
-                contentPadding=PaddingValues(horizontal=16.dp,vertical=12.dp),
+                modifier=Modifier.fillMaxSize(),
+                contentPadding=PaddingValues(horizontal=12.dp,vertical=12.dp),
                 verticalArrangement=Arrangement.spacedBy(8.dp)
             ){
                 if(messages.isEmpty())item{Text("Начните переписку",color=ProtoMuted,modifier=Modifier.padding(12.dp))}
@@ -3559,7 +3596,7 @@ private fun ProtoChatScreen(
                             modifier=Modifier.fillMaxWidth(.82f)
                         ){
                             Column(Modifier.padding(11.dp)){
-                                if(msg.body.isNotBlank())Text(msg.body,color=ProtoText,fontSize=13.sp,lineHeight=18.sp)
+                                if(msg.body.isNotBlank())Text(msg.body,color=Color(0xFF211F1B),fontSize=13.sp,lineHeight=18.sp)
                                 if(msg.attachmentUri.isNotBlank()){
                                     Row(
                                         Modifier.padding(top=if(msg.body.isBlank())0.dp else 8.dp)
@@ -3579,6 +3616,7 @@ private fun ProtoChatScreen(
                         }
                     }
                 }
+            }
             }
             Row(
                 Modifier.fillMaxWidth().background(ProtoPanel).padding(horizontal=10.dp,vertical=8.dp),
@@ -4743,7 +4781,6 @@ private fun ProtoClientBottomBar(current:ProtoScreen,cartCount:Int,onHome:()->Un
     val orders=current in setOf(ProtoScreen.OrderList,ProtoScreen.OrderDetail,ProtoScreen.OrderSent)
     val chat=current==ProtoScreen.ClientChat
     NavigationBar(containerColor=ProtoPanel,tonalElevation=0.dp){
-        ProtoNavItem(current==ProtoScreen.Home,"Главная",Icons.Outlined.Home,onHome)
         ProtoNavItem(catalog,"Каталог",Icons.Outlined.Inventory2,onCatalog)
         NavigationBarItem(
             selected=cart,
