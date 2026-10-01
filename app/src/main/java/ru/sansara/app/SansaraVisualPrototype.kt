@@ -580,7 +580,7 @@ fun SansaraVisualPrototype() {
             return
         }
         scope.launch {
-            val result = SansaraBackend.postEvent(backendApiUrl, "order", mapOf(
+            val payload = mapOf(
                 "orderId" to order.id, "client" to order.clientName, "dateTime" to order.dateTime, "status" to order.status,
                 "pieces" to order.pieces, "baseTotal" to order.baseTotal, "discountPct" to order.discountPct, "total" to order.total,
                 "recipient" to order.recipient, "contactPhone" to order.contactPhone,
@@ -590,9 +590,20 @@ fun SansaraVisualPrototype() {
                 "telegramEnabled" to telegramEnabled,
                 "telegramTemplate" to telegramTemplate,
                 "telegramRetryEnabled" to telegramRetryEnabled
-            ))
+            )
+            val attempts = if (telegramRetryEnabled) 2 else 1
+            var result = BackendPostResult(false, "Отправка не выполнена")
+            var usedAttempts = 0
+            for (attempt in 1..attempts) {
+                usedAttempts = attempt
+                result = runCatching { SansaraBackend.postEvent(backendApiUrl, "order", payload) }
+                    .getOrElse { BackendPostResult(false, it.message ?: "Ошибка соединения с Backend API") }
+                if (result.ok) break
+                if (attempt < attempts) delay(1200)
+            }
             backendStatus = if (result.ok) "Заказ передан backend"+if(telegramEnabled)" / Telegram" else "" else result.message
-            telegramLastLog = LocalDateTime.now().format(DateTimeFormatter.ofPattern("dd.MM.yyyy HH:mm"))+" · "+order.id+" · "+if(result.ok)"успешно" else result.message
+            telegramLastLog = LocalDateTime.now().format(DateTimeFormatter.ofPattern("dd.MM.yyyy HH:mm"))+" · "+order.id+" · "+
+                if(result.ok)"успешно · попыток: "+usedAttempts else result.message+" · попыток: "+usedAttempts
             prefs.edit().putString("telegram_last_log",telegramLastLog).apply()
         }
     }
