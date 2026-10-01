@@ -85,13 +85,24 @@ jobs:
           repository: ${{ github.repository }}
           run-id: 36856408455
 
+      - name: Enable KVM acceleration when available
+        run: |
+          if [ -e /dev/kvm ]; then
+            sudo chmod 666 /dev/kvm
+            ls -l /dev/kvm
+          else
+            echo "KVM device is not available; emulator will use software acceleration"
+          fi
+
       - name: Verify install-over upgrade and data preservation
         uses: reactivecircus/android-emulator-runner@v2
         with:
-          api-level: 35
-          target: google_apis
+          api-level: 34
+          target: default
           arch: x86_64
           profile: pixel_6
+          cores: 2
+          emulator-boot-timeout: 900
           disable-animations: true
           script: |
             set -euo pipefail
