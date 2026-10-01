@@ -65,6 +65,7 @@ import java.time.LocalDateTime
 import java.time.YearMonth
 import java.time.format.DateTimeFormatter
 import java.util.Locale
+import kotlin.math.roundToInt
 import ru.sansara.app.ui.theme.*
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
@@ -1247,6 +1248,20 @@ fun SansaraVisualPrototype() {
             ProtoScreen.ReserveList -> ProtoReserveListScreen(orders, onBack = { back() })
             ProtoScreen.NewClients -> ProtoNewClientsScreen(clients, onBack = { back() }, onOpen = { selectedClientId = it.id; go(ProtoScreen.AdminClient) })
             ProtoScreen.Export -> ProtoExportScreen(onBack = { back() }, onExport = { report -> protoExportCsv(context, report, products, stockOverrides, orders, clients, productionOps, reservedForSku = { reservedForSku(it) }, toast = { toast(it) }) })
+            ProtoScreen.AgentClients,
+            ProtoScreen.AgentClientDetail,
+            ProtoScreen.RetailHome,
+            ProtoScreen.RetailCatalog,
+            ProtoScreen.RetailFilter,
+            ProtoScreen.RetailProductList,
+            ProtoScreen.RetailProductDetail,
+            ProtoScreen.RetailCart,
+            ProtoScreen.RetailCheckout,
+            ProtoScreen.RetailOrderSent -> ProtoSimpleMessageScreen(
+                "Для клиентов",
+                "Раздел подключается к сохранённым клиентам агента и общей базе товаров.",
+                onBack = { back() }
+            )
         }
 
         if (session?.role == SansaraRole.CLIENT && screen == ProtoScreen.Home) {
@@ -3720,6 +3735,41 @@ private fun ProtoClientBottomBar(current:ProtoScreen,cartCount:Int,onHome:()->Un
     }
 }
 @Composable
+private fun ProtoRetailBottomBar(
+    current:ProtoScreen,
+    cartCount:Int,
+    onHome:()->Unit,
+    onCatalog:()->Unit,
+    onCart:()->Unit,
+    onExit:()->Unit
+){
+    val catalog=current in setOf(ProtoScreen.RetailCatalog,ProtoScreen.RetailFilter,ProtoScreen.RetailProductList,ProtoScreen.RetailProductDetail)
+    val cart=current in setOf(ProtoScreen.RetailCart,ProtoScreen.RetailCheckout)
+    NavigationBar(containerColor=ProtoPanel,tonalElevation=0.dp){
+        ProtoNavItem(current==ProtoScreen.RetailHome,"Главная",Icons.Outlined.Home,onHome)
+        ProtoNavItem(catalog,"Каталог",Icons.Outlined.Inventory2,onCatalog)
+        NavigationBarItem(
+            selected=cart,
+            onClick=onCart,
+            icon={
+                BadgedBox(badge={if(cartCount>0)Badge(containerColor=ProtoGold){Text(cartCount.toString(),color=Color.Black)}}){
+                    Icon(Icons.Outlined.ShoppingCart,null)
+                }
+            },
+            label={Text("Корзина",fontSize=9.sp)},
+            colors=NavigationBarItemDefaults.colors(
+                selectedIconColor=ProtoGold,
+                selectedTextColor=ProtoGold,
+                indicatorColor=Color.Black,
+                unselectedIconColor=ProtoMuted,
+                unselectedTextColor=ProtoMuted
+            )
+        )
+        ProtoNavItem(false,"Выйти",Icons.Outlined.ExitToApp,onExit)
+    }
+}
+
+@Composable
 private fun ProtoAdminBottomBar(current:ProtoScreen,onHome:()->Unit,onClients:()->Unit,onOrders:()->Unit,onStock:()->Unit,onProfile:()->Unit){NavigationBar(containerColor=ProtoPanel,tonalElevation=0.dp){ProtoNavItem(current==ProtoScreen.AdminHome,"Главная",Icons.Outlined.Home,onHome);ProtoNavItem(current in setOf(ProtoScreen.AdminClients,ProtoScreen.AdminClient),"Клиенты",Icons.Outlined.Groups,onClients);ProtoNavItem(current in setOf(ProtoScreen.AdminOrders,ProtoScreen.AdminOrderDetail),"Заказы",Icons.Outlined.ReceiptLong,onOrders);ProtoNavItem(current in setOf(ProtoScreen.Server,ProtoScreen.StockList,ProtoScreen.ReserveList),"Склад",Icons.Outlined.Inventory2,onStock);ProtoNavItem(current in setOf(ProtoScreen.AdminSettings,ProtoScreen.AdminSettingsDetail),"Профиль",Icons.Outlined.Person,onProfile)}
 }
 
@@ -3831,6 +3881,15 @@ private fun protoSaveNotifications(prefs:android.content.SharedPreferences,items
         })
     }
     prefs.edit().putString("client_notifications",array.toString()).apply()
+}
+
+private fun protoProductCategoryKey(type:String):String = when {
+    type.contains("Вен", ignoreCase=true) -> "Венки"
+    type.contains("Гроб", ignoreCase=true) -> "Гробы"
+    type.contains("Крест", ignoreCase=true) -> "Кресты"
+    type.contains("Лент", ignoreCase=true) -> "Ленты"
+    type.contains("Одеж", ignoreCase=true) -> "Одежда"
+    else -> type.ifBlank { "Прочее" }
 }
 
 private fun protoToggle(set:Set<String>,value:String)=if(value in set)set-value else set+value
