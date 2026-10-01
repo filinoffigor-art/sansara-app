@@ -1547,7 +1547,7 @@ fun SansaraVisualPrototype() {
                     products=retail,cart=retailCart,discount=0,availableStock={rp->products.firstOrNull{it.sku==rp.sku}?.let{availableStock(it)}?:0},
                     onBack={back()},onPlus={p->retailCart[p.sku]=(retailCart[p.sku]?:0)+1},onMinus={p->val n=(retailCart[p.sku]?:1)-1;if(n<=0)retailCart.remove(p.sku)else retailCart[p.sku]=n},
                     onDelete={retailCart.remove(it.sku)},onOpenProduct={p->retailSelectedProduct=p;retailDetailQty=retailCart[p.sku]?:1;go(ProtoScreen.RetailProductDetail)},onCheckout={go(ProtoScreen.RetailCheckout)},
-                    onHome={history.clear();screen=ProtoScreen.RetailHome},onCatalog={go(ProtoScreen.RetailCatalog)},onOrders={},onProfile={},retailMode=true,onRetailExit={history.clear();screen=ProtoScreen.AgentClientDetail}
+                    onHome={history.clear();screen=ProtoScreen.RetailHome},onCatalog={go(ProtoScreen.RetailCatalog)},onOrders={go(ProtoScreen.RetailOrderList)},onProfile={},retailMode=true,onRetailExit={history.clear();screen=ProtoScreen.AgentClientDetail}
                 )
             }
             ProtoScreen.RetailCheckout -> {
