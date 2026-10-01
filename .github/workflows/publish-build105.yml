@@ -1,0 +1,35 @@
+name: Publish SANSARA Build 105
+
+on:
+  push:
+    branches:
+      - stage-6-full-workflows
+    paths:
+      - '.github/workflows/publish-build105.yml'
+
+permissions:
+  contents: write
+  actions: read
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download Build 105 artifact
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p dist
+          gh run download 36869688291             --repo "${{ github.repository }}"             --name "SANSARA-alpha-apk"             --dir dist
+          test -f dist/app-debug.apk
+          mv dist/app-debug.apk dist/SANSARA-Build105.apk
+
+      - name: Publish permanent GitHub Release asset
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if gh release view build-105 --repo "${{ github.repository }}" >/dev/null 2>&1; then
+            gh release upload build-105 dist/SANSARA-Build105.apk               --repo "${{ github.repository }}"               --clobber
+          else
+            gh release create build-105 dist/SANSARA-Build105.apk               --repo "${{ github.repository }}"               --target "64ff1a38e4a59e27ee86a8bafd44d54589e69479"               --title "SANSARA Build 105"               --notes "Installable Android APK from successful GitHub Actions Build SANSARA APK #105."
+          fi
