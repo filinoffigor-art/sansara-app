@@ -1233,6 +1233,9 @@ fun SansaraVisualPrototype() {
                     onReport = { go(ProtoScreen.ProductionReport) },
                     onPayments = { go(ProtoScreen.ProductionPayments) },
                     onStock = { go(ProtoScreen.Server) },
+                    onWorkshop = { refreshOperationsData(); go(ProtoScreen.ProductionWorkshop) },
+                    onAttendance = { refreshOperationsData(); go(ProtoScreen.ProductionAttendance) },
+                    onChat = { go(ProtoScreen.ProductionChat) },
                     onHome = { toast("Главный экран производства") },
                     onProfile = { go(ProtoScreen.ProductionProfile) }
                 )
@@ -1319,8 +1322,23 @@ fun SansaraVisualPrototype() {
             ProtoScreen.ProductionHistory -> ProtoProductionHistoryScreen(
                 productionOps,
                 products,
+                canEdit=true,
                 onBack={back()},
-                onExport={go(ProtoScreen.Export)}
+                onExport={go(ProtoScreen.Export)},
+                onCorrect={op,newQty->
+                    scope.launch {
+                        runCatching{repository.changeProductionOp(op.opId,newQty,session?.userId?:"U-PRODUCTION",false)}
+                            .onSuccess{applySnapshot(repository.snapshot());refreshOperationsData();toast("Выпуск скорректирован")}
+                            .onFailure{toast(it.message?:"Ошибка корректировки")}
+                    }
+                },
+                onDelete={op->
+                    scope.launch {
+                        runCatching{repository.changeProductionOp(op.opId,0,session?.userId?:"U-PRODUCTION",true)}
+                            .onSuccess{applySnapshot(repository.snapshot());refreshOperationsData();toast("Выпуск удалён, запись сохранена в журнале")}
+                            .onFailure{toast(it.message?:"Ошибка удаления")}
+                    }
+                }
             )
             ProtoScreen.ProductionReport -> {
                 val productionDateKey = selectedProductionDate.format(DateTimeFormatter.ofPattern("dd.MM.yyyy"))
@@ -1328,6 +1346,45 @@ fun SansaraVisualPrototype() {
             }
             ProtoScreen.ProductionPayments -> ProtoProductionPaymentsScreen(productionOps,onBack={back()},onExport={go(ProtoScreen.Export)})
             ProtoScreen.ProductionProfile -> ProtoStaffProfileScreen(role = "Производство", onBack = { back() }, onCall = { protoDial(context) }, onLogout = { authProvider.signOut(); session = null; history.clear(); screen = ProtoScreen.Welcome })
+
+            ProtoScreen.ProductionWorkshop -> ProtoWorkshopTasksScreen(
+                tasks=workshopTasks,
+                productionMode=true,
+                onBack={back()},
+                onCreate={_,_,_,_->},
+                onFact={task,qty,status->
+                    scope.launch {
+                        repository.updateWorkshopTaskFact(task.id,qty,status)
+                        refreshOperationsData()
+                    }
+                }
+            )
+            ProtoScreen.ProductionAttendance -> ProtoAttendanceScreen(
+                selectedDate=selectedProductionDate,
+                assemblers=assemblers,
+                rows=attendanceRows,
+                editable=true,
+                onBack={back()},
+                onDate={selectedProductionDate=it;refreshOperationsData()},
+                onSave={person,status,comment->
+                    scope.launch {
+                        repository.saveAttendance(selectedProductionDate.format(DateTimeFormatter.ofPattern("dd.MM.yyyy")),person.id,person.name,status,comment)
+                        refreshOperationsData()
+                    }
+                }
+            )
+            ProtoScreen.ProductionChat -> {
+                val conversationId="STAFF:ADMIN_PRODUCTION"
+                ProtoChatScreen(
+                    title="Чат с администратором",
+                    subtitle="Производство",
+                    messages=chatMessages.filter{it.conversationId==conversationId},
+                    currentRole="PRODUCTION",
+                    onBack={back()},
+                    onRead={markChatRead(conversationId,"PRODUCTION")},
+                    onSend={body,uri,name,mime->sendChat(conversationId,"PRODUCTION",session?.userId?:"U-PRODUCTION",body,uri,name,mime)}
+                )
+            }
 
             ProtoScreen.Server -> ProtoServerScreen(products, stockOverrides, productionOps, orders, clients, reservedForSku = { reservedForSku(it) }, onBack = { back() }, onProduced = { go(ProtoScreen.ProductionHistory) }, onStock = { go(ProtoScreen.StockList) }, onReserve = { go(ProtoScreen.ReserveList) }, onNewClients = { go(ProtoScreen.NewClients) }, onOnline = { go(ProtoScreen.OnlineController) }, onExport = { go(ProtoScreen.Export) })
             ProtoScreen.StockList -> ProtoStockListScreen(
