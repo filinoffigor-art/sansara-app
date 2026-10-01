@@ -187,6 +187,48 @@ data class ChatMessageEntity(
     val read: Boolean = false
 )
 
+@Entity(tableName = "agent_customers")
+data class AgentCustomerEntity(
+    @PrimaryKey val id: String,
+    val ownerClientId: String,
+    val fullName: String,
+    val phone: String,
+    val email: String,
+    val city: String,
+    val address: String,
+    val comment: String,
+    val createdAt: Long = System.currentTimeMillis()
+)
+
+@Entity(tableName = "agent_settings")
+data class AgentSettingsEntity(
+    @PrimaryKey val ownerClientId: String,
+    val generalMarkupEnabled: Boolean,
+    val generalMarkupPct: Int,
+    val updatedAt: Long = System.currentTimeMillis()
+)
+
+@Entity(tableName = "agent_customer_markups", primaryKeys = ["customerId", "category"])
+data class AgentCustomerMarkupEntity(
+    val customerId: String,
+    val ownerClientId: String,
+    val category: String,
+    val markupPct: Int,
+    val updatedAt: Long = System.currentTimeMillis()
+)
+
+@Entity(tableName = "agent_reminders")
+data class AgentReminderEntity(
+    @PrimaryKey val id: String,
+    val ownerClientId: String,
+    val customerId: String,
+    val customerName: String,
+    val remindAtEpochMs: Long,
+    val note: String,
+    val active: Boolean = true,
+    val createdAt: Long = System.currentTimeMillis()
+)
+
 @Dao
 interface SansaraDao {
     @Query("SELECT COUNT(*) FROM products")
@@ -251,6 +293,45 @@ interface SansaraDao {
 
     @Query("UPDATE chat_messages SET read = 1 WHERE conversationId = :conversationId AND senderRole != :readerRole")
     suspend fun markConversationRead(conversationId: String, readerRole: String)
+
+    @Query("SELECT * FROM agent_customers ORDER BY createdAt DESC")
+    suspend fun allAgentCustomers(): List<AgentCustomerEntity>
+
+    @Query("SELECT * FROM agent_customers WHERE ownerClientId = :ownerClientId ORDER BY createdAt DESC")
+    suspend fun agentCustomers(ownerClientId: String): List<AgentCustomerEntity>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun putAgentCustomers(items: List<AgentCustomerEntity>)
+
+    @Query("SELECT * FROM agent_settings WHERE ownerClientId = :ownerClientId LIMIT 1")
+    suspend fun agentSettings(ownerClientId: String): AgentSettingsEntity?
+
+    @Query("SELECT * FROM agent_settings")
+    suspend fun allAgentSettings(): List<AgentSettingsEntity>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun putAgentSettings(items: List<AgentSettingsEntity>)
+
+    @Query("SELECT * FROM agent_customer_markups")
+    suspend fun allAgentCustomerMarkups(): List<AgentCustomerMarkupEntity>
+
+    @Query("SELECT * FROM agent_customer_markups WHERE customerId = :customerId ORDER BY category")
+    suspend fun agentCustomerMarkups(customerId: String): List<AgentCustomerMarkupEntity>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun putAgentCustomerMarkups(items: List<AgentCustomerMarkupEntity>)
+
+    @Query("SELECT * FROM agent_reminders WHERE active = 1 ORDER BY remindAtEpochMs")
+    suspend fun activeAgentReminders(): List<AgentReminderEntity>
+
+    @Query("SELECT * FROM agent_reminders WHERE ownerClientId = :ownerClientId ORDER BY remindAtEpochMs DESC")
+    suspend fun agentReminders(ownerClientId: String): List<AgentReminderEntity>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun putAgentReminders(items: List<AgentReminderEntity>)
+
+    @Query("UPDATE agent_reminders SET active = 0 WHERE id = :id")
+    suspend fun disableAgentReminder(id: String)
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun putProducts(items: List<ProductEntity>)
@@ -330,9 +411,13 @@ interface SansaraDao {
         ProductionReceiptEntity::class,
         ProductionReceiptLineEntity::class,
         StockAdjustmentEntity::class,
-        ChatMessageEntity::class
+        ChatMessageEntity::class,
+        AgentCustomerEntity::class,
+        AgentSettingsEntity::class,
+        AgentCustomerMarkupEntity::class,
+        AgentReminderEntity::class
     ],
-    version = 3,
+    version = 4,
     exportSchema = false
 )
 abstract class SansaraDatabase : RoomDatabase() {
@@ -359,6 +444,19 @@ abstract class SansaraDatabase : RoomDatabase() {
             }
         }
 
+        private val MIGRATION_3_4 = object : Migration(3, 4) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("CREATE TABLE IF NOT EXISTS agent_customers (id TEXT NOT NULL, ownerClientId TEXT NOT NULL, fullName TEXT NOT NULL, phone TEXT NOT NULL, email TEXT NOT NULL, city TEXT NOT NULL, address TEXT NOT NULL, comment TEXT NOT NULL, createdAt INTEGER NOT NULL, PRIMARY KEY(id))")
+                db.execSQL("CREATE INDEX IF NOT EXISTS index_agent_customers_ownerClientId ON agent_customers(ownerClientId)")
+                db.execSQL("CREATE TABLE IF NOT EXISTS agent_settings (ownerClientId TEXT NOT NULL, generalMarkupEnabled INTEGER NOT NULL, generalMarkupPct INTEGER NOT NULL, updatedAt INTEGER NOT NULL, PRIMARY KEY(ownerClientId))")
+                db.execSQL("CREATE TABLE IF NOT EXISTS agent_customer_markups (customerId TEXT NOT NULL, ownerClientId TEXT NOT NULL, category TEXT NOT NULL, markupPct INTEGER NOT NULL, updatedAt INTEGER NOT NULL, PRIMARY KEY(customerId, category))")
+                db.execSQL("CREATE INDEX IF NOT EXISTS index_agent_customer_markups_ownerClientId ON agent_customer_markups(ownerClientId)")
+                db.execSQL("CREATE TABLE IF NOT EXISTS agent_reminders (id TEXT NOT NULL, ownerClientId TEXT NOT NULL, customerId TEXT NOT NULL, customerName TEXT NOT NULL, remindAtEpochMs INTEGER NOT NULL, note TEXT NOT NULL, active INTEGER NOT NULL, createdAt INTEGER NOT NULL, PRIMARY KEY(id))")
+                db.execSQL("CREATE INDEX IF NOT EXISTS index_agent_reminders_ownerClientId ON agent_reminders(ownerClientId)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS index_agent_reminders_remindAtEpochMs ON agent_reminders(remindAtEpochMs)")
+            }
+        }
+
         fun get(context: Context): SansaraDatabase =
             instance ?: synchronized(this) {
                 instance ?: Room.databaseBuilder(
@@ -366,7 +464,7 @@ abstract class SansaraDatabase : RoomDatabase() {
                     SansaraDatabase::class.java,
                     "sansara.db"
                 )
-                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3)
+                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4)
                     .build()
                     .also { instance = it }
             }
@@ -430,6 +528,41 @@ data class SansaraChatMessage(
     val attachmentMime: String,
     val createdAt: Long,
     val read: Boolean
+)
+
+data class SansaraAgentCustomer(
+    val id: String,
+    val ownerClientId: String,
+    val fullName: String,
+    val phone: String,
+    val email: String,
+    val city: String,
+    val address: String,
+    val comment: String,
+    val createdAt: Long
+)
+
+data class SansaraAgentSettings(
+    val ownerClientId: String,
+    val generalMarkupEnabled: Boolean,
+    val generalMarkupPct: Int
+)
+
+data class SansaraAgentMarkup(
+    val customerId: String,
+    val ownerClientId: String,
+    val category: String,
+    val markupPct: Int
+)
+
+data class SansaraAgentReminder(
+    val id: String,
+    val ownerClientId: String,
+    val customerId: String,
+    val customerName: String,
+    val remindAtEpochMs: Long,
+    val note: String,
+    val active: Boolean
 )
 
 class SansaraRepository private constructor(
@@ -733,6 +866,92 @@ class SansaraRepository private constructor(
         dao.markConversationRead(conversationId,readerRole)
     }
 
+    suspend fun allAgentCustomers():List<SansaraAgentCustomer> =
+        dao.allAgentCustomers().map { it.toModel() }
+
+    suspend fun agentCustomers(ownerClientId:String):List<SansaraAgentCustomer> =
+        dao.agentCustomers(ownerClientId).map { it.toModel() }
+
+    suspend fun saveAgentCustomer(
+        id:String?,
+        ownerClientId:String,
+        fullName:String,
+        phone:String,
+        email:String,
+        city:String,
+        address:String,
+        comment:String
+    ):SansaraAgentCustomer {
+        require(fullName.trim().isNotBlank()) { "Заполните ФИО клиента" }
+        require(phone.trim().isNotBlank()) { "Заполните телефон клиента" }
+        val entity=AgentCustomerEntity(
+            id=id ?: ("AC-"+java.util.UUID.randomUUID().toString().replace("-","").take(10).uppercase()),
+            ownerClientId=ownerClientId,
+            fullName=fullName.trim(),
+            phone=phone.trim(),
+            email=email.trim(),
+            city=city.trim(),
+            address=address.trim(),
+            comment=comment.trim()
+        )
+        dao.putAgentCustomers(listOf(entity))
+        return entity.toModel()
+    }
+
+    suspend fun allAgentSettings():List<SansaraAgentSettings> =
+        dao.allAgentSettings().map { it.toModel() }
+
+    suspend fun agentSettings(ownerClientId:String):SansaraAgentSettings =
+        (dao.agentSettings(ownerClientId) ?: AgentSettingsEntity(ownerClientId,true,30)).toModel()
+
+    suspend fun saveAgentSettings(ownerClientId:String,enabled:Boolean,pct:Int):SansaraAgentSettings {
+        val entity=AgentSettingsEntity(ownerClientId,enabled,pct.coerceIn(0,300))
+        dao.putAgentSettings(listOf(entity))
+        return entity.toModel()
+    }
+
+    suspend fun allAgentMarkups():List<SansaraAgentMarkup> =
+        dao.allAgentCustomerMarkups().map { it.toModel() }
+
+    suspend fun agentCustomerMarkups(customerId:String):List<SansaraAgentMarkup> =
+        dao.agentCustomerMarkups(customerId).map { it.toModel() }
+
+    suspend fun setAgentCustomerMarkup(customerId:String,ownerClientId:String,category:String,pct:Int):SansaraAgentMarkup {
+        val entity=AgentCustomerMarkupEntity(customerId,ownerClientId,category,pct.coerceIn(0,300))
+        dao.putAgentCustomerMarkups(listOf(entity))
+        return entity.toModel()
+    }
+
+    suspend fun activeAgentReminders():List<SansaraAgentReminder> =
+        dao.activeAgentReminders().map { it.toModel() }
+
+    suspend fun agentReminders(ownerClientId:String):List<SansaraAgentReminder> =
+        dao.agentReminders(ownerClientId).map { it.toModel() }
+
+    suspend fun saveAgentReminder(
+        ownerClientId:String,
+        customerId:String,
+        customerName:String,
+        remindAtEpochMs:Long,
+        note:String
+    ):SansaraAgentReminder {
+        require(remindAtEpochMs>System.currentTimeMillis()) { "Время напоминания должно быть в будущем" }
+        val entity=AgentReminderEntity(
+            id="REM-"+java.util.UUID.randomUUID().toString().replace("-","").take(10).uppercase(),
+            ownerClientId=ownerClientId,
+            customerId=customerId,
+            customerName=customerName,
+            remindAtEpochMs=remindAtEpochMs,
+            note=note.trim()
+        )
+        dao.putAgentReminders(listOf(entity))
+        return entity.toModel()
+    }
+
+    suspend fun disableAgentReminder(id:String) {
+        dao.disableAgentReminder(id)
+    }
+
     suspend fun adjustStock(sku:String,qtyDelta:Int,reason:String,userId:String) {
         require(qtyDelta!=0) { "Корректировка равна нулю" }
         require(reason.trim().isNotBlank()) { "Укажите причину" }
@@ -960,4 +1179,21 @@ private fun ChatMessageEntity.toModel()=SansaraChatMessage(
     attachmentMime=attachmentMime,
     createdAt=createdAt,
     read=read
+)
+
+
+private fun AgentCustomerEntity.toModel()=SansaraAgentCustomer(
+    id=id,ownerClientId=ownerClientId,fullName=fullName,phone=phone,email=email,city=city,address=address,comment=comment,createdAt=createdAt
+)
+
+private fun AgentSettingsEntity.toModel()=SansaraAgentSettings(
+    ownerClientId=ownerClientId,generalMarkupEnabled=generalMarkupEnabled,generalMarkupPct=generalMarkupPct
+)
+
+private fun AgentCustomerMarkupEntity.toModel()=SansaraAgentMarkup(
+    customerId=customerId,ownerClientId=ownerClientId,category=category,markupPct=markupPct
+)
+
+private fun AgentReminderEntity.toModel()=SansaraAgentReminder(
+    id=id,ownerClientId=ownerClientId,customerId=customerId,customerName=customerName,remindAtEpochMs=remindAtEpochMs,note=note,active=active
 )
