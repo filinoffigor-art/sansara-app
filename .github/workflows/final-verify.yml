@@ -121,6 +121,11 @@ jobs:
             test -n "$(adb shell pidof ru.sansara.app)"
             ! adb logcat -d -t 300 | grep -E "FATAL EXCEPTION.*ru\.sansara\.app|Process: ru\.sansara\.app.*FATAL"
 
+            # Black-box Compose smoke tests: real access-code login for client/admin/production
+            # and verification of key routes for each role. AndroidX Test Orchestrator
+            # clears app data between tests so sessions cannot leak across roles.
+            gradle :app:connectedDebugAndroidTest --stacktrace
+
       - name: Upload fully verified APK
         uses: actions/upload-artifact@v4
         with:
