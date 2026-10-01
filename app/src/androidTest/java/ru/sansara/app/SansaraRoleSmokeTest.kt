@@ -35,6 +35,17 @@ class SansaraRoleSmokeTest {
         waitText("Поиск по категориям")
         compose.activityRule.scenario.onActivity { it.onBackPressedDispatcher.onBackPressed() }
         waitText("Популярные товары")
+
+        compose.onNode(hasText("Заказы") and hasClickAction()).performClick()
+        waitText("Мои заказы")
+        compose.activityRule.scenario.onActivity { it.onBackPressedDispatcher.onBackPressed() }
+        waitText("Популярные товары")
+
+        compose.onNode(hasText("Чат") and hasClickAction()).performClick()
+        waitText("Чат с менеджером")
+        compose.activityRule.scenario.onActivity { it.onBackPressedDispatcher.onBackPressed() }
+        waitText("Популярные товары")
+
         compose.onNode(hasContentDescription("Меню")).performClick()
         waitText("Для клиентов")
         compose.onNode(hasText("Для клиентов") and hasClickAction()).performClick()
