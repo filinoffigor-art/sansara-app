@@ -105,25 +105,19 @@ jobs:
           emulator-boot-timeout: 900
           disable-animations: true
           script: |
-            set -eu
-            PREV_APK=$(find previous-apk -name '*.apk' | head -n 1)
-            FINAL_APK=app/build/outputs/apk/debug/app-debug.apk
-            test -n "$PREV_APK"
-
-            adb install "$PREV_APK"
+            test -n "$(find previous-apk -name '*.apk' | head -n 1)"
+            adb install "$(find previous-apk -name '*.apk' | head -n 1)"
             adb shell am start -W -n ru.sansara.app/.MainActivity
             sleep 4
 
             adb shell run-as ru.sansara.app sh -c 'echo upgrade-preserved > files/upgrade-sentinel.txt'
             adb shell run-as ru.sansara.app test -s databases/sansara.db
 
-            adb install -r "$FINAL_APK"
-            VERSION=$(adb shell dumpsys package ru.sansara.app | grep versionCode | head -n 1)
-            echo "$VERSION"
-            echo "$VERSION" | grep "versionCode=25"
+            adb install -r app/build/outputs/apk/debug/app-debug.apk
+            adb shell dumpsys package ru.sansara.app | grep versionCode | head -n 1
+            adb shell dumpsys package ru.sansara.app | grep versionCode | head -n 1 | grep "versionCode=25"
 
-            SENTINEL=$(adb shell run-as ru.sansara.app cat files/upgrade-sentinel.txt | tr -d '\r')
-            test "$SENTINEL" = "upgrade-preserved"
+            test "$(adb shell run-as ru.sansara.app cat files/upgrade-sentinel.txt | tr -d '\r')" = "upgrade-preserved"
             adb shell run-as ru.sansara.app test -s databases/sansara.db
 
             adb shell am force-stop ru.sansara.app
