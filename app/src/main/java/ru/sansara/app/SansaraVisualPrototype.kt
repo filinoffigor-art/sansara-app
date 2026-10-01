@@ -313,7 +313,19 @@ fun SansaraVisualPrototype() {
     var catalogSyncStatus by remember { mutableStateOf("Тестовый каталог · локальные данные") }
     var catalogSyncInProgress by remember { mutableStateOf(false) }
     var lastCatalogSync by remember { mutableStateOf(prefs.getString("last_catalog_sync", "Не выполнялась").orEmpty()) }
-    var backendStatus by remember { mutableStateOf(if (BuildConfig.BACKEND_API_URL.isBlank()) "Backend API не настроен · события сохраняются локально" else "Backend API настроен") }
+    var backendApiUrl by remember { mutableStateOf(prefs.getString("backend_api_url", BuildConfig.BACKEND_API_URL).orEmpty()) }
+    var telegramEnabled by remember { mutableStateOf(prefs.getBoolean("telegram_enabled", false)) }
+    var telegramRetryEnabled by remember { mutableStateOf(prefs.getBoolean("telegram_retry_enabled", true)) }
+    var telegramTemplate by remember {
+        mutableStateOf(
+            prefs.getString(
+                "telegram_template",
+                "Заказ №{number}\nКлиент: {client}\nСостав: {items}\nСумма: {total}\nКонтакты: {contact}\nПолучение: {date} {time}"
+            ).orEmpty()
+        )
+    }
+    var telegramLastLog by remember { mutableStateOf(prefs.getString("telegram_last_log", "Отправок ещё не было").orEmpty()) }
+    var backendStatus by remember { mutableStateOf(if (backendApiUrl.isBlank()) "Backend API не настроен · события сохраняются локально" else "Backend API настроен") }
     val scope = rememberCoroutineScope()
 
     val clients = remember { mutableStateListOf<ProtoClient>() }
@@ -550,9 +562,9 @@ fun SansaraVisualPrototype() {
     }
 
     fun sendRegistrationEvent(reg: ProtoRegistration) {
-        if (BuildConfig.BACKEND_API_URL.isBlank()) return
+        if (backendApiUrl.isBlank()) return
         scope.launch {
-            val result = SansaraBackend.postEvent(BuildConfig.BACKEND_API_URL, "registration", mapOf(
+            val result = SansaraBackend.postEvent(backendApiUrl, "registration", mapOf(
                 "registrationId" to reg.id, "organization" to reg.organization, "inn" to reg.inn, "type" to reg.type,
                 "contact1" to reg.contact1, "phone1" to reg.phone1, "email" to reg.email, "contact2" to reg.contact2, "phone2" to reg.phone2, "email2" to reg.email2,
                 "city" to reg.city, "address" to reg.address, "createdAt" to reg.createdAt
@@ -562,17 +574,26 @@ fun SansaraVisualPrototype() {
     }
 
     fun sendOrderEvent(order: ProtoOrder) {
-        if (BuildConfig.BACKEND_API_URL.isBlank()) return
+        if (backendApiUrl.isBlank()) {
+            telegramLastLog = "Заказ "+order.id+": серверный прокси не настроен"
+            prefs.edit().putString("telegram_last_log",telegramLastLog).apply()
+            return
+        }
         scope.launch {
-            val result = SansaraBackend.postEvent(BuildConfig.BACKEND_API_URL, "order", mapOf(
+            val result = SansaraBackend.postEvent(backendApiUrl, "order", mapOf(
                 "orderId" to order.id, "client" to order.clientName, "dateTime" to order.dateTime, "status" to order.status,
                 "pieces" to order.pieces, "baseTotal" to order.baseTotal, "discountPct" to order.discountPct, "total" to order.total,
                 "recipient" to order.recipient, "contactPhone" to order.contactPhone,
                 "deliveryMethod" to order.deliveryMethod, "deliveryAddress" to order.deliveryAddress,
                 "deliveryDate" to order.deliveryDate, "deliveryTime" to order.deliveryTime, "comment" to order.comment,
-                "lines" to order.lines.joinToString(" | ") { "${it.sku}:${it.qty}:${it.price}:${it.discountPct}" }
+                "lines" to order.lines.joinToString(" | ") { "${it.sku}:${it.qty}:${it.price}:${it.discountPct}" },
+                "telegramEnabled" to telegramEnabled,
+                "telegramTemplate" to telegramTemplate,
+                "telegramRetryEnabled" to telegramRetryEnabled
             ))
-            backendStatus = if (result.ok) "Заказ передан backend / Telegram" else result.message
+            backendStatus = if (result.ok) "Заказ передан backend"+if(telegramEnabled)" / Telegram" else "" else result.message
+            telegramLastLog = LocalDateTime.now().format(DateTimeFormatter.ofPattern("dd.MM.yyyy HH:mm"))+" · "+order.id+" · "+if(result.ok)"успешно" else result.message
+            prefs.edit().putString("telegram_last_log",telegramLastLog).apply()
         }
     }
 
@@ -1117,8 +1138,23 @@ fun SansaraVisualPrototype() {
             ProtoScreen.AdminSettingsDetail -> ProtoAdminSettingsDetailScreen(
                 section = settingsSection, threshold = lowStockThreshold, reg = notificationsRegistration, orders = notificationsOrders, prod = notificationsProduction, low = notificationsLowStock,
                 tildaUrl = tildaFeedUrl, syncStatus = catalogSyncStatus, lastSync = lastCatalogSync, syncing = catalogSyncInProgress, backupStatus = backupStatus, backendStatus = backendStatus,
+                telegramEnabled=telegramEnabled,telegramRetryEnabled=telegramRetryEnabled,telegramApiUrl=backendApiUrl,telegramTemplate=telegramTemplate,telegramLastLog=telegramLastLog,
                 onBack = { back() }, onThreshold = { lowStockThreshold = it.coerceIn(1,50) }, onReg = { notificationsRegistration = it }, onOrders = { notificationsOrders = it }, onProd = { notificationsProduction = it }, onLow = { notificationsLowStock = it },
-                onTildaUrl = { tildaFeedUrl = it }, onSync = { syncTildaCatalog() }, onBackup = { backupStatus = "Последняя копия: ${LocalDateTime.now().format(DateTimeFormatter.ofPattern("dd.MM.yyyy HH:mm"))}" }, onClients = { go(ProtoScreen.AdminClients) }
+                onTildaUrl = { tildaFeedUrl = it }, onSync = { syncTildaCatalog() }, onBackup = { backupStatus = "Последняя копия: ${LocalDateTime.now().format(DateTimeFormatter.ofPattern("dd.MM.yyyy HH:mm"))}" }, onClients = { go(ProtoScreen.AdminClients) },
+                onTelegramSave={enabled,retry,url,template->
+                    telegramEnabled=enabled
+                    telegramRetryEnabled=retry
+                    backendApiUrl=url.trim()
+                    telegramTemplate=template
+                    backendStatus=if(backendApiUrl.isBlank())"Backend API не настроен · события сохраняются локально" else "Backend API настроен"
+                    prefs.edit()
+                        .putBoolean("telegram_enabled",enabled)
+                        .putBoolean("telegram_retry_enabled",retry)
+                        .putString("backend_api_url",backendApiUrl)
+                        .putString("telegram_template",template)
+                        .apply()
+                    toast("Настройки Telegram сохранены")
+                }
             )
             ProtoScreen.AdminAttention -> ProtoAttentionScreen(
                 regs = registrations, blocked = clients.filter { it.status == "Приостановлен" }, picking = orders.filter { it.status == "Собирается" },
@@ -3900,6 +3936,7 @@ private fun ProtoAdminSettingsMenuScreen(syncStatus:String,lastSync:String,lowSt
         Triple("Клиенты",Icons.Outlined.PersonSearch,"Доступ, статусы и скидки"),
         Triple("Сборщицы",Icons.Outlined.Badge,"Справочник производства и доступ"),
         Triple("Каталог и синхронизация",Icons.Outlined.Sync,"$syncStatus · $lastSync"),
+        Triple("Telegram интеграция",Icons.Outlined.Send,"Заказы через защищённый серверный прокси"),
         Triple("Порог низких остатков",Icons.Outlined.Warning,"Сейчас: $lowStockThreshold шт."),
         Triple("Уведомления",Icons.Outlined.Notifications,"Регистрации, заказы, производство"),
         Triple("Резервное копирование",Icons.Outlined.Backup,"Локальная тестовая копия"),
@@ -3929,12 +3966,47 @@ private fun ProtoAssemblerAdminScreen(assemblers:List<SansaraAssembler>,onBack:(
 }
 
 @Composable
-private fun ProtoAdminSettingsDetailScreen(section:String,threshold:Int,reg:Boolean,orders:Boolean,prod:Boolean,low:Boolean,tildaUrl:String,syncStatus:String,lastSync:String,syncing:Boolean,backupStatus:String,backendStatus:String,onBack:()->Unit,onThreshold:(Int)->Unit,onReg:(Boolean)->Unit,onOrders:(Boolean)->Unit,onProd:(Boolean)->Unit,onLow:(Boolean)->Unit,onTildaUrl:(String)->Unit,onSync:()->Unit,onBackup:()->Unit,onClients:()->Unit){
+private fun ProtoAdminSettingsDetailScreen(
+    section:String,threshold:Int,reg:Boolean,orders:Boolean,prod:Boolean,low:Boolean,
+    tildaUrl:String,syncStatus:String,lastSync:String,syncing:Boolean,backupStatus:String,backendStatus:String,
+    telegramEnabled:Boolean,telegramRetryEnabled:Boolean,telegramApiUrl:String,telegramTemplate:String,telegramLastLog:String,
+    onBack:()->Unit,onThreshold:(Int)->Unit,onReg:(Boolean)->Unit,onOrders:(Boolean)->Unit,onProd:(Boolean)->Unit,onLow:(Boolean)->Unit,
+    onTildaUrl:(String)->Unit,onSync:()->Unit,onBackup:()->Unit,onClients:()->Unit,
+    onTelegramSave:(Boolean,Boolean,String,String)->Unit
+){
     ProtoScaffold(section,null,onBack){
         when(section){
             "Профиль компании"->item{ProtoSectionCard{ProtoInfoRow("Компания","SANSARA");ProtoInfoRow("Телефон",BuildConfig.ADMIN_PHONE);ProtoInfoRow("Режим поддержки","09:00–20:00");ProtoInfoRow("Каталог","sansararitual.ru")}}
             "Пользователи и роли"->item{ProtoSectionCard{listOf("Администратор — полный доступ","Производство — выпуск / приход / история","Клиент — каталог / корзина / заказы").forEach{Text(it,color=ProtoText,modifier=Modifier.padding(vertical=5.dp))};Text("Роли фиксированы. Пользователь не выбирает роль самостоятельно.",color=ProtoMuted,fontSize=11.sp,modifier=Modifier.padding(top=8.dp))}}
             "Каталог и синхронизация"->item{ProtoSectionCard{Text("Каталог Tilda",color=ProtoText,fontSize=19.sp,fontWeight=FontWeight.Bold);Text("Синхронизация обновляет карточки, цены, категории и фотографии. Склад, резерв, заказы и производство не перезаписываются.",color=ProtoMuted,fontSize=11.sp,modifier=Modifier.padding(vertical=6.dp));ProtoField(tildaUrl,onTildaUrl,"YML-ссылка каталога Tilda");Button(onClick=onSync,enabled=!syncing&&tildaUrl.isNotBlank(),modifier=Modifier.fillMaxWidth().height(48.dp),colors=ButtonDefaults.buttonColors(containerColor=ProtoGold)){if(syncing)CircularProgressIndicator(Modifier.size(18.dp),strokeWidth=2.dp,color=Color.Black)else Icon(Icons.Outlined.Sync,null,tint=Color.Black);Spacer(Modifier.width(7.dp));Text(if(syncing)"Синхронизация…" else "Синхронизировать каталог",color=Color.Black,fontWeight=FontWeight.Bold)};Text(syncStatus,color=if(syncStatus.startsWith("Ошибка"))ProtoRed else ProtoGreen,fontSize=11.sp,modifier=Modifier.padding(top=7.dp));Text("Последнее обновление: $lastSync",color=ProtoMuted,fontSize=10.sp);Text("Сервер событий: $backendStatus",color=ProtoMuted,fontSize=10.sp,modifier=Modifier.padding(top=4.dp))}}
+            "Telegram интеграция"->item{
+                var enabled by remember(telegramEnabled){mutableStateOf(telegramEnabled)}
+                var retry by remember(telegramRetryEnabled){mutableStateOf(telegramRetryEnabled)}
+                var apiUrl by remember(telegramApiUrl){mutableStateOf(telegramApiUrl)}
+                var template by remember(telegramTemplate){mutableStateOf(telegramTemplate)}
+                ProtoSectionCard{
+                    Text("Telegram-бот",color=ProtoText,fontSize=19.sp,fontWeight=FontWeight.Bold)
+                    Text("Заказы отправляются только через серверный прокси. BOT_TOKEN и CHAT_ID не хранятся в APK и репозитории.",color=ProtoMuted,fontSize=11.sp,modifier=Modifier.padding(vertical=6.dp))
+                    ProtoSwitchRow("Отправлять заказы в Telegram",enabled){enabled=it}
+                    ProtoField(apiUrl,{apiUrl=it},"HTTPS-адрес серверного прокси")
+                    ProtoSwitchRow("Повторять отправку при сбое",retry){retry=it}
+                    OutlinedTextField(
+                        value=template,
+                        onValueChange={template=it},
+                        label={Text("Шаблон сообщения")},
+                        modifier=Modifier.fillMaxWidth().padding(vertical=6.dp),
+                        minLines=5,
+                        maxLines=9,
+                        colors=protoFieldColors()
+                    )
+                    Text("Переменные: {number}, {client}, {items}, {total}, {contact}, {date}, {time}",color=ProtoMuted,fontSize=10.sp)
+                    Spacer(Modifier.height(8.dp))
+                    ProtoPrimaryButton("Сохранить настройки",{onTelegramSave(enabled,retry,apiUrl,template)},enabled=!enabled||apiUrl.startsWith("https://"))
+                    Spacer(Modifier.height(8.dp))
+                    Text("Последняя отправка: "+telegramLastLog,color=ProtoMuted,fontSize=10.sp)
+                    Text("BOT_TOKEN/CHAT_ID задаются только на сервере или в его Secrets.",color=ProtoGoldSoft,fontSize=10.sp,modifier=Modifier.padding(top=4.dp))
+                }
+            }
             "Порог низких остатков"->item{ProtoSectionCard{Row(verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.Center,modifier=Modifier.fillMaxWidth()){ProtoQtyButton(Icons.Outlined.Remove,{onThreshold(threshold-1)});Text("$threshold шт.",color=ProtoGoldSoft,fontSize=28.sp,fontWeight=FontWeight.Bold,modifier=Modifier.padding(horizontal=20.dp));ProtoQtyButton(Icons.Outlined.Add,{onThreshold(threshold+1)})};Text("Позиции с доступным остатком ≤ порога автоматически попадают в «Требует внимания».",color=ProtoMuted,fontSize=11.sp)}}
             "Уведомления"->item{ProtoSectionCard{ProtoSwitchRow("Новые регистрации",reg,onReg);ProtoSwitchRow("Новые заказы",orders,onOrders);ProtoSwitchRow("Производство",prod,onProd);ProtoSwitchRow("Низкие остатки",low,onLow)}}
             "Резервное копирование"->item{ProtoSectionCard{Text(backupStatus,color=ProtoMuted);Spacer(Modifier.height(10.dp));Button(onClick=onBackup,modifier=Modifier.fillMaxWidth(),colors=ButtonDefaults.buttonColors(containerColor=ProtoGold)){Icon(Icons.Outlined.Backup,null,tint=Color.Black);Spacer(Modifier.width(7.dp));Text("Создать резервную копию",color=Color.Black,fontWeight=FontWeight.Bold)}}}
