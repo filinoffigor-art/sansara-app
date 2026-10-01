@@ -86,8 +86,8 @@ private val ProtoOrange = Warning
 private enum class ProtoScreen {
     Welcome, Login, Registration, RegistrationSent,
     Home, Catalog, Filter, ProductList, ProductDetail, Cart, Checkout, OrderSent, OrderList, OrderDetail, Notifications, ClientChat, ClientReports, ClientSettings, AgentClients, AgentClientDetail, RetailHome, RetailCatalog, RetailFilter, RetailProductList, RetailProductDetail, RetailCart, RetailCheckout, RetailOrderSent, Profile, Suspended,
-    AdminHome, AdminSearch, AdminClients, AdminClient, AdminOrders, AdminOrderDetail, AdminNotifications, AdminCatalog, AdminSettings, AdminSettingsDetail, AdminAttention, OnlineController, LowStockList, AdminChats, AdminChat,
-    Production, ProductionCategory, ProductionCatalog, ProductionEntry, ProductionHistory, ProductionReport, ProductionPayments, ProductionProfile,
+    AdminHome, AdminSearch, AdminClients, AdminClient, AdminOrders, AdminOrderDetail, AdminNotifications, AdminCatalog, AdminSettings, AdminSettingsDetail, AdminAttention, OnlineController, LowStockList, AdminChats, AdminChat, AdminProductionChat, AdminReports, AdminWorkshop, AdminAdmins, AdminAttendance,
+    Production, ProductionCategory, ProductionCatalog, ProductionEntry, ProductionHistory, ProductionReport, ProductionPayments, ProductionProfile, ProductionWorkshop, ProductionAttendance, ProductionChat,
     Server, StockList, ReserveList, NewClients, Export, AdminAssemblers
 }
 
@@ -118,7 +118,8 @@ data class ProtoProductionOp(
     val status: String = "Проведен",
     val rateRub: Int = 0,
     val amountRub: Int = qty * rateRub,
-    val documentId: String = ""
+    val documentId: String = "",
+    val opId: String = ""
 )
 
 private data class ProtoProductionDraft(
@@ -277,6 +278,12 @@ fun SansaraVisualPrototype() {
     val agentSettings = remember { mutableStateListOf<SansaraAgentSettings>() }
     val agentMarkups = remember { mutableStateListOf<SansaraAgentMarkup>() }
     val agentReminders = remember { mutableStateListOf<SansaraAgentReminder>() }
+    val adminAccounts = remember { mutableStateListOf<SansaraAdminAccount>() }
+    val workshopTasks = remember { mutableStateListOf<WorkshopTaskEntity>() }
+    val attendanceRows = remember { mutableStateListOf<AttendanceEntity>() }
+    val presenceSessions = remember { mutableStateListOf<PresenceSessionEntity>() }
+    val productionAudits = remember { mutableStateListOf<ProductionAuditEntity>() }
+    var adminDailyStatus by remember { mutableStateOf<AdminDailyStatusEntity?>(null) }
     val retailCart = remember { mutableStateMapOf<String,Int>() }
     var retailSelectedProduct by remember { mutableStateOf<ProtoCatalogProduct?>(null) }
     var retailDetailQty by remember { mutableIntStateOf(1) }
@@ -476,6 +483,17 @@ fun SansaraVisualPrototype() {
         }
     }
 
+    fun refreshOperationsData() {
+        scope.launch {
+            adminAccounts.clear(); adminAccounts.addAll(repository.adminAccounts())
+            workshopTasks.clear(); workshopTasks.addAll(repository.workshopTasks())
+            attendanceRows.clear(); attendanceRows.addAll(repository.allAttendance())
+            presenceSessions.clear(); presenceSessions.addAll(repository.presenceToday())
+            productionAudits.clear(); productionAudits.addAll(repository.productionAudit())
+            adminDailyStatus = repository.adminDailyStatus(currentDateShort())
+        }
+    }
+
     fun ownerAgentSettings(ownerId:String):SansaraAgentSettings =
         agentSettings.firstOrNull { it.ownerClientId==ownerId } ?: SansaraAgentSettings(ownerId,true,30)
 
@@ -571,6 +589,12 @@ fun SansaraVisualPrototype() {
         agentMarkups.addAll(repository.allAgentMarkups())
         agentReminders.clear()
         agentReminders.addAll(repository.activeAgentReminders())
+        adminAccounts.clear(); adminAccounts.addAll(repository.adminAccounts())
+        workshopTasks.clear(); workshopTasks.addAll(repository.workshopTasks())
+        attendanceRows.clear(); attendanceRows.addAll(repository.allAttendance())
+        presenceSessions.clear(); presenceSessions.addAll(repository.presenceToday())
+        productionAudits.clear(); productionAudits.addAll(repository.productionAudit())
+        adminDailyStatus = repository.adminDailyStatus(currentDateShort())
         session = authProvider.currentSession()
         session?.let { saved ->
             saved.clientId?.let { clientId ->
@@ -603,7 +627,7 @@ fun SansaraVisualPrototype() {
         val active = session ?: return@LaunchedEffect
         if (!appForeground || !dataReady) return@LaunchedEffect
         while (appForeground) {
-            repository.updatePresence(active.userId)
+            repository.updatePresence(active.userId,active.clientId,active.role.name)
             active.clientId?.let { clientId ->
                 val index = clients.indexOfFirst { it.id == clientId }
                 if (index >= 0) clients[index] = clients[index].copy(online = true, lastSeen = "сейчас")
