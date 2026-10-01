@@ -21,9 +21,12 @@ import java.time.LocalDateTime
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 
-private fun sansaraCanPostNotifications(context:Context):Boolean =
-    Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU ||
-        ContextCompat.checkSelfPermission(context,Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED
+private fun sansaraPostNotification(context:Context,id:Int,notification:android.app.Notification){
+    if(Build.VERSION.SDK_INT>=Build.VERSION_CODES.TIRAMISU &&
+        ContextCompat.checkSelfPermission(context,Manifest.permission.POST_NOTIFICATIONS)!=PackageManager.PERMISSION_GRANTED
+    ) return
+    NotificationManagerCompat.from(context).notify(id,notification)
+}
 
 object SansaraReminderScheduler {
     const val CHANNEL_ID = "sansara_agent_reminders"
@@ -77,9 +80,7 @@ class SansaraReminderReceiver:BroadcastReceiver(){
             .setPriority(NotificationCompat.PRIORITY_HIGH)
             .setAutoCancel(true)
             .build()
-        if (sansaraCanPostNotifications(context)) {
-            NotificationManagerCompat.from(context).notify(id.hashCode(),notification)
-        }
+        sansaraPostNotification(context,id.hashCode(),notification)
 
         val pendingResult=goAsync()
         CoroutineScope(Dispatchers.IO).launch {
@@ -195,9 +196,7 @@ class SansaraAdminOpsReminderReceiver:BroadcastReceiver(){
                             .setPriority(NotificationCompat.PRIORITY_HIGH)
                             .setAutoCancel(true)
                             .build()
-                        if (sansaraCanPostNotifications(context)) {
-                            NotificationManagerCompat.from(context).notify(1900,notification)
-                        }
+                        sansaraPostNotification(context,1900,notification)
                         SansaraAdminOpsReminderScheduler.scheduleEvening(context)
                     }
                     else->{
@@ -226,9 +225,7 @@ class SansaraAdminOpsReminderReceiver:BroadcastReceiver(){
                                     .setPriority(NotificationCompat.PRIORITY_HIGH)
                                     .setAutoCancel(true)
                                     .build()
-                                if (sansaraCanPostNotifications(context)) {
-                                    NotificationManagerCompat.from(context).notify(8100,notification)
-                                }
+                                sansaraPostNotification(context,8100,notification)
                                 SansaraAdminOpsReminderScheduler.scheduleNextCheck(context,repeat=true)
                             }
                         }
