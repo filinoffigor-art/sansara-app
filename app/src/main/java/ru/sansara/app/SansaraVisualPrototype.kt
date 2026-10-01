@@ -1435,7 +1435,9 @@ private fun ProtoClientHomeScreen(
     onOrders:()->Unit,
     onProfile:()->Unit,
     onCatalog:()->Unit,
-    onSeeAll:()->Unit
+    onSeeAll:()->Unit,
+    retailMode:Boolean=false,
+    onRetailExit:()->Unit={}
 ) {
     var searchOpen by remember{mutableStateOf(false)}
     var mode by remember{mutableStateOf("Все")}
@@ -1446,13 +1448,17 @@ private fun ProtoClientHomeScreen(
         ProtoLiveBackground()
         Scaffold(
             containerColor=Color.Transparent,
-            bottomBar={ProtoClientBottomBar(ProtoScreen.Home,cartCount,onHome={},onCatalog=onCatalog,onCart=onCart,onOrders=onOrders,onProfile=onProfile)}
+            bottomBar={
+                if(retailMode)ProtoRetailBottomBar(ProtoScreen.RetailHome,cartCount,onHome={},onCatalog=onCatalog,onCart=onCart,onExit=onRetailExit)
+                else ProtoClientBottomBar(ProtoScreen.Home,cartCount,onHome={},onCatalog=onCatalog,onCart=onCart,onOrders=onOrders,onProfile=onProfile)
+            }
         ){pad->
             Column(Modifier.fillMaxSize().padding(pad)){
                 ProtoBrandHeader(unreadCount=unreadCount,onBell=onNotifications)
                 Column(Modifier.padding(horizontal=18.dp)){
                     Text("Здравствуйте, "+client.firstName,color=ProtoText,fontSize=30.sp,fontWeight=FontWeight.Bold)
-                    Text("Статус: "+client.status+"  ·  Скидка "+client.discount+"%",color=ProtoGoldSoft,fontSize=14.sp)
+                    if(retailMode)Text("Режим клиента · закупочные цены скрыты",color=ProtoGoldSoft,fontSize=13.sp)
+                    else Text("Статус: "+client.status+"  ·  Скидка "+client.discount+"%",color=ProtoGoldSoft,fontSize=14.sp)
                     Spacer(Modifier.height(12.dp))
                     ProtoSearchBar(query,{searchOpen=true})
                     Spacer(Modifier.height(10.dp))
@@ -1533,9 +1539,9 @@ private fun ProtoClientHomeScreen(
     previewProduct?.let{product->ProtoProductImagePreview(product){previewProduct=null}}
 }
 @Composable
-private fun ProtoCatalogHomeScreen(cartCount:Int,onBack:()->Unit,onSearch:(String)->Unit,onCategory:(String)->Unit,onAvailability:(String)->Unit,onHome:()->Unit,onCart:()->Unit,onOrders:()->Unit,onProfile:()->Unit){
+private fun ProtoCatalogHomeScreen(cartCount:Int,onBack:()->Unit,onSearch:(String)->Unit,onCategory:(String)->Unit,onAvailability:(String)->Unit,onHome:()->Unit,onCart:()->Unit,onOrders:()->Unit,onProfile:()->Unit,retailMode:Boolean=false,onRetailExit:()->Unit={}){
     var searchOpen by remember{mutableStateOf(false)};var searchText by remember{mutableStateOf("")};var mode by remember{mutableStateOf("Все")};val cats=listOf("Венки","Гробы","Одежда","Ленты","Цветы","Услуги")
-    Box(Modifier.fillMaxSize()){ProtoLiveBackground();Scaffold(containerColor=Color.Transparent,bottomBar={ProtoClientBottomBar(ProtoScreen.Catalog,cartCount,onHome,onCatalog={},onCart,onOrders,onProfile)}){pad->Column(Modifier.fillMaxSize().padding(pad).padding(horizontal=18.dp)){
+    Box(Modifier.fillMaxSize()){ProtoLiveBackground();Scaffold(containerColor=Color.Transparent,bottomBar={if(retailMode)ProtoRetailBottomBar(ProtoScreen.RetailCatalog,cartCount,onHome,onCatalog={},onCart,onRetailExit) else ProtoClientBottomBar(ProtoScreen.Catalog,cartCount,onHome,onCatalog={},onCart,onOrders,onProfile)}){pad->Column(Modifier.fillMaxSize().padding(pad).padding(horizontal=18.dp)){
         ProtoBrandHeader(onBack=onBack);Text("Каталог",color=ProtoText,fontSize=32.sp,fontWeight=FontWeight.Bold,modifier=Modifier.padding(vertical=10.dp));ProtoSearchBar(searchText,{searchOpen=true},"Поиск по категориям");Spacer(Modifier.height(12.dp));ProtoAvailabilityChips(mode){mode=it;onAvailability(it)};Spacer(Modifier.height(14.dp))
         LazyVerticalGrid(columns=GridCells.Fixed(2),modifier=Modifier.weight(1f),horizontalArrangement=Arrangement.spacedBy(10.dp),verticalArrangement=Arrangement.spacedBy(10.dp),contentPadding=PaddingValues(bottom=12.dp)){items(cats){cat->val enabled=cat=="Венки";Card(colors=CardDefaults.cardColors(containerColor=ProtoPanel),border=BorderStroke(1.dp,ProtoBorder),shape=RoundedCornerShape(20.dp),modifier=Modifier.height(205.dp).clickable(enabled=enabled){onCategory(cat)}){Box(Modifier.fillMaxSize()){Image(painterResource(protoPlaceholderForType(cat)),null,Modifier.fillMaxSize(),contentScale=ContentScale.Crop);Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha=.28f)));Column(Modifier.align(Alignment.BottomStart).padding(12.dp)){Text(cat,color=ProtoText,fontSize=18.sp,fontWeight=FontWeight.Bold);Text(if(cat=="Венки")"126 позиций" else "",color=ProtoMuted,fontSize=13.sp)};Icon(Icons.Outlined.ArrowForward,null,tint=ProtoGold,modifier=Modifier.align(Alignment.BottomEnd).padding(10.dp));if(!enabled)Text("В разработке",color=ProtoMuted,fontSize=10.sp,modifier=Modifier.align(Alignment.CenterEnd).padding(end=5.dp))}}}}
     }}}
@@ -1670,7 +1676,9 @@ private fun ProtoProductListScreen(
     onCatalog:()->Unit,
     onCart:()->Unit,
     onOrders:()->Unit,
-    onProfile:()->Unit
+    onProfile:()->Unit,
+    retailMode:Boolean=false,
+    onRetailExit:()->Unit={}
 ){
     val gridState=rememberLazyGridState(initialFirstVisibleItemIndex=initialIndex.coerceAtLeast(0),initialFirstVisibleItemScrollOffset=initialOffset.coerceAtLeast(0))
     var previewProduct by remember{mutableStateOf<ProtoCatalogProduct?>(null)}
@@ -1678,7 +1686,7 @@ private fun ProtoProductListScreen(
         ProtoLiveBackground()
         Scaffold(
             containerColor=Color.Transparent,
-            bottomBar={ProtoClientBottomBar(ProtoScreen.ProductList,cart.size,onHome,onCatalog,onCart,onOrders,onProfile)}
+            bottomBar={if(retailMode)ProtoRetailBottomBar(ProtoScreen.RetailProductList,cart.size,onHome,onCatalog,onCart,onRetailExit) else ProtoClientBottomBar(ProtoScreen.ProductList,cart.size,onHome,onCatalog,onCart,onOrders,onProfile)}
         ){pad->
             Column(Modifier.fillMaxSize().padding(pad)){
                 ProtoBrandHeader(onBack=onBack)
@@ -1805,7 +1813,9 @@ private fun ProtoProductDetailScreen(
     onCatalog:()->Unit,
     onCart:()->Unit,
     onOrders:()->Unit,
-    onProfile:()->Unit
+    onProfile:()->Unit,
+    retailMode:Boolean=false,
+    onRetailExit:()->Unit={}
 ) {
     val p=product?:return
     var preview by remember{mutableStateOf(false)}
@@ -1814,7 +1824,7 @@ private fun ProtoProductDetailScreen(
     val total=discountedUnit*qty
     Box(Modifier.fillMaxSize()){
         ProtoLiveBackground()
-        Scaffold(containerColor=Color.Transparent,bottomBar={ProtoClientBottomBar(ProtoScreen.ProductDetail,cartCount,onHome,onCatalog,onCart,onOrders,onProfile)}){pad->
+        Scaffold(containerColor=Color.Transparent,bottomBar={if(retailMode)ProtoRetailBottomBar(ProtoScreen.RetailProductDetail,cartCount,onHome,onCatalog,onCart,onRetailExit) else ProtoClientBottomBar(ProtoScreen.ProductDetail,cartCount,onHome,onCatalog,onCart,onOrders,onProfile)}){pad->
             LazyColumn(
                 Modifier.fillMaxSize().padding(pad),
                 contentPadding=PaddingValues(horizontal=18.dp,vertical=8.dp),
@@ -1882,7 +1892,9 @@ private fun ProtoCartScreen(
     onHome:()->Unit,
     onCatalog:()->Unit,
     onOrders:()->Unit,
-    onProfile:()->Unit
+    onProfile:()->Unit,
+    retailMode:Boolean=false,
+    onRetailExit:()->Unit={}
 ) {
     val lines=cart.mapNotNull{(sku,q)->products.firstOrNull{it.sku==sku}?.let{it to q}}
     val base=lines.sumOf{it.first.price*it.second}
@@ -1890,7 +1902,7 @@ private fun ProtoCartScreen(
     var previewProduct by remember{mutableStateOf<ProtoCatalogProduct?>(null)}
     Box(Modifier.fillMaxSize()){
         ProtoLiveBackground()
-        Scaffold(containerColor=Color.Transparent,bottomBar={ProtoClientBottomBar(ProtoScreen.Cart,cart.size,onHome,onCatalog,onCart={},onOrders,onProfile)}){pad->
+        Scaffold(containerColor=Color.Transparent,bottomBar={if(retailMode)ProtoRetailBottomBar(ProtoScreen.RetailCart,cart.size,onHome,onCatalog,onCart={},onRetailExit) else ProtoClientBottomBar(ProtoScreen.Cart,cart.size,onHome,onCatalog,onCart={},onOrders,onProfile)}){pad->
             Column(Modifier.fillMaxSize().padding(pad)){
                 ProtoBrandHeader(onBack=onBack)
                 Text("Корзина",color=ProtoText,fontSize=31.sp,fontWeight=FontWeight.Bold,modifier=Modifier.padding(horizontal=18.dp,vertical=8.dp))
@@ -1959,7 +1971,9 @@ private fun ProtoCheckoutScreen(
     onCatalog:()->Unit,
     onCart:()->Unit,
     onOrders:()->Unit,
-    onProfile:()->Unit
+    onProfile:()->Unit,
+    retailMode:Boolean=false,
+    onRetailExit:()->Unit={}
 ){
     var method by remember{mutableStateOf("Доставка")}
     var address by remember(defaultAddress){mutableStateOf(defaultAddress)}
@@ -1971,7 +1985,7 @@ private fun ProtoCheckoutScreen(
 
     Box(Modifier.fillMaxSize()){
         ProtoLiveBackground()
-        Scaffold(containerColor=Color.Transparent,bottomBar={ProtoClientBottomBar(ProtoScreen.Checkout,cartPositions,onHome,onCatalog,onCart,onOrders,onProfile)}){pad->
+        Scaffold(containerColor=Color.Transparent,bottomBar={if(retailMode)ProtoRetailBottomBar(ProtoScreen.RetailCheckout,cartPositions,onHome,onCatalog,onCart,onRetailExit) else ProtoClientBottomBar(ProtoScreen.Checkout,cartPositions,onHome,onCatalog,onCart,onOrders,onProfile)}){pad->
             Column(Modifier.fillMaxSize().padding(pad)){
                 ProtoBrandHeader(onBack=onBack)
                 Text("Оформление заказа",color=ProtoText,fontSize=30.sp,fontWeight=FontWeight.Bold,modifier=Modifier.padding(horizontal=18.dp,vertical=8.dp))
