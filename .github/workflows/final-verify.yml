@@ -38,32 +38,54 @@ jobs:
 
       - name: Configure persistent signing keystore
         env:
-          SANSARA_KEYSTORE_BASE64: ${{ secrets.SANSARA_KEYSTORE_BASE64 }}
+          SECRET_KEYSTORE_BASE64: ${{ secrets.SANSARA_KEYSTORE_BASE64 }}
+          SECRET_KEYSTORE_PASSWORD: ${{ secrets.SANSARA_KEYSTORE_PASSWORD }}
+          SECRET_KEY_ALIAS: ${{ secrets.SANSARA_KEY_ALIAS }}
+          SECRET_KEY_PASSWORD: ${{ secrets.SANSARA_KEY_PASSWORD }}
         run: |
-          if [ -n "$SANSARA_KEYSTORE_BASE64" ]; then
-            echo "$SANSARA_KEYSTORE_BASE64" | base64 --decode > "$RUNNER_TEMP/sansara-upload.jks"
-            echo "SANSARA_KEYSTORE_PATH=$RUNNER_TEMP/sansara-upload.jks" >> "$GITHUB_ENV"
+          mkdir -p "$HOME/.android"
+
+          if [ -n "$SECRET_KEYSTORE_BASE64" ] &&
+             [ -n "$SECRET_KEYSTORE_PASSWORD" ] &&
+             [ -n "$SECRET_KEY_ALIAS" ] &&
+             [ -n "$SECRET_KEY_PASSWORD" ]; then
+            KEYSTORE_PATH="$RUNNER_TEMP/sansara-upload.jks"
+            KEYSTORE_PASSWORD="$SECRET_KEYSTORE_PASSWORD"
+            KEY_ALIAS="$SECRET_KEY_ALIAS"
+            KEY_PASSWORD="$SECRET_KEY_PASSWORD"
+            echo "$SECRET_KEYSTORE_BASE64" | base64 --decode > "$KEYSTORE_PATH"
+          else
+            KEYSTORE_PATH="$HOME/.android/debug.keystore"
+            KEYSTORE_PASSWORD="android"
+            KEY_ALIAS="androiddebugkey"
+            KEY_PASSWORD="android"
+
+            if [ ! -f "$KEYSTORE_PATH" ]; then
+              keytool -genkeypair -v \
+                -keystore "$KEYSTORE_PATH" \
+                -storepass "$KEYSTORE_PASSWORD" \
+                -alias "$KEY_ALIAS" \
+                -keypass "$KEY_PASSWORD" \
+                -dname "CN=Android Debug,O=Android,C=US" \
+                -keyalg RSA \
+                -keysize 2048 \
+                -validity 10000
+            fi
           fi
 
+          test -f "$KEYSTORE_PATH"
+          echo "SANSARA_KEYSTORE_PATH=$KEYSTORE_PATH" >> "$GITHUB_ENV"
+          echo "SANSARA_KEYSTORE_PASSWORD=$KEYSTORE_PASSWORD" >> "$GITHUB_ENV"
+          echo "SANSARA_KEY_ALIAS=$KEY_ALIAS" >> "$GITHUB_ENV"
+          echo "SANSARA_KEY_PASSWORD=$KEY_PASSWORD" >> "$GITHUB_ENV"
+
       - name: Unit tests
-        env:
-          SANSARA_KEYSTORE_PASSWORD: ${{ secrets.SANSARA_KEYSTORE_PASSWORD }}
-          SANSARA_KEY_ALIAS: ${{ secrets.SANSARA_KEY_ALIAS }}
-          SANSARA_KEY_PASSWORD: ${{ secrets.SANSARA_KEY_PASSWORD }}
         run: gradle :app:testDebugUnitTest --stacktrace
 
       - name: Android lint
-        env:
-          SANSARA_KEYSTORE_PASSWORD: ${{ secrets.SANSARA_KEYSTORE_PASSWORD }}
-          SANSARA_KEY_ALIAS: ${{ secrets.SANSARA_KEY_ALIAS }}
-          SANSARA_KEY_PASSWORD: ${{ secrets.SANSARA_KEY_PASSWORD }}
         run: gradle :app:lintDebug --stacktrace
 
       - name: Build final APK
-        env:
-          SANSARA_KEYSTORE_PASSWORD: ${{ secrets.SANSARA_KEYSTORE_PASSWORD }}
-          SANSARA_KEY_ALIAS: ${{ secrets.SANSARA_KEY_ALIAS }}
-          SANSARA_KEY_PASSWORD: ${{ secrets.SANSARA_KEY_PASSWORD }}
         run: gradle :app:assembleDebug --stacktrace
 
       - name: Verify final package, version and signature
@@ -89,17 +111,22 @@ jobs:
         run: |
           PREV_APK=$(find previous-apk -type f -name '*.apk' | head -n 1)
           test -n "$PREV_APK"
-          test -f "$HOME/.android/debug.keystore"
-          echo "::warning::Run #81 was signed with an unrecoverable ephemeral debug key. Re-signing its APK with the current CI key validates migration/data preservation only."
+          test -f "$SANSARA_KEYSTORE_PATH"
+          echo "::warning::Run #81 used an ephemeral signing key. Re-signing that APK with the exact key used for the current candidate validates install-over migration and data preservation."
           "$ANDROID_HOME/build-tools/35.0.0/apksigner" sign \
-            --ks "$HOME/.android/debug.keystore" \
-            --ks-key-alias androiddebugkey \
-            --ks-pass pass:android \
-            --key-pass pass:android \
+            --ks "$SANSARA_KEYSTORE_PATH" \
+            --ks-key-alias "$SANSARA_KEY_ALIAS" \
+            --ks-pass "pass:$SANSARA_KEYSTORE_PASSWORD" \
+            --key-pass "pass:$SANSARA_KEY_PASSWORD" \
             --out previous-apk/previous-migration.apk \
             "$PREV_APK"
-          "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --verbose --print-certs previous-apk/previous-migration.apk
-          "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --verbose --print-certs app/build/outputs/apk/debug/app-debug.apk
+
+          PREV_CERT=$("$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --verbose --print-certs previous-apk/previous-migration.apk | sed -n 's/^Signer #1 certificate SHA-256 digest: //p' | head -n 1)
+          CURRENT_CERT=$("$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --verbose --print-certs app/build/outputs/apk/debug/app-debug.apk | sed -n 's/^Signer #1 certificate SHA-256 digest: //p' | head -n 1)
+          test -n "$PREV_CERT"
+          test -n "$CURRENT_CERT"
+          test "$PREV_CERT" = "$CURRENT_CERT"
+          echo "Migration signature match: $CURRENT_CERT"
 
       - name: Enable KVM acceleration when available
         run: |
