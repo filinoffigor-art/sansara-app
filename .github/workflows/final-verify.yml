@@ -85,6 +85,22 @@ jobs:
           repository: ${{ github.repository }}
           run-id: 36856408455
 
+      - name: Prepare previous APK for migration verification
+        run: |
+          PREV_APK=$(find previous-apk -type f -name '*.apk' | head -n 1)
+          test -n "$PREV_APK"
+          test -f "$HOME/.android/debug.keystore"
+          echo "::warning::Run #81 was signed with an unrecoverable ephemeral debug key. Re-signing its APK with the current CI key validates migration/data preservation only."
+          "$ANDROID_HOME/build-tools/35.0.0/apksigner" sign \
+            --ks "$HOME/.android/debug.keystore" \
+            --ks-key-alias androiddebugkey \
+            --ks-pass pass:android \
+            --key-pass pass:android \
+            --out previous-apk/previous-migration.apk \
+            "$PREV_APK"
+          "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --verbose --print-certs previous-apk/previous-migration.apk
+          "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --verbose --print-certs app/build/outputs/apk/debug/app-debug.apk
+
       - name: Enable KVM acceleration when available
         run: |
           if [ -e /dev/kvm ]; then
@@ -105,8 +121,8 @@ jobs:
           emulator-boot-timeout: 900
           disable-animations: true
           script: |
-            test -n "$(find previous-apk -name '*.apk' | head -n 1)"
-            adb install "$(find previous-apk -name '*.apk' | head -n 1)"
+            test -f previous-apk/previous-migration.apk
+            adb install previous-apk/previous-migration.apk
             adb shell pm grant ru.sansara.app android.permission.POST_NOTIFICATIONS || true
             adb shell am start -W -n ru.sansara.app/.MainActivity
             sleep 4
