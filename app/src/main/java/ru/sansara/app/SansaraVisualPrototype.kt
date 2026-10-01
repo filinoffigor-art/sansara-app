@@ -84,7 +84,7 @@ private val ProtoOrange = Warning
 
 private enum class ProtoScreen {
     Welcome, Login, Registration, RegistrationSent,
-    Home, Catalog, Filter, ProductList, ProductDetail, Cart, Checkout, OrderSent, OrderList, OrderDetail, Notifications, ClientChat, ClientReports, ClientSettings, Profile, Suspended,
+    Home, Catalog, Filter, ProductList, ProductDetail, Cart, Checkout, OrderSent, OrderList, OrderDetail, Notifications, ClientChat, ClientReports, ClientSettings, AgentClients, AgentClientDetail, RetailHome, RetailCatalog, RetailFilter, RetailProductList, RetailProductDetail, RetailCart, RetailCheckout, RetailOrderSent, Profile, Suspended,
     AdminHome, AdminSearch, AdminClients, AdminClient, AdminOrders, AdminOrderDetail, AdminNotifications, AdminCatalog, AdminSettings, AdminSettingsDetail, AdminAttention, OnlineController, LowStockList, AdminChats, AdminChat,
     Production, ProductionCategory, ProductionCatalog, ProductionEntry, ProductionHistory, ProductionReport, ProductionPayments, ProductionProfile,
     Server, StockList, ReserveList, NewClients, Export, AdminAssemblers
@@ -269,8 +269,17 @@ fun SansaraVisualPrototype() {
     var selectedOrderId by remember { mutableStateOf("S-002384") }
     var selectedClientId by remember { mutableStateOf("C-1024") }
     var selectedChatClientId by remember { mutableStateOf("C-1024") }
+    var selectedAgentCustomerId by remember { mutableStateOf<String?>(null) }
     var showClientMenu by remember { mutableStateOf(false) }
     val chatMessages = remember { mutableStateListOf<SansaraChatMessage>() }
+    val agentCustomers = remember { mutableStateListOf<SansaraAgentCustomer>() }
+    val agentSettings = remember { mutableStateListOf<SansaraAgentSettings>() }
+    val agentMarkups = remember { mutableStateListOf<SansaraAgentMarkup>() }
+    val agentReminders = remember { mutableStateListOf<SansaraAgentReminder>() }
+    val retailCart = remember { mutableStateMapOf<String,Int>() }
+    var retailSelectedProduct by remember { mutableStateOf<ProtoCatalogProduct?>(null) }
+    var retailDetailQty by remember { mutableIntStateOf(1) }
+    var retailLastTotal by remember { mutableIntStateOf(0) }
     var lastRegistration by remember { mutableStateOf<ProtoRegistration?>(null) }
     var productionCategory by remember { mutableStateOf("Венки") }
     var productionProduct by remember { mutableStateOf<ProtoCatalogProduct?>(null) }
@@ -453,6 +462,36 @@ fun SansaraVisualPrototype() {
         }
     }
 
+    fun refreshAgentData() {
+        scope.launch {
+            agentCustomers.clear()
+            agentCustomers.addAll(repository.allAgentCustomers())
+            agentSettings.clear()
+            agentSettings.addAll(repository.allAgentSettings())
+            agentMarkups.clear()
+            agentMarkups.addAll(repository.allAgentMarkups())
+            agentReminders.clear()
+            agentReminders.addAll(repository.activeAgentReminders())
+        }
+    }
+
+    fun ownerAgentSettings(ownerId:String):SansaraAgentSettings =
+        agentSettings.firstOrNull { it.ownerClientId==ownerId } ?: SansaraAgentSettings(ownerId,true,30)
+
+    fun markupForProduct(ownerId:String,customerId:String,product:ProtoCatalogProduct):Int {
+        val category=protoProductCategoryKey(product.type)
+        val individual=agentMarkups.firstOrNull { it.customerId==customerId && it.category==category }
+        if(individual!=null)return individual.markupPct
+        val general=ownerAgentSettings(ownerId)
+        return if(general.generalMarkupEnabled)general.generalMarkupPct else 0
+    }
+
+    fun retailProducts(ownerId:String,customerId:String):List<ProtoCatalogProduct> =
+        products.map { product ->
+            val markup=markupForProduct(ownerId,customerId,product)
+            product.copy(price=(product.price*(1.0+markup/100.0)).roundToInt())
+        }
+
     fun clientConversationId(clientId:String) = "CLIENT:" + clientId
 
     fun sendChat(
@@ -523,6 +562,14 @@ fun SansaraVisualPrototype() {
         applySnapshot(repository.snapshot())
         chatMessages.clear()
         chatMessages.addAll(repository.allChatMessages())
+        agentCustomers.clear()
+        agentCustomers.addAll(repository.allAgentCustomers())
+        agentSettings.clear()
+        agentSettings.addAll(repository.allAgentSettings())
+        agentMarkups.clear()
+        agentMarkups.addAll(repository.allAgentMarkups())
+        agentReminders.clear()
+        agentReminders.addAll(repository.activeAgentReminders())
         session = authProvider.currentSession()
         session?.let { saved ->
             saved.clientId?.let { clientId ->
