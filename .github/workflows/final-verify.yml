@@ -1,0 +1,129 @@
+name: Final SANSARA Verification
+
+on:
+  push:
+    branches: [ stage-6-full-workflows ]
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout current final candidate
+        uses: actions/checkout@v4
+
+      - name: Set up Java
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+        with:
+          packages: platform-tools
+
+      - name: Install Android SDK 35
+        run: sdkmanager "platforms;android-35" "build-tools;35.0.0"
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.9'
+
+      - name: Restore persistent debug keystore cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.android/debug.keystore
+          key: sansara-debug-keystore-v1
+
+      - name: Configure persistent signing keystore
+        env:
+          SANSARA_KEYSTORE_BASE64: ${{ secrets.SANSARA_KEYSTORE_BASE64 }}
+        run: |
+          if [ -n "$SANSARA_KEYSTORE_BASE64" ]; then
+            echo "$SANSARA_KEYSTORE_BASE64" | base64 --decode > "$RUNNER_TEMP/sansara-upload.jks"
+            echo "SANSARA_KEYSTORE_PATH=$RUNNER_TEMP/sansara-upload.jks" >> "$GITHUB_ENV"
+          fi
+
+      - name: Unit tests
+        env:
+          SANSARA_KEYSTORE_PASSWORD: ${{ secrets.SANSARA_KEYSTORE_PASSWORD }}
+          SANSARA_KEY_ALIAS: ${{ secrets.SANSARA_KEY_ALIAS }}
+          SANSARA_KEY_PASSWORD: ${{ secrets.SANSARA_KEY_PASSWORD }}
+        run: gradle :app:testDebugUnitTest --stacktrace
+
+      - name: Android lint
+        env:
+          SANSARA_KEYSTORE_PASSWORD: ${{ secrets.SANSARA_KEYSTORE_PASSWORD }}
+          SANSARA_KEY_ALIAS: ${{ secrets.SANSARA_KEY_ALIAS }}
+          SANSARA_KEY_PASSWORD: ${{ secrets.SANSARA_KEY_PASSWORD }}
+        run: gradle :app:lintDebug --stacktrace
+
+      - name: Build final APK
+        env:
+          SANSARA_KEYSTORE_PASSWORD: ${{ secrets.SANSARA_KEYSTORE_PASSWORD }}
+          SANSARA_KEY_ALIAS: ${{ secrets.SANSARA_KEY_ALIAS }}
+          SANSARA_KEY_PASSWORD: ${{ secrets.SANSARA_KEY_PASSWORD }}
+        run: gradle :app:assembleDebug --stacktrace
+
+      - name: Verify final package, version and signature
+        run: |
+          APK=app/build/outputs/apk/debug/app-debug.apk
+          "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --verbose --print-certs "$APK"
+          BADGING=$("$ANDROID_HOME/build-tools/35.0.0/aapt" dump badging "$APK" | head -n 5)
+          echo "$BADGING"
+          echo "$BADGING" | grep "name='ru.sansara.app'"
+          echo "$BADGING" | grep "versionCode='25'"
+          echo "$BADGING" | grep "versionName='0.20.0-final'"
+
+      - name: Download previous stable APK from run 81
+        uses: actions/download-artifact@v4
+        with:
+          name: SANSARA-alpha-apk
+          path: previous-apk
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          repository: ${{ github.repository }}
+          run-id: 36856408455
+
+      - name: Verify install-over upgrade and data preservation
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          target: google_apis
+          arch: x86_64
+          profile: pixel_6
+          disable-animations: true
+          script: |
+            set -euo pipefail
+            PREV_APK=$(find previous-apk -name '*.apk' | head -n 1)
+            FINAL_APK=app/build/outputs/apk/debug/app-debug.apk
+            test -n "$PREV_APK"
+
+            adb install "$PREV_APK"
+            adb shell am start -W -n ru.sansara.app/.MainActivity
+            sleep 4
+
+            adb shell run-as ru.sansara.app sh -c 'echo upgrade-preserved > files/upgrade-sentinel.txt'
+            adb shell run-as ru.sansara.app test -s databases/sansara.db
+
+            adb install -r "$FINAL_APK"
+            VERSION=$(adb shell dumpsys package ru.sansara.app | grep versionCode | head -n 1)
+            echo "$VERSION"
+            echo "$VERSION" | grep "versionCode=25"
+
+            SENTINEL=$(adb shell run-as ru.sansara.app cat files/upgrade-sentinel.txt | tr -d '\r')
+            test "$SENTINEL" = "upgrade-preserved"
+            adb shell run-as ru.sansara.app test -s databases/sansara.db
+
+            adb shell am force-stop ru.sansara.app
+            adb shell am start -W -n ru.sansara.app/.MainActivity
+            sleep 4
+            test -n "$(adb shell pidof ru.sansara.app)"
+            ! adb logcat -d -t 300 | grep -E "FATAL EXCEPTION.*ru\.sansara\.app|Process: ru\.sansara\.app.*FATAL"
+
+      - name: Upload fully verified APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: SANSARA-0.20.0-final-verified
+          path: app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
