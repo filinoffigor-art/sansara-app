@@ -2,7 +2,7 @@ name: Build SANSARA APK
 
 on:
   push:
-    branches: [ main, stage-1-compose-visual-lock, stage-2-data-auth-presence, stage-3-client-mvp, stage-4-production-stock, stage-5-admin, stage-5-admin-workflows, stage-6-full-workflows ]
+    branches: [ main, client-audio-rework, stage-1-compose-visual-lock, stage-2-data-auth-presence, stage-3-client-mvp, stage-4-production-stock, stage-5-admin, stage-5-admin-workflows, stage-6-full-workflows ]
   workflow_dispatch:
 
 jobs:
