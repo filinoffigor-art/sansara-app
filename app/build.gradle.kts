@@ -5,6 +5,11 @@ plugins {
     id("org.jetbrains.kotlin.kapt")
 }
 
+val sansaraKeystorePath = System.getenv("SANSARA_KEYSTORE_PATH")
+val sansaraKeystorePassword = System.getenv("SANSARA_KEYSTORE_PASSWORD")
+val sansaraKeyAlias = System.getenv("SANSARA_KEY_ALIAS")
+val sansaraKeyPassword = System.getenv("SANSARA_KEY_PASSWORD")
+
 android {
     namespace = "ru.sansara.app"
     compileSdk = 35
@@ -13,8 +18,8 @@ android {
         applicationId = "ru.sansara.app"
         minSdk = 26
         targetSdk = 35
-        versionCode = 19
-        versionName = "0.14.0-stage5-admin"
+        versionCode = 20
+        versionName = "0.15.0-stage6-phase1"
         buildConfigField("String", "ADMIN_PHONE", "\"+79263046019\"")
         buildConfigField("String", "TILDA_YML_URL", "\"\"")
         buildConfigField("String", "BACKEND_API_URL", "\"\"")
@@ -22,6 +27,27 @@ android {
             .replace("\\", "\\\\")
             .replace("\"", "\\\"")
         buildConfigField("String", "BACKEND_API_KEY", "\"$backendApiKey\"")
+    }
+
+    signingConfigs {
+        if (!sansaraKeystorePath.isNullOrBlank() &&
+            !sansaraKeystorePassword.isNullOrBlank() &&
+            !sansaraKeyAlias.isNullOrBlank() &&
+            !sansaraKeyPassword.isNullOrBlank()
+        ) {
+            create("sansaraPersistent") {
+                storeFile = file(sansaraKeystorePath)
+                storePassword = sansaraKeystorePassword
+                keyAlias = sansaraKeyAlias
+                keyPassword = sansaraKeyPassword
+            }
+        }
+    }
+
+    buildTypes {
+        getByName("debug") {
+            signingConfigs.findByName("sansaraPersistent")?.let { signingConfig = it }
+        }
     }
 
     buildFeatures { compose = true; buildConfig = true }
