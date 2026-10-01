@@ -85,7 +85,7 @@ private val ProtoOrange = Warning
 
 private enum class ProtoScreen {
     Welcome, Login, Registration, RegistrationSent,
-    Home, Catalog, Filter, ProductList, ProductDetail, Cart, Checkout, OrderSent, OrderList, OrderDetail, Notifications, ClientChat, ClientReports, ClientSettings, AgentClients, AgentClientDetail, RetailHome, RetailCatalog, RetailFilter, RetailProductList, RetailProductDetail, RetailCart, RetailCheckout, RetailOrderSent, Profile, Suspended,
+    Home, Catalog, Filter, ProductList, ProductDetail, Cart, Checkout, OrderSent, OrderList, OrderDetail, Notifications, ClientChat, ClientReports, ClientSettings, AgentClients, AgentClientDetail, RetailHome, RetailCatalog, RetailFilter, RetailProductList, RetailProductDetail, RetailCart, RetailCheckout, RetailOrderSent, RetailOrderList, RetailOrderDetail, RetailNotifications, Profile, Suspended,
     AdminHome, AdminSearch, AdminClients, AdminClient, AdminOrders, AdminOrderDetail, AdminNotifications, AdminCatalog, AdminSettings, AdminSettingsDetail, AdminAttention, OnlineController, LowStockList, AdminChats, AdminChat, AdminProductionChat, AdminReports, AdminWorkshop, AdminAdmins, AdminAttendance,
     Production, ProductionCategory, ProductionCatalog, ProductionEntry, ProductionHistory, ProductionReport, ProductionPayments, ProductionProfile, ProductionWorkshop, ProductionAttendance, ProductionChat,
     Server, StockList, ReserveList, NewClients, Export, AdminAssemblers
@@ -1478,14 +1478,15 @@ fun SansaraVisualPrototype() {
                 val customer=agentCustomers.firstOrNull{it.id==selectedAgentCustomerId}
                 val retail=retailProducts(ownerId,customer?.id.orEmpty())
                 val retailClient=ProtoClient(customer?.id?:"RETAIL",customer?.fullName?:"Частный клиент",customer?.fullName.orEmpty(),customer?.phone.orEmpty(),"Активный",0,0,0,"",false,"сейчас",email=customer?.email.orEmpty(),city=customer?.city.orEmpty(),address=customer?.address.orEmpty(),firstName=customer?.fullName?.substringBefore(" ").orEmpty().ifBlank{"Клиент"})
+                val retailAudienceKey=currentClient().name+" / "+(customer?.fullName?:"Частный клиент")
                 ProtoClientHomeScreen(
                     client=retailClient,products=retail,stockOverrides=stockOverrides,
                     availableStock={rp->products.firstOrNull{it.sku==rp.sku}?.let{availableStock(it)}?:0},
                     cartCount=retailCart.size,query=searchQuery,onQuery={searchQuery=it},onSearch={resetFilters();go(ProtoScreen.RetailProductList)},
-                    unreadCount=0,onNotifications={},onAvailability={st->if(st=="Все")resetFilters() else resetFilters(availability=st);go(ProtoScreen.RetailProductList)},
+                    unreadCount=notifications.count{it.audienceRole=="CLIENT"&&it.audienceKey==retailAudienceKey&&!it.read},onNotifications={go(ProtoScreen.RetailNotifications)},onAvailability={st->if(st=="Все")resetFilters() else resetFilters(availability=st);go(ProtoScreen.RetailProductList)},
                     onCategory={type->if(type!="Венки")toast("Раздел «$type» в разработке") else{resetFilters(type="Венки");go(ProtoScreen.RetailFilter)}},
                     onOpenProduct={p->retailSelectedProduct=p;retailDetailQty=1;go(ProtoScreen.RetailProductDetail)},
-                    onCart={go(ProtoScreen.RetailCart)},onOrders={},onProfile={},onCatalog={go(ProtoScreen.RetailCatalog)},
+                    onCart={go(ProtoScreen.RetailCart)},onOrders={go(ProtoScreen.RetailOrderList)},onProfile={},onCatalog={go(ProtoScreen.RetailCatalog)},
                     onSeeAll={searchQuery="";resetFilters();go(ProtoScreen.RetailProductList)},retailMode=true,onRetailExit={history.clear();screen=ProtoScreen.AgentClientDetail}
                 )
             }
@@ -1493,7 +1494,7 @@ fun SansaraVisualPrototype() {
                 cartCount=retailCart.size,onBack={back()},onSearch={q->searchQuery=q;resetFilters();go(ProtoScreen.RetailProductList)},
                 onCategory={type->if(type!="Венки")toast("Раздел «$type» в разработке") else{resetFilters(type="Венки");go(ProtoScreen.RetailFilter)}},
                 onAvailability={st->searchQuery="";if(st=="Все")resetFilters() else resetFilters(availability=st);go(ProtoScreen.RetailProductList)},
-                onHome={history.clear();screen=ProtoScreen.RetailHome},onCart={go(ProtoScreen.RetailCart)},onOrders={},onProfile={},
+                onHome={history.clear();screen=ProtoScreen.RetailHome},onCart={go(ProtoScreen.RetailCart)},onOrders={go(ProtoScreen.RetailOrderList)},onProfile={},
                 retailMode=true,onRetailExit={history.clear();screen=ProtoScreen.AgentClientDetail}
             )
             ProtoScreen.RetailFilter -> {
@@ -1525,7 +1526,7 @@ fun SansaraVisualPrototype() {
                     availableStock={rp->products.firstOrNull{it.sku==rp.sku}?.let{availableStock(it)}?:0},discount=0,
                     initialIndex=productListIndex,initialOffset=productListOffset,onBack={back()},onOpenFilter={go(ProtoScreen.RetailFilter)},
                     onOpenProduct={p,index,offset->productListIndex=index;productListOffset=offset;retailSelectedProduct=p;retailDetailQty=retailCart[p.sku]?:1;go(ProtoScreen.RetailProductDetail)},
-                    onHome={history.clear();screen=ProtoScreen.RetailHome},onCatalog={go(ProtoScreen.RetailCatalog)},onCart={go(ProtoScreen.RetailCart)},onOrders={},onProfile={},
+                    onHome={history.clear();screen=ProtoScreen.RetailHome},onCatalog={go(ProtoScreen.RetailCatalog)},onCart={go(ProtoScreen.RetailCart)},onOrders={go(ProtoScreen.RetailOrderList)},onProfile={},
                     retailMode=true,onRetailExit={history.clear();screen=ProtoScreen.AgentClientDetail}
                 )
             }
@@ -1534,7 +1535,7 @@ fun SansaraVisualPrototype() {
                 ProtoProductDetailScreen(
                     product=p,currentStock=p?.let{rp->products.firstOrNull{it.sku==rp.sku}?.let{availableStock(it)}?:0}?:0,qty=retailDetailQty,discount=0,cartCount=retailCart.size,editingCart=p?.sku?.let{retailCart.containsKey(it)}==true,
                     onBack={back()},onMinus={retailDetailQty=(retailDetailQty-1).coerceAtLeast(1)},onPlus={retailDetailQty+=1},
-                    onAdd={p?.let{retailCart[it.sku]=retailDetailQty};back()},onHome={history.clear();screen=ProtoScreen.RetailHome},onCatalog={go(ProtoScreen.RetailCatalog)},onCart={go(ProtoScreen.RetailCart)},onOrders={},onProfile={},
+                    onAdd={p?.let{retailCart[it.sku]=retailDetailQty};back()},onHome={history.clear();screen=ProtoScreen.RetailHome},onCatalog={go(ProtoScreen.RetailCatalog)},onCart={go(ProtoScreen.RetailCart)},onOrders={go(ProtoScreen.RetailOrderList)},onProfile={},
                     retailMode=true,onRetailExit={history.clear();screen=ProtoScreen.AgentClientDetail}
                 )
             }
@@ -1571,7 +1572,84 @@ fun SansaraVisualPrototype() {
                             history.clear();screen=ProtoScreen.RetailOrderSent
                         }
                     },
-                    onHome={history.clear();screen=ProtoScreen.RetailHome},onCatalog={go(ProtoScreen.RetailCatalog)},onCart={go(ProtoScreen.RetailCart)},onOrders={},onProfile={},retailMode=true,onRetailExit={history.clear();screen=ProtoScreen.AgentClientDetail}
+                    onHome={history.clear();screen=ProtoScreen.RetailHome},onCatalog={go(ProtoScreen.RetailCatalog)},onCart={go(ProtoScreen.RetailCart)},onOrders={go(ProtoScreen.RetailOrderList)},onProfile={},retailMode=true,onRetailExit={history.clear();screen=ProtoScreen.AgentClientDetail}
+                )
+            }
+            ProtoScreen.RetailOrderList -> {
+                val ownerId=currentClient().id
+                val customer=agentCustomers.firstOrNull{it.id==selectedAgentCustomerId}
+                val retail=retailProducts(ownerId,customer?.id.orEmpty())
+                val audienceKey=currentClient().name+" / "+(customer?.fullName?:"Частный клиент")
+                ProtoOrderListScreen(
+                    orders=orders.filter{it.clientName==audienceKey},
+                    products=retail,
+                    onBack={back()},
+                    onOpen={selectedOrderId=it.id;go(ProtoScreen.RetailOrderDetail)},
+                    onHome={history.clear();screen=ProtoScreen.RetailHome},
+                    onCatalog={go(ProtoScreen.RetailCatalog)},
+                    onCart={go(ProtoScreen.RetailCart)},
+                    onProfile={},
+                    retailMode=true,
+                    onRetailExit={history.clear();screen=ProtoScreen.AgentClientDetail},
+                    cartCount=retailCart.size
+                )
+            }
+            ProtoScreen.RetailOrderDetail -> {
+                val ownerId=currentClient().id
+                val customer=agentCustomers.firstOrNull{it.id==selectedAgentCustomerId}
+                val retail=retailProducts(ownerId,customer?.id.orEmpty())
+                ProtoOrderDetailScreen(
+                    order=orders.firstOrNull{it.id==selectedOrderId},
+                    products=retail,
+                    isAdmin=false,
+                    onBack={back()},
+                    onStatus={},
+                    onRepeat={
+                        orders.firstOrNull{it.id==selectedOrderId}?.let{order->
+                            retailCart.clear()
+                            order.lines.forEach{line->retailCart[line.sku]=line.qty}
+                            toast("Заказ "+order.id+" подготовлен к повтору")
+                            go(ProtoScreen.RetailCheckout)
+                        }
+                    },
+                    onEditRepeat={
+                        orders.firstOrNull{it.id==selectedOrderId}?.let{order->
+                            retailCart.clear()
+                            order.lines.forEach{line->retailCart[line.sku]=line.qty}
+                            toast("Можно изменить состав и количество")
+                            go(ProtoScreen.RetailCart)
+                        }
+                    },
+                    onCancel={
+                        val idx=orders.indexOfFirst{it.id==selectedOrderId}
+                        if(idx>=0&&orders[idx].status=="Получен"){
+                            val old=orders[idx]
+                            val now=LocalDateTime.now().format(DateTimeFormatter.ofPattern("dd.MM.yyyy HH:mm"))
+                            orders[idx]=old.copy(status="Отменён",history=old.history+ProtoOrderEvent("Отменён",now,currentClient().contact))
+                            persistAll()
+                            back()
+                        }
+                    }
+                )
+            }
+            ProtoScreen.RetailNotifications -> {
+                val customer=agentCustomers.firstOrNull{it.id==selectedAgentCustomerId}
+                val audienceKey=currentClient().name+" / "+(customer?.fullName?:"Частный клиент")
+                ProtoNotificationsScreen(
+                    notifications=notifications.filter{it.audienceRole=="CLIENT"&&it.audienceKey==audienceKey},
+                    onBack={back()},
+                    onReadAll={
+                        var changed=false
+                        notifications.indices.forEach{index->
+                            val n=notifications[index]
+                            if(n.audienceRole=="CLIENT"&&n.audienceKey==audienceKey&&!n.read){
+                                notifications[index]=n.copy(read=true)
+                                changed=true
+                            }
+                        }
+                        if(changed)persistNotifications()
+                    },
+                    onDelete={id->notifications.removeAll{it.id==id};persistNotifications()}
                 )
             }
             ProtoScreen.RetailOrderSent -> ProtoSimpleMessageScreen(
@@ -1782,7 +1860,7 @@ private fun ProtoClientHomeScreen(
         Scaffold(
             containerColor=Color.Transparent,
             bottomBar={
-                if(retailMode)ProtoRetailBottomBar(ProtoScreen.RetailHome,cartCount,onHome={},onCatalog=onCatalog,onCart=onCart,onExit=onRetailExit)
+                if(retailMode)ProtoRetailBottomBar(ProtoScreen.RetailHome,cartCount,onHome={},onCatalog=onCatalog,onCart=onCart,onExit=onRetailExit,onOrders=onOrders)
                 else ProtoClientBottomBar(ProtoScreen.Home,cartCount,onHome={},onCatalog=onCatalog,onCart=onCart,onOrders=onOrders,onProfile=onProfile)
             }
         ){pad->
@@ -1874,7 +1952,7 @@ private fun ProtoClientHomeScreen(
 @Composable
 private fun ProtoCatalogHomeScreen(cartCount:Int,onBack:()->Unit,onSearch:(String)->Unit,onCategory:(String)->Unit,onAvailability:(String)->Unit,onHome:()->Unit,onCart:()->Unit,onOrders:()->Unit,onProfile:()->Unit,retailMode:Boolean=false,onRetailExit:()->Unit={}){
     var searchOpen by remember{mutableStateOf(false)};var searchText by remember{mutableStateOf("")};var mode by remember{mutableStateOf("Все")};val cats=listOf("Венки","Гробы","Одежда","Ленты","Цветы","Услуги")
-    Box(Modifier.fillMaxSize()){ProtoLiveBackground();Scaffold(containerColor=Color.Transparent,bottomBar={if(retailMode)ProtoRetailBottomBar(ProtoScreen.RetailCatalog,cartCount,onHome,onCatalog={},onCart,onRetailExit) else ProtoClientBottomBar(ProtoScreen.Catalog,cartCount,onHome,onCatalog={},onCart,onOrders,onProfile)}){pad->Column(Modifier.fillMaxSize().padding(pad).padding(horizontal=18.dp)){
+    Box(Modifier.fillMaxSize()){ProtoLiveBackground();Scaffold(containerColor=Color.Transparent,bottomBar={if(retailMode)ProtoRetailBottomBar(ProtoScreen.RetailCatalog,cartCount,onHome,onCatalog={},onCart,onRetailExit,onOrders) else ProtoClientBottomBar(ProtoScreen.Catalog,cartCount,onHome,onCatalog={},onCart,onOrders,onProfile)}){pad->Column(Modifier.fillMaxSize().padding(pad).padding(horizontal=18.dp)){
         ProtoBrandHeader(onBack=onBack);Text("Каталог",color=ProtoText,fontSize=32.sp,fontWeight=FontWeight.Bold,modifier=Modifier.padding(vertical=10.dp));ProtoSearchBar(searchText,{searchOpen=true},"Поиск по категориям");Spacer(Modifier.height(12.dp));ProtoAvailabilityChips(mode){mode=it;onAvailability(it)};Spacer(Modifier.height(14.dp))
         LazyVerticalGrid(columns=GridCells.Fixed(2),modifier=Modifier.weight(1f),horizontalArrangement=Arrangement.spacedBy(10.dp),verticalArrangement=Arrangement.spacedBy(10.dp),contentPadding=PaddingValues(bottom=12.dp)){items(cats){cat->val enabled=cat=="Венки";Card(colors=CardDefaults.cardColors(containerColor=ProtoPanel),border=BorderStroke(1.dp,ProtoBorder),shape=RoundedCornerShape(20.dp),modifier=Modifier.height(205.dp).clickable(enabled=enabled){onCategory(cat)}){Box(Modifier.fillMaxSize()){Image(painterResource(protoPlaceholderForType(cat)),null,Modifier.fillMaxSize(),contentScale=ContentScale.Crop);Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha=.28f)));Column(Modifier.align(Alignment.BottomStart).padding(12.dp)){Text(cat,color=ProtoText,fontSize=18.sp,fontWeight=FontWeight.Bold);Text(if(cat=="Венки")"126 позиций" else "",color=ProtoMuted,fontSize=13.sp)};Icon(Icons.Outlined.ArrowForward,null,tint=ProtoGold,modifier=Modifier.align(Alignment.BottomEnd).padding(10.dp));if(!enabled)Text("В разработке",color=ProtoMuted,fontSize=10.sp,modifier=Modifier.align(Alignment.CenterEnd).padding(end=5.dp))}}}}
     }}}
@@ -2019,7 +2097,7 @@ private fun ProtoProductListScreen(
         ProtoLiveBackground()
         Scaffold(
             containerColor=Color.Transparent,
-            bottomBar={if(retailMode)ProtoRetailBottomBar(ProtoScreen.RetailProductList,cart.size,onHome,onCatalog,onCart,onRetailExit) else ProtoClientBottomBar(ProtoScreen.ProductList,cart.size,onHome,onCatalog,onCart,onOrders,onProfile)}
+            bottomBar={if(retailMode)ProtoRetailBottomBar(ProtoScreen.RetailProductList,cart.size,onHome,onCatalog,onCart,onRetailExit,onOrders) else ProtoClientBottomBar(ProtoScreen.ProductList,cart.size,onHome,onCatalog,onCart,onOrders,onProfile)}
         ){pad->
             Column(Modifier.fillMaxSize().padding(pad)){
                 ProtoBrandHeader(onBack=onBack)
@@ -2157,7 +2235,7 @@ private fun ProtoProductDetailScreen(
     val total=discountedUnit*qty
     Box(Modifier.fillMaxSize()){
         ProtoLiveBackground()
-        Scaffold(containerColor=Color.Transparent,bottomBar={if(retailMode)ProtoRetailBottomBar(ProtoScreen.RetailProductDetail,cartCount,onHome,onCatalog,onCart,onRetailExit) else ProtoClientBottomBar(ProtoScreen.ProductDetail,cartCount,onHome,onCatalog,onCart,onOrders,onProfile)}){pad->
+        Scaffold(containerColor=Color.Transparent,bottomBar={if(retailMode)ProtoRetailBottomBar(ProtoScreen.RetailProductDetail,cartCount,onHome,onCatalog,onCart,onRetailExit,onOrders) else ProtoClientBottomBar(ProtoScreen.ProductDetail,cartCount,onHome,onCatalog,onCart,onOrders,onProfile)}){pad->
             LazyColumn(
                 Modifier.fillMaxSize().padding(pad),
                 contentPadding=PaddingValues(horizontal=18.dp,vertical=8.dp),
@@ -2235,7 +2313,7 @@ private fun ProtoCartScreen(
     var previewProduct by remember{mutableStateOf<ProtoCatalogProduct?>(null)}
     Box(Modifier.fillMaxSize()){
         ProtoLiveBackground()
-        Scaffold(containerColor=Color.Transparent,bottomBar={if(retailMode)ProtoRetailBottomBar(ProtoScreen.RetailCart,cart.size,onHome,onCatalog,onCart={},onRetailExit) else ProtoClientBottomBar(ProtoScreen.Cart,cart.size,onHome,onCatalog,onCart={},onOrders,onProfile)}){pad->
+        Scaffold(containerColor=Color.Transparent,bottomBar={if(retailMode)ProtoRetailBottomBar(ProtoScreen.RetailCart,cart.size,onHome,onCatalog,onCart={},onRetailExit,onOrders) else ProtoClientBottomBar(ProtoScreen.Cart,cart.size,onHome,onCatalog,onCart={},onOrders,onProfile)}){pad->
             Column(Modifier.fillMaxSize().padding(pad)){
                 ProtoBrandHeader(onBack=onBack)
                 Text("Корзина",color=ProtoText,fontSize=31.sp,fontWeight=FontWeight.Bold,modifier=Modifier.padding(horizontal=18.dp,vertical=8.dp))
@@ -2318,7 +2396,7 @@ private fun ProtoCheckoutScreen(
 
     Box(Modifier.fillMaxSize()){
         ProtoLiveBackground()
-        Scaffold(containerColor=Color.Transparent,bottomBar={if(retailMode)ProtoRetailBottomBar(ProtoScreen.RetailCheckout,cartPositions,onHome,onCatalog,onCart,onRetailExit) else ProtoClientBottomBar(ProtoScreen.Checkout,cartPositions,onHome,onCatalog,onCart,onOrders,onProfile)}){pad->
+        Scaffold(containerColor=Color.Transparent,bottomBar={if(retailMode)ProtoRetailBottomBar(ProtoScreen.RetailCheckout,cartPositions,onHome,onCatalog,onCart,onRetailExit,onOrders) else ProtoClientBottomBar(ProtoScreen.Checkout,cartPositions,onHome,onCatalog,onCart,onOrders,onProfile)}){pad->
             Column(Modifier.fillMaxSize().padding(pad)){
                 ProtoBrandHeader(onBack=onBack)
                 Text("Оформление заказа",color=ProtoText,fontSize=30.sp,fontWeight=FontWeight.Bold,modifier=Modifier.padding(horizontal=18.dp,vertical=8.dp))
@@ -2494,7 +2572,10 @@ private fun ProtoOrderListScreen(
     onHome: () -> Unit,
     onCatalog: () -> Unit,
     onCart: () -> Unit,
-    onProfile: () -> Unit
+    onProfile: () -> Unit,
+    retailMode:Boolean=false,
+    onRetailExit:()->Unit={},
+    cartCount:Int=0
 ) {
     var tab by remember { mutableStateOf("Текущие") }
     var historyFilterOpen by remember { mutableStateOf(false) }
@@ -2517,15 +2598,27 @@ private fun ProtoOrderListScreen(
         Scaffold(
             containerColor = Color.Transparent,
             bottomBar = {
-                ProtoClientBottomBar(
-                    current = ProtoScreen.OrderList,
-                    cartCount = 0,
-                    onHome = onHome,
-                    onCatalog = onCatalog,
-                    onCart = onCart,
-                    onOrders = {},
-                    onProfile = onProfile
-                )
+                if(retailMode) {
+                    ProtoRetailBottomBar(
+                        current=ProtoScreen.RetailOrderList,
+                        cartCount=cartCount,
+                        onHome=onHome,
+                        onCatalog=onCatalog,
+                        onCart=onCart,
+                        onExit=onRetailExit,
+                        onOrders={}
+                    )
+                } else {
+                    ProtoClientBottomBar(
+                        current = ProtoScreen.OrderList,
+                        cartCount = cartCount,
+                        onHome = onHome,
+                        onCatalog = onCatalog,
+                        onCart = onCart,
+                        onOrders = {},
+                        onProfile = onProfile
+                    )
+                }
             }
         ) { pad ->
             Column(Modifier.fillMaxSize().padding(pad)) {
@@ -4569,10 +4662,12 @@ private fun ProtoRetailBottomBar(
     onHome:()->Unit,
     onCatalog:()->Unit,
     onCart:()->Unit,
-    onExit:()->Unit
+    onExit:()->Unit,
+    onOrders:()->Unit={}
 ){
     val catalog=current in setOf(ProtoScreen.RetailCatalog,ProtoScreen.RetailFilter,ProtoScreen.RetailProductList,ProtoScreen.RetailProductDetail)
     val cart=current in setOf(ProtoScreen.RetailCart,ProtoScreen.RetailCheckout)
+    val orders=current in setOf(ProtoScreen.RetailOrderList,ProtoScreen.RetailOrderDetail,ProtoScreen.RetailOrderSent)
     NavigationBar(containerColor=ProtoPanel,tonalElevation=0.dp){
         ProtoNavItem(current==ProtoScreen.RetailHome,"Главная",Icons.Outlined.Home,onHome)
         ProtoNavItem(catalog,"Каталог",Icons.Outlined.Inventory2,onCatalog)
@@ -4593,6 +4688,7 @@ private fun ProtoRetailBottomBar(
                 unselectedTextColor=ProtoMuted
             )
         )
+        ProtoNavItem(orders,"Заказы",Icons.Outlined.ReceiptLong,onOrders)
         ProtoNavItem(false,"Выйти",Icons.Outlined.ExitToApp,onExit)
     }
 }
