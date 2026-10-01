@@ -1954,7 +1954,7 @@ private fun ProtoCatalogHomeScreen(cartCount:Int,onBack:()->Unit,onSearch:(Strin
     var searchOpen by remember{mutableStateOf(false)};var searchText by remember{mutableStateOf("")};var mode by remember{mutableStateOf("Все")};val cats=listOf("Венки","Гробы","Одежда","Ленты","Цветы","Услуги")
     Box(Modifier.fillMaxSize()){ProtoLiveBackground();Scaffold(containerColor=Color.Transparent,bottomBar={if(retailMode)ProtoRetailBottomBar(ProtoScreen.RetailCatalog,cartCount,onHome,onCatalog={},onCart,onRetailExit,onOrders) else ProtoClientBottomBar(ProtoScreen.Catalog,cartCount,onHome,onCatalog={},onCart,onOrders,onProfile)}){pad->Column(Modifier.fillMaxSize().padding(pad).padding(horizontal=18.dp)){
         ProtoBrandHeader(onBack=onBack);Text("Каталог",color=ProtoText,fontSize=32.sp,fontWeight=FontWeight.Bold,modifier=Modifier.padding(vertical=10.dp));ProtoSearchBar(searchText,{searchOpen=true},"Поиск по категориям");Spacer(Modifier.height(12.dp));ProtoAvailabilityChips(mode){mode=it;onAvailability(it)};Spacer(Modifier.height(14.dp))
-        LazyVerticalGrid(columns=GridCells.Fixed(2),modifier=Modifier.weight(1f),horizontalArrangement=Arrangement.spacedBy(10.dp),verticalArrangement=Arrangement.spacedBy(10.dp),contentPadding=PaddingValues(bottom=12.dp)){items(cats){cat->val enabled=cat=="Венки";Card(colors=CardDefaults.cardColors(containerColor=ProtoPanel),border=BorderStroke(1.dp,ProtoBorder),shape=RoundedCornerShape(20.dp),modifier=Modifier.height(205.dp).clickable(enabled=enabled){onCategory(cat)}){Box(Modifier.fillMaxSize()){Image(painterResource(protoPlaceholderForType(cat)),null,Modifier.fillMaxSize(),contentScale=ContentScale.Crop);Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha=.28f)));Column(Modifier.align(Alignment.BottomStart).padding(12.dp)){Text(cat,color=ProtoText,fontSize=18.sp,fontWeight=FontWeight.Bold);Text(if(cat=="Венки")"126 позиций" else "",color=ProtoMuted,fontSize=13.sp)};Icon(Icons.Outlined.ArrowForward,null,tint=ProtoGold,modifier=Modifier.align(Alignment.BottomEnd).padding(10.dp));if(!enabled)Text("В разработке",color=ProtoMuted,fontSize=10.sp,modifier=Modifier.align(Alignment.CenterEnd).padding(end=5.dp))}}}}
+        LazyVerticalGrid(columns=GridCells.Fixed(2),modifier=Modifier.weight(1f),horizontalArrangement=Arrangement.spacedBy(10.dp),verticalArrangement=Arrangement.spacedBy(10.dp),contentPadding=PaddingValues(bottom=12.dp)){items(cats){cat->val enabled=cat=="Венки";Card(colors=CardDefaults.cardColors(containerColor=ProtoPanel),border=BorderStroke(1.dp,ProtoBorder),shape=RoundedCornerShape(20.dp),modifier=Modifier.height(205.dp).clickable(enabled=enabled){onCategory(cat)}){Box(Modifier.fillMaxSize()){Image(painterResource(protoPlaceholderForType(cat)),null,Modifier.fillMaxSize(),contentScale=ContentScale.Crop);Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha=.28f)));Column(Modifier.align(Alignment.BottomStart).padding(12.dp)){Text(cat,color=ProtoText,fontSize=18.sp,fontWeight=FontWeight.Bold);Text(if(cat=="Венки")"126 позиций" else "",color=ProtoMuted,fontSize=13.sp)};Icon(Icons.Outlined.ArrowForward,null,tint=ProtoGold,modifier=Modifier.align(Alignment.BottomEnd).padding(10.dp));if(!enabled)Text("В разработке",color=ProtoMuted,fontSize=10.sp,fontWeight=FontWeight.SemiBold,modifier=Modifier.align(Alignment.CenterEnd).rotate(-90f).offset(x=30.dp))}}}}
     }}}
     if(searchOpen)AlertDialog(onDismissRequest={searchOpen=false},containerColor=ProtoPanel,title={Text("Поиск по каталогу",color=ProtoText)},text={ProtoField(searchText,{searchText=it},"Артикул или название")},confirmButton={TextButton(onClick={if(searchText.isNotBlank()){searchOpen=false;onSearch(searchText.trim())}}){Text("Найти",color=ProtoGold)}},dismissButton={TextButton(onClick={searchOpen=false}){Text("Отмена",color=ProtoMuted)}})
 }
@@ -3097,8 +3097,9 @@ private fun ProtoAgentClientDetailScreen(
 ){
     val c=customer
     if(c==null){ProtoSimpleMessageScreen("Клиент","Клиент не найден",onBack);return}
+    val context=LocalContext.current
     var comment by remember(c.id,c.comment){mutableStateOf(c.comment)}
-    var reminderText by remember{mutableStateOf(LocalDateTime.now().plusHours(2).format(DateTimeFormatter.ofPattern("dd.MM.yyyy HH:mm")))}
+    var reminderDateTime by remember{mutableStateOf(LocalDateTime.now().plusHours(2))}
     var reminderNote by remember{mutableStateOf("")}
     val categories=listOf("Венки","Гробы","Кресты","Ленты","Одежда")
     ProtoScaffold(c.fullName,"Карточка частного клиента",onBack){
@@ -3119,11 +3120,38 @@ private fun ProtoAgentClientDetailScreen(
         item{Text("Напоминание",color=ProtoText,fontSize=19.sp,fontWeight=FontWeight.Bold)}
         item{
             ProtoSectionCard{
-                ProtoField(reminderText,{reminderText=it},"Дата и время · ДД.ММ.ГГГГ ЧЧ:ММ")
+                OutlinedButton(
+                    onClick={
+                        val initial=reminderDateTime
+                        android.app.DatePickerDialog(
+                            context,
+                            {_,year,month,day->
+                                android.app.TimePickerDialog(
+                                    context,
+                                    {_,hour,minute->
+                                        reminderDateTime=LocalDateTime.of(year,month+1,day,hour,minute)
+                                    },
+                                    initial.hour,
+                                    initial.minute,
+                                    true
+                                ).show()
+                            },
+                            initial.year,
+                            initial.monthValue-1,
+                            initial.dayOfMonth
+                        ).show()
+                    },
+                    modifier=Modifier.fillMaxWidth().height(52.dp),
+                    border=BorderStroke(1.dp,ProtoGold),
+                    shape=RoundedCornerShape(14.dp)
+                ){
+                    Icon(Icons.Outlined.CalendarMonth,null,tint=ProtoGold)
+                    Spacer(Modifier.width(8.dp))
+                    Text(reminderDateTime.format(DateTimeFormatter.ofPattern("dd.MM.yyyy HH:mm")),color=ProtoGoldSoft)
+                }
                 ProtoField(reminderNote,{reminderNote=it},"Текст напоминания")
                 ProtoPrimaryButton("Установить напоминание",{
-                    val dt=runCatching{LocalDateTime.parse(reminderText,DateTimeFormatter.ofPattern("dd.MM.yyyy HH:mm"))}.getOrNull()
-                    if(dt!=null)onReminder(dt.atZone(java.time.ZoneId.systemDefault()).toInstant().toEpochMilli(),reminderNote)
+                    onReminder(reminderDateTime.atZone(java.time.ZoneId.systemDefault()).toInstant().toEpochMilli(),reminderNote)
                 })
                 reminders.filter{it.active}.take(3).forEach{r->Text("• "+protoReminderTime(r.remindAtEpochMs)+" · "+r.note,color=ProtoMuted,fontSize=10.sp,modifier=Modifier.padding(top=4.dp))}
             }
