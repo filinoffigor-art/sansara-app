@@ -71,7 +71,7 @@ class SansaraReminderReceiver:BroadcastReceiver(){
         val pendingResult=goAsync()
         CoroutineScope(Dispatchers.IO).launch {
             runCatching {
-                SansaraRepository(SansaraDatabase.get(context)).disableAgentReminder(id)
+                SansaraRepository.get(context).disableAgentReminder(id)
             }
             pendingResult.finish()
         }
@@ -84,7 +84,7 @@ class SansaraBootReceiver:BroadcastReceiver(){
         val pendingResult=goAsync()
         CoroutineScope(Dispatchers.IO).launch {
             runCatching {
-                val repository=SansaraRepository(SansaraDatabase.get(context))
+                val repository=SansaraRepository.get(context)
                 repository.activeAgentReminders()
                     .filter{it.remindAtEpochMs>System.currentTimeMillis()}
                     .forEach{SansaraReminderScheduler.schedule(context,it)}
