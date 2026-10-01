@@ -3040,6 +3040,261 @@ private fun protoReminderTime(epoch:Long):String=
     Instant.ofEpochMilli(epoch).atZone(java.time.ZoneId.systemDefault()).toLocalDateTime().format(DateTimeFormatter.ofPattern("dd.MM.yyyy HH:mm"))
 
 @Composable
+private fun ProtoAdminAccountsScreen(
+    admins:List<SansaraAdminAccount>,
+    currentUserId:String,
+    onBack:()->Unit,
+    onAdd:(String)->Unit,
+    onToggle:(SansaraAdminAccount)->Unit
+){
+    var name by remember{mutableStateOf("")}
+    val main=admins.firstOrNull{it.isMain}
+    val canManage=main?.userId==currentUserId
+    ProtoScaffold("Администраторы","Один главный аккаунт · общий пароль",onBack){
+        item{
+            ProtoSectionCard{
+                Text("Все дополнительные администраторы используют тот же код доступа, что и главный аккаунт.",color=ProtoMuted,fontSize=11.sp)
+                if(canManage){
+                    Spacer(Modifier.height(8.dp))
+                    ProtoField(name,{name=it},"Имя администратора")
+                    ProtoPrimaryButton("Добавить администратора",{if(name.isNotBlank()){onAdd(name);name=""}},enabled=name.isNotBlank())
+                }else{
+                    Text("Добавлять и отключать администраторов может только главный аккаунт.",color=ProtoOrange,fontSize=11.sp,modifier=Modifier.padding(top=8.dp))
+                }
+            }
+        }
+        items(admins,key={it.userId}){admin->
+            ProtoSectionCard{
+                Row(verticalAlignment=Alignment.CenterVertically){
+                    Box(Modifier.size(42.dp).background(ProtoPanel2,CircleShape),contentAlignment=Alignment.Center){
+                        Icon(if(admin.isMain)Icons.Outlined.VerifiedUser else Icons.Outlined.AdminPanelSettings,null,tint=ProtoGold)
+                    }
+                    Spacer(Modifier.width(10.dp))
+                    Column(Modifier.weight(1f)){
+                        Text(admin.displayName,color=ProtoText,fontWeight=FontWeight.Bold)
+                        Text(if(admin.isMain)"Главный аккаунт" else "Администратор",color=ProtoGoldSoft,fontSize=11.sp)
+                        Text(if(admin.enabled)"Активен" else "Отключён",color=if(admin.enabled)ProtoGreen else ProtoRed,fontSize=10.sp)
+                    }
+                    if(!admin.isMain && canManage){
+                        Switch(
+                            checked=admin.enabled,
+                            onCheckedChange={onToggle(admin)},
+                            colors=SwitchDefaults.colors(checkedTrackColor=ProtoGold,checkedThumbColor=Color.Black)
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun ProtoWorkshopTasksScreen(
+    tasks:List<WorkshopTaskEntity>,
+    productionMode:Boolean,
+    onBack:()->Unit,
+    onCreate:(String,String,String,Boolean)->Unit,
+    onFact:(WorkshopTaskEntity,Int,String)->Unit
+){
+    var category by remember{mutableStateOf("Венки")}
+    var qtyText by remember{mutableStateOf("1")}
+    var comment by remember{mutableStateOf("")}
+    var commentOnly by remember{mutableStateOf(false)}
+    var dateText by remember{mutableStateOf(currentDateShort())}
+    val sorted=tasks.sortedByDescending{it.createdAt}
+    ProtoScaffold(
+        if(productionMode)"Задания цеху" else "Задание в цех",
+        if(productionMode)"Полученные задания · план / факт" else "План производства и комментарии",
+        onBack
+    ){
+        if(!productionMode){
+            item{
+                ProtoSectionCard{
+                    ProtoField(dateText,{dateText=it},"Дата · ДД.ММ.ГГГГ")
+                    ProtoSwitchRow("Только комментарий",commentOnly){commentOnly=it}
+                    if(!commentOnly){
+                        Text("Категория",color=ProtoGoldSoft,fontWeight=FontWeight.SemiBold,modifier=Modifier.padding(top=6.dp))
+                        LazyRow(horizontalArrangement=Arrangement.spacedBy(6.dp)){
+                            items(listOf("Венки","Гробы","Кресты","Ленты","Одежда")){label->
+                                FilterChip(
+                                    selected=category==label,
+                                    onClick={category=label},
+                                    label={Text(label)},
+                                    colors=FilterChipDefaults.filterChipColors(selectedContainerColor=ProtoGold,selectedLabelColor=Color.Black,labelColor=ProtoText)
+                                )
+                            }
+                        }
+                        ProtoField(qtyText,{qtyText=it.filter(Char::isDigit).take(4)},"Количество, шт.",KeyboardType.Number)
+                    }
+                    OutlinedTextField(
+                        value=comment,onValueChange={comment=it.take(500)},label={Text("Комментарий")},
+                        modifier=Modifier.fillMaxWidth().padding(vertical=4.dp),minLines=3,maxLines=5,colors=protoFieldColors()
+                    )
+                    val valid=if(commentOnly)comment.isNotBlank() else (qtyText.toIntOrNull()?:0)>0
+                    ProtoPrimaryButton("Отправить в цех",{
+                        val lines=if(commentOnly)"" else JSONArray().put(
+                            JSONObject().put("category",category).put("qty",qtyText.toIntOrNull()?:0)
+                        ).toString()
+                        onCreate(dateText,lines,comment,commentOnly)
+                        if(!commentOnly)qtyText="1"
+                        comment=""
+                    },enabled=valid)
+                }
+            }
+        }
+        if(sorted.isEmpty())item{ProtoSectionCard{Text("Заданий пока нет",color=ProtoMuted)}}
+        items(sorted,key={it.id}){task->
+            var factText by remember(task.id,task.actualQty){mutableStateOf(task.actualQty.toString())}
+            val plan=protoWorkshopPlanQty(task.linesJson)
+            ProtoSectionCard{
+                Row(verticalAlignment=Alignment.CenterVertically){
+                    Column(Modifier.weight(1f)){
+                        Text(task.id,color=ProtoGoldSoft,fontWeight=FontWeight.Bold,fontSize=12.sp)
+                        Text(task.taskDate,color=ProtoText,fontWeight=FontWeight.SemiBold)
+                    }
+                    ProtoPill(task.status,if(task.status=="Выполнено")ProtoGreen else ProtoOrange)
+                }
+                if(task.commentOnly){
+                    Text("Комментарий: "+task.comment,color=ProtoText,modifier=Modifier.padding(top=7.dp))
+                }else{
+                    Text(protoWorkshopLinesLabel(task.linesJson),color=ProtoText,modifier=Modifier.padding(top=7.dp))
+                    if(task.comment.isNotBlank())Text("Комментарий: "+task.comment,color=ProtoMuted,fontSize=11.sp,modifier=Modifier.padding(top=3.dp))
+                    ProtoInfoRow("План",plan.toString()+" шт.")
+                    ProtoInfoRow("Факт",task.actualQty.toString()+" шт.")
+                }
+                if(productionMode && !task.commentOnly){
+                    Spacer(Modifier.height(6.dp))
+                    Row(verticalAlignment=Alignment.CenterVertically){
+                        OutlinedTextField(
+                            value=factText,onValueChange={factText=it.filter(Char::isDigit).take(4)},
+                            label={Text("Факт, шт.")},singleLine=true,modifier=Modifier.weight(1f),
+                            keyboardOptions=KeyboardOptions(keyboardType=KeyboardType.Number),colors=protoFieldColors()
+                        )
+                        Spacer(Modifier.width(8.dp))
+                        Button(
+                            onClick={
+                                val fact=factText.toIntOrNull()?:0
+                                onFact(task,fact,if(fact>=plan && plan>0)"Выполнено" else "В работе")
+                            },
+                            colors=ButtonDefaults.buttonColors(containerColor=ProtoGold)
+                        ){Text("Сохранить",color=Color.Black)}
+                    }
+                }
+            }
+        }
+    }
+}
+
+private fun protoWorkshopPlanQty(linesJson:String):Int=runCatching{
+    val a=JSONArray(linesJson)
+    (0 until a.length()).sumOf{i->a.getJSONObject(i).optInt("qty",0)}
+}.getOrDefault(0)
+
+private fun protoWorkshopLinesLabel(linesJson:String):String=runCatching{
+    val a=JSONArray(linesJson)
+    (0 until a.length()).joinToString(" · "){i->
+        val o=a.getJSONObject(i)
+        o.optString("category","Позиция")+" — "+o.optInt("qty",0)+" шт."
+    }
+}.getOrDefault(linesJson.ifBlank{"Без позиций"})
+
+@Composable
+private fun ProtoAttendanceScreen(
+    selectedDate:LocalDate,
+    assemblers:List<SansaraAssembler>,
+    rows:List<AttendanceEntity>,
+    editable:Boolean,
+    onBack:()->Unit,
+    onDate:(LocalDate)->Unit,
+    onSave:(SansaraAssembler,String,String)->Unit
+){
+    var showCalendar by remember{mutableStateOf(false)}
+    val dateKey=selectedDate.format(DateTimeFormatter.ofPattern("dd.MM.yyyy"))
+    val dayRows=rows.filter{it.date==dateKey}.associateBy{it.personId}
+    ProtoScaffold("Табель рабочего времени",selectedDate.format(DateTimeFormatter.ofPattern("d MMMM yyyy",ruLocale)),onBack){
+        item{ProtoSecondaryButton("Выбрать дату",{showCalendar=true})}
+        item{
+            ProtoSectionCard{
+                ProtoInfoRow("Работали",dayRows.values.count{it.status=="Работал"}.toString())
+                ProtoInfoRow("Выходной",dayRows.values.count{it.status=="Выходной"}.toString())
+                ProtoInfoRow("Не заполнено",(assemblers.count{it.enabled}-dayRows.size).coerceAtLeast(0).toString())
+            }
+        }
+        items(assemblers.filter{it.enabled},key={it.id}){person->
+            val existing=dayRows[person.id]
+            var comment by remember(person.id,dateKey,existing?.comment){mutableStateOf(existing?.comment.orEmpty())}
+            ProtoSectionCard{
+                Text(person.name,color=ProtoText,fontWeight=FontWeight.Bold)
+                Text(existing?.status?:"Не заполнено",color=when(existing?.status){"Работал"->ProtoGreen;"Выходной"->ProtoGoldSoft;else->ProtoMuted},fontSize=11.sp)
+                if(editable){
+                    Spacer(Modifier.height(6.dp))
+                    ProtoField(comment,{comment=it},"Комментарий / причина")
+                    Row(horizontalArrangement=Arrangement.spacedBy(8.dp)){
+                        Button(onClick={onSave(person,"Работал",comment)},modifier=Modifier.weight(1f),colors=ButtonDefaults.buttonColors(containerColor=ProtoGold)){Text("Работал",color=Color.Black)}
+                        OutlinedButton(onClick={onSave(person,"Выходной",comment)},modifier=Modifier.weight(1f),border=BorderStroke(1.dp,ProtoBorder)){Text("Выходной",color=ProtoText)}
+                    }
+                }
+            }
+        }
+    }
+    if(showCalendar)ProtoProductionCalendarDialog(selectedDate,onDismiss={showCalendar=false},onSelect={onDate(it);showCalendar=false})
+}
+
+@Composable
+private fun ProtoAdminReportsScreen(
+    tasks:List<WorkshopTaskEntity>,
+    attendance:List<AttendanceEntity>,
+    presence:List<PresenceSessionEntity>,
+    productionOps:List<ProtoProductionOp>,
+    dailyStatus:AdminDailyStatusEntity?,
+    onBack:()->Unit,
+    onDailyStatus:(Boolean,String)->Unit
+){
+    val today=currentDateShort()
+    val tasksToday=tasks.filter{it.taskDate==today}
+    val plan=tasksToday.sumOf{protoWorkshopPlanQty(it.linesJson)}
+    val fact=tasksToday.sumOf{it.actualQty}
+    val attendanceToday=attendance.filter{it.date==today}
+    val produced=productionOps.filter{it.date==today}.sumOf{it.qty}
+    var dayOff by remember(dailyStatus?.date,dailyStatus?.dayOff){mutableStateOf(dailyStatus?.dayOff?:false)}
+    var reason by remember(dailyStatus?.date,dailyStatus?.reason){mutableStateOf(dailyStatus?.reason.orEmpty())}
+    ProtoScaffold("Отчёты","Сводные показатели SANSARA",onBack){
+        item{Row(horizontalArrangement=Arrangement.spacedBy(8.dp)){ProtoMetricCard("План цеха",plan.toString(),"шт.",Modifier.weight(1f)){};ProtoMetricCard("Факт",fact.toString(),"шт.",Modifier.weight(1f)){} }}
+        item{Row(horizontalArrangement=Arrangement.spacedBy(8.dp)){ProtoMetricCard("Выпуск",produced.toString(),"сегодня",Modifier.weight(1f)){};ProtoMetricCard("Табель",attendanceToday.count{it.status=="Работал"}.toString(),"выходов",Modifier.weight(1f)){} }}
+        item{
+            ProtoSectionCard{
+                Text("Задания в цех · план / факт",color=ProtoGoldSoft,fontWeight=FontWeight.Bold)
+                if(tasksToday.isEmpty())Text("Сегодня заданий нет",color=ProtoMuted,modifier=Modifier.padding(top=6.dp))
+                tasksToday.forEach{t->ProtoInfoRow(t.id,protoWorkshopPlanQty(t.linesJson).toString()+" / "+t.actualQty.toString()+" шт.")}
+            }
+        }
+        item{
+            ProtoSectionCard{
+                Text("Клиенты и сотрудники сегодня",color=ProtoGoldSoft,fontWeight=FontWeight.Bold)
+                ProtoInfoRow("Заходили",presence.map{it.userId}.distinct().size.toString())
+                presence.sortedByDescending{it.durationMs}.take(12).forEach{p->ProtoInfoRow(p.userId,protoDuration(p.durationMs))}
+            }
+        }
+        item{
+            ProtoSectionCard{
+                Text("Исключение напоминаний администратора",color=ProtoGoldSoft,fontWeight=FontWeight.Bold)
+                ProtoSwitchRow("Выходной",dayOff){dayOff=it}
+                ProtoField(reason,{reason=it},"Причина / комментарий")
+                ProtoPrimaryButton("Сохранить",{onDailyStatus(dayOff,reason)})
+                Text("Если установлен выходной или указана причина, обязательные напоминания на этот день не повторяются.",color=ProtoMuted,fontSize=10.sp,modifier=Modifier.padding(top=6.dp))
+            }
+        }
+    }
+}
+
+private fun protoDuration(ms:Long):String{
+    val totalMinutes=(ms/60_000L).coerceAtLeast(0L)
+    val h=totalMinutes/60
+    val m=totalMinutes%60
+    return if(h>0)"${h} ч ${m} мин" else "${m} мин"
+}
+
+@Composable
 private fun ProtoAdminChatsScreen(
     clients:List<ProtoClient>,
     messages:List<SansaraChatMessage>,
@@ -3778,15 +4033,29 @@ private fun ProtoProductionCalendarDialog(selectedDate:LocalDate,onDismiss:()->U
 }
 
 @Composable
-private fun ProtoProductionHistoryScreen(ops:List<ProtoProductionOp>,products:List<ProtoCatalogProduct>,onBack:()->Unit,onExport:()->Unit){
+private fun ProtoProductionHistoryScreen(
+    ops:List<ProtoProductionOp>,
+    products:List<ProtoCatalogProduct>,
+    canEdit:Boolean,
+    onBack:()->Unit,
+    onExport:()->Unit,
+    onCorrect:(ProtoProductionOp,Int)->Unit,
+    onDelete:(ProtoProductionOp)->Unit
+){
     var query by remember{mutableStateOf("")}
     var assembler by remember{mutableStateOf("Все")}
+    var editing by remember{mutableStateOf<ProtoProductionOp?>(null)}
+    var deleteCandidate by remember{mutableStateOf<ProtoProductionOp?>(null)}
     val assemblers=listOf("Все")+ops.map{it.assembler}.filter{it.isNotBlank()}.distinct().sorted()
     val filtered=ops.filter{op->
+        op.status!="Удален" &&
         (query.isBlank()||op.sku.contains(query,true)||op.name.contains(query,true)||op.date.contains(query,true)) &&
         (assembler=="Все"||op.assembler==assembler)
     }
-    ProtoScaffold("История приходов","Фильтр по дате, артикулу и сборщице",onBack){
+    val byMonth=filtered.groupBy{op->
+        runCatching{LocalDate.parse(op.date,DateTimeFormatter.ofPattern("dd.MM.yyyy")).format(DateTimeFormatter.ofPattern("MM.yyyy"))}.getOrDefault("Без даты")
+    }.toSortedMap(compareByDescending{it})
+    ProtoScaffold("История приходов","Месяц → день → позиции",onBack){
         item{ProtoField(query,{query=it},"Дата / артикул / наименование")}
         item{
             LazyRow(horizontalArrangement=Arrangement.spacedBy(7.dp)){
@@ -3796,27 +4065,64 @@ private fun ProtoProductionHistoryScreen(ops:List<ProtoProductionOp>,products:Li
             }
         }
         item{OutlinedButton(onClick=onExport,modifier=Modifier.fillMaxWidth(),border=BorderStroke(1.dp,ProtoGold),shape=RoundedCornerShape(24.dp)){Icon(Icons.Outlined.FileDownload,null,tint=ProtoGold);Spacer(Modifier.width(7.dp));Text("Экспорт CSV",color=ProtoGold)}}
-        items(filtered,key={it.date+"-"+it.time+"-"+it.sku+"-"+it.assembler}){op->
-            val product=products.firstOrNull{it.sku==op.sku}
-            ProtoSectionCard{
-                Row(verticalAlignment=Alignment.CenterVertically){
-                    if(product!=null)ProtoProductImage(product,Modifier.size(58.dp).clip(RoundedCornerShape(10.dp)))
-                    Spacer(Modifier.width(10.dp))
-                    Column(Modifier.weight(1f)){
-                        Text(op.name,color=ProtoText,fontWeight=FontWeight.SemiBold)
-                        Text(op.date+" "+op.time,color=ProtoMuted,fontSize=11.sp);ProtoSkuText(op.sku,fontSize=13)
-                        Text("Сборщица: "+op.assembler,color=ProtoMuted,fontSize=11.sp)
-                        if(op.documentId.isNotBlank())Text(op.documentId,color=ProtoGoldSoft,fontSize=9.sp)
-                    }
-                    Column(horizontalAlignment=Alignment.End){
-                        Text(op.qty.toString()+" шт.",color=ProtoGoldSoft,fontWeight=FontWeight.Bold)
-                        Text(protoMoney(op.rateRub)+"/шт.",color=ProtoMuted,fontSize=10.sp)
-                        Text(protoMoney(op.amountRub),color=ProtoGreen,fontWeight=FontWeight.Bold,fontSize=11.sp)
+        byMonth.forEach{(month,monthOps)->
+            item{Text(protoReportMonthLabel(month),color=ProtoText,fontSize=21.sp,fontWeight=FontWeight.Bold)}
+            monthOps.groupBy{it.date}.toSortedMap(compareByDescending{it}).forEach{(day,dayOps)->
+                item{Text(day+" · "+dayOps.sumOf{it.qty}+" шт.",color=ProtoGoldSoft,fontWeight=FontWeight.SemiBold)}
+                items(dayOps,key={it.opId.ifBlank{it.date+"-"+it.time+"-"+it.sku+"-"+it.assembler}}){op->
+                    val product=products.firstOrNull{it.sku==op.sku}
+                    ProtoSectionCard{
+                        Row(verticalAlignment=Alignment.CenterVertically){
+                            if(product!=null)ProtoProductImage(product,Modifier.size(58.dp).clip(RoundedCornerShape(10.dp)))
+                            Spacer(Modifier.width(10.dp))
+                            Column(Modifier.weight(1f)){
+                                Text(op.name,color=ProtoText,fontWeight=FontWeight.SemiBold)
+                                Text(op.time,color=ProtoMuted,fontSize=11.sp);ProtoSkuText(op.sku,fontSize=13)
+                                Text("Сборщица: "+op.assembler,color=ProtoMuted,fontSize=11.sp)
+                                if(op.documentId.isNotBlank())Text(op.documentId,color=ProtoGoldSoft,fontSize=9.sp)
+                            }
+                            Column(horizontalAlignment=Alignment.End){
+                                Text(op.qty.toString()+" шт.",color=ProtoGoldSoft,fontWeight=FontWeight.Bold)
+                                Text(protoMoney(op.amountRub),color=ProtoGreen,fontWeight=FontWeight.Bold,fontSize=11.sp)
+                                if(canEdit && op.opId.isNotBlank()){
+                                    Row{
+                                        IconButton(onClick={editing=op}){Icon(Icons.Outlined.Edit,null,tint=ProtoGold,modifier=Modifier.size(19.dp))}
+                                        IconButton(onClick={deleteCandidate=op}){Icon(Icons.Outlined.Delete,null,tint=ProtoRed,modifier=Modifier.size(19.dp))}
+                                    }
+                                }
+                            }
+                        }
                     }
                 }
             }
         }
     }
+    editing?.let{op->
+        var qtyText by remember(op.opId){mutableStateOf(op.qty.toString())}
+        AlertDialog(
+            onDismissRequest={editing=null},containerColor=ProtoPanel,
+            title={Text("Корректировать выпуск",color=ProtoText)},
+            text={Column{Text(op.name,color=ProtoGoldSoft);ProtoField(qtyText,{qtyText=it.filter(Char::isDigit)},"Количество",KeyboardType.Number);Text("Изменение попадёт в журнал и скорректирует склад.",color=ProtoMuted,fontSize=10.sp)}},
+            confirmButton={TextButton(onClick={val q=qtyText.toIntOrNull()?:0;if(q>0){onCorrect(op,q);editing=null}}){Text("Сохранить",color=ProtoGold)}},
+            dismissButton={TextButton(onClick={editing=null}){Text("Отмена",color=ProtoMuted)}}
+        )
+    }
+    deleteCandidate?.let{op->
+        AlertDialog(
+            onDismissRequest={deleteCandidate=null},containerColor=ProtoPanel,
+            title={Text("Удалить выпуск?",color=ProtoText)},
+            text={Text("Операция будет помечена удалённой, склад скорректируется, действие сохранится в журнале.",color=ProtoMuted)},
+            confirmButton={TextButton(onClick={onDelete(op);deleteCandidate=null}){Text("Удалить",color=ProtoRed)}},
+            dismissButton={TextButton(onClick={deleteCandidate=null}){Text("Отмена",color=ProtoMuted)}}
+        )
+    }
+}
+
+private fun protoReportMonthLabel(key:String):String{
+    val parts=key.split(".")
+    if(parts.size!=2)return key
+    val ym=runCatching{YearMonth.of(parts[1].toInt(),parts[0].toInt())}.getOrNull()?:return key
+    return protoMonthLabel(ym.toString())
 }
 
 @Composable
