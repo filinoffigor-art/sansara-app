@@ -1443,7 +1443,7 @@ private fun ProductionOpEntity.toProto(
     rateRub:Int=0,
     amountRub:Int=0,
     documentId:String=""
-)=ProtoProductionOp(date,time,sku,name,qty,assembler,postedBy,status,rateRub,amountRub,documentId)
+)=ProtoProductionOp(date,time,sku,name,qty,assembler,postedBy,status,rateRub,amountRub,documentId,opId)
 
 
 private fun ChatMessageEntity.toModel()=SansaraChatMessage(
