@@ -18,13 +18,16 @@ android {
         applicationId = "ru.sansara.app"
         minSdk = 26
         targetSdk = 35
-        versionCode = 25
-        versionName = "0.20.0-final"
+        versionCode = 26
+        versionName = "0.21.0-backend"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         testInstrumentationRunnerArguments["clearPackageData"] = "true"
         buildConfigField("String", "ADMIN_PHONE", "\"+79263046019\"")
         buildConfigField("String", "TILDA_YML_URL", "\"\"")
-        buildConfigField("String", "BACKEND_API_URL", "\"\"")
+        val backendApiUrl = providers.gradleProperty("SANSARA_BACKEND_API_URL").orElse("").get().trim()
+            .replace("\\", "\\\\")
+            .replace("\"", "\\\"")
+        buildConfigField("String", "BACKEND_API_URL", "\"$backendApiUrl\"")
         val backendApiKey = providers.gradleProperty("SANSARA_BACKEND_API_KEY").orElse("").get()
             .replace("\\", "\\\\")
             .replace("\"", "\\\"")

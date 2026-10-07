@@ -2,7 +2,7 @@ name: Build SANSARA APK
 
 on:
   push:
-    branches: [ main, stage-1-compose-visual-lock, stage-2-data-auth-presence, stage-3-client-mvp, stage-4-production-stock, stage-5-admin, stage-5-admin-workflows, stage-6-full-workflows ]
+    branches: [ main, stage-1-compose-visual-lock, stage-2-data-auth-presence, stage-3-client-mvp, stage-4-production-stock, stage-5-admin, stage-5-admin-workflows, stage-6-full-workflows, claude/stage-a-backend ]
   workflow_dispatch:
 
 jobs:
@@ -56,6 +56,8 @@ jobs:
           SANSARA_KEYSTORE_PASSWORD: ${{ secrets.SANSARA_KEYSTORE_PASSWORD }}
           SANSARA_KEY_ALIAS: ${{ secrets.SANSARA_KEY_ALIAS }}
           SANSARA_KEY_PASSWORD: ${{ secrets.SANSARA_KEY_PASSWORD }}
+          ORG_GRADLE_PROJECT_SANSARA_BACKEND_API_URL: ${{ vars.SANSARA_BACKEND_API_URL || 'https://script.google.com/macros/s/AKfycbzzF4w-UsisqCPBFIBOEhzGBWcH_etG_JCJHzzARYaNQiA8mUe4T0Mm5RWlRBYLk7Empg/exec' }}
+          ORG_GRADLE_PROJECT_SANSARA_BACKEND_API_KEY: ${{ secrets.SANSARA_BACKEND_API_KEY }}
         run: gradle :app:assembleDebug --stacktrace
 
       - name: Verify APK signature and package
