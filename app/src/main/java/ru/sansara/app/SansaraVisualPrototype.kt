@@ -2111,6 +2111,7 @@ private fun ProtoFilterScreen(
                         }
                     }
                 }
+                Spacer(Modifier.height(10.dp))
                 ProtoPrimaryButton("Показать "+matchedCount+" позиций",{
                     onApply(draftTypes,draftQualities,draftSizes,draftAvailability,minValue,maxValue)
                 })
@@ -3527,16 +3528,41 @@ private fun ProtoChatScreen(
 ){
     val context=LocalContext.current
     var text by remember{mutableStateOf("")}
+    val chatScope=rememberCoroutineScope()
+    var attachMenu by remember{mutableStateOf(false)}
+    var photoPreview by remember{mutableStateOf<String?>(null)}
+    fun sendPickedImage(uri:Uri){
+        chatScope.launch{
+            val copied=protoCopyChatImage(context,uri)
+            if(copied!=null)onSend("",copied.first,copied.second,copied.third)
+            else android.widget.Toast.makeText(context,"Не удалось прикрепить фото",android.widget.Toast.LENGTH_SHORT).show()
+        }
+    }
     val launcher=rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()){uri->
         if(uri!=null){
-            runCatching{context.contentResolver.takePersistableUriPermission(uri,Intent.FLAG_GRANT_READ_URI_PERMISSION)}
             val mime=context.contentResolver.getType(uri).orEmpty()
-            onSend("",uri.toString(),protoUriName(context,uri),mime)
+            if(mime.startsWith("image/")){
+                sendPickedImage(uri)
+            }else{
+                runCatching{context.contentResolver.takePersistableUriPermission(uri,Intent.FLAG_GRANT_READ_URI_PERMISSION)}
+                onSend("",uri.toString(),protoUriName(context,uri),mime)
+            }
         }
+    }
+    val photoLauncher=rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()){uri->
+        if(uri!=null)sendPickedImage(uri)
     }
     LaunchedEffect(Unit){onRead()}
     Box(Modifier.fillMaxSize()){
         ProtoLiveBackground()
+        photoPreview?.let{previewUri->
+            Dialog(onDismissRequest={photoPreview=null},properties=DialogProperties(usePlatformDefaultWidth=false,decorFitsSystemWindows=false)){
+                Box(Modifier.fillMaxSize().background(Color.Black).clickable{photoPreview=null}){
+                    AsyncImage(model=previewUri,contentDescription=null,contentScale=ContentScale.Fit,modifier=Modifier.fillMaxSize())
+                    IconButton(onClick={photoPreview=null},modifier=Modifier.align(Alignment.TopEnd).padding(18.dp).size(50.dp).background(Color.Black.copy(alpha=.72f),CircleShape).border(1.dp,ProtoGold,CircleShape)){Icon(Icons.Outlined.Close,null,tint=ProtoGold)}
+                }
+            }
+        }
         Column(Modifier.fillMaxSize()){
             ProtoBrandHeader(onBack=onBack,showBell=false)
             Column(Modifier.padding(horizontal=18.dp)){
@@ -3560,7 +3586,17 @@ private fun ProtoChatScreen(
                         ){
                             Column(Modifier.padding(11.dp)){
                                 if(msg.body.isNotBlank())Text(msg.body,color=ProtoText,fontSize=13.sp,lineHeight=18.sp)
-                                if(msg.attachmentUri.isNotBlank()){
+                                if(msg.attachmentUri.isNotBlank()&&msg.attachmentMime.startsWith("image/")){
+                                    AsyncImage(
+                                        model=msg.attachmentUri,
+                                        contentDescription=msg.attachmentName,
+                                        contentScale=ContentScale.Crop,
+                                        modifier=Modifier.padding(top=if(msg.body.isBlank())0.dp else 8.dp)
+                                            .fillMaxWidth().height(180.dp)
+                                            .clip(RoundedCornerShape(10.dp))
+                                            .clickable{photoPreview=msg.attachmentUri}
+                                    )
+                                }else if(msg.attachmentUri.isNotBlank()){
                                     Row(
                                         Modifier.padding(top=if(msg.body.isBlank())0.dp else 8.dp)
                                             .clip(RoundedCornerShape(10.dp))
@@ -3584,8 +3620,20 @@ private fun ProtoChatScreen(
                 Modifier.fillMaxWidth().background(ProtoPanel).padding(horizontal=10.dp,vertical=8.dp),
                 verticalAlignment=Alignment.Bottom
             ){
-                IconButton(onClick={launcher.launch(arrayOf("image/*","application/pdf","text/*","application/*"))}){
-                    Icon(Icons.Outlined.AttachFile,contentDescription="Прикрепить файл",tint=ProtoGold)
+                Box{
+                    IconButton(onClick={attachMenu=true}){
+                        Icon(Icons.Outlined.AttachFile,contentDescription="Прикрепить файл",tint=ProtoGold)
+                    }
+                    DropdownMenu(expanded=attachMenu,onDismissRequest={attachMenu=false}){
+                        DropdownMenuItem(text={Text("Фото")},onClick={
+                            attachMenu=false
+                            photoLauncher.launch(androidx.activity.result.PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
+                        })
+                        DropdownMenuItem(text={Text("Файл или документ")},onClick={
+                            attachMenu=false
+                            launcher.launch(arrayOf("application/pdf","text/*","application/*","image/*"))
+                        })
+                    }
                 }
                 OutlinedTextField(
                     value=text,
@@ -4644,7 +4692,7 @@ private fun ProtoField(value:String,onChange:(String)->Unit,label:String,keyboar
 private fun protoFieldColors()=OutlinedTextFieldDefaults.colors(focusedBorderColor=ProtoGold,unfocusedBorderColor=ProtoBorder,focusedTextColor=ProtoText,unfocusedTextColor=ProtoText,focusedLabelColor=ProtoGold,unfocusedLabelColor=ProtoMuted,focusedLeadingIconColor=ProtoGold,unfocusedLeadingIconColor=ProtoMuted,disabledBorderColor=ProtoBorder,disabledTextColor=ProtoMuted)
 
 @Composable
-private fun ProtoCompactGrid(title:String,options:List<String>,selected:Set<String>,toggle:(String)->Unit,disabled:Set<String> = emptySet()){Text(title,color=ProtoGoldSoft,fontSize=13.sp,fontWeight=FontWeight.SemiBold,modifier=Modifier.padding(top=7.dp,bottom=3.dp));options.chunked(2).forEach{row->Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.spacedBy(6.dp)){row.forEach{o->val off=o in disabled;FilterChip(selected=o in selected,onClick={if(!off)toggle(o)},enabled=!off,label={Text(if(off)"$o · в разработке" else o,fontSize=if(off)9.sp else 11.sp,maxLines=2)},modifier=Modifier.weight(1f).height(40.dp),colors=FilterChipDefaults.filterChipColors(selectedContainerColor=ProtoGold,selectedLabelColor=Color.Black,labelColor=ProtoText,disabledLabelColor=ProtoMuted))};if(row.size==1)Spacer(Modifier.weight(1f))}}
+private fun ProtoCompactGrid(title:String,options:List<String>,selected:Set<String>,toggle:(String)->Unit,disabled:Set<String> = emptySet()){Text(title,color=ProtoGoldSoft,fontSize=13.sp,fontWeight=FontWeight.SemiBold,modifier=Modifier.padding(top=7.dp,bottom=3.dp));options.chunked(2).forEach{row->Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.spacedBy(6.dp)){row.forEach{o->val off=o in disabled;FilterChip(selected=o in selected,onClick={if(!off)toggle(o)},enabled=!off,label={Text(if(off)"$o · в разработке" else o,fontSize=if(off)9.sp else 11.sp,maxLines=2)},modifier=Modifier.weight(1f).height(40.dp),colors=FilterChipDefaults.filterChipColors(selectedContainerColor=ProtoGold,selectedLabelColor=Color.Black,labelColor=ProtoText,disabledLabelColor=ProtoMuted))};if(row.size==1)Spacer(Modifier.weight(1f))};Spacer(Modifier.height(8.dp))}
 }
 
 @Composable
@@ -4871,6 +4919,19 @@ private fun protoUriName(context:Context,uri:Uri):String {
     }
     return name
 }
+
+private suspend fun protoCopyChatImage(context:Context,uri:Uri):Triple<String,String,String>? =
+    kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO){
+        runCatching{
+            val mime=context.contentResolver.getType(uri).orEmpty().ifBlank{"image/jpeg"}
+            val ext=when{mime.contains("png")->"png";mime.contains("webp")->"webp";else->"jpg"}
+            val dir=File(context.filesDir,"chat_attachments").apply{mkdirs()}
+            val target=File(dir,"IMG-"+System.currentTimeMillis()+"."+ext)
+            val input=context.contentResolver.openInputStream(uri) ?: return@runCatching null
+            input.use{source->target.outputStream().use{out->source.copyTo(out)}}
+            Triple(Uri.fromFile(target).toString(),protoUriName(context,uri),mime)
+        }.getOrNull()
+    }
 
 private fun protoOpenAttachment(context:Context,uriValue:String,mime:String) {
     runCatching {
