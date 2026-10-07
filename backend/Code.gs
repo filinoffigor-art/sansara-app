@@ -36,6 +36,7 @@ function doPost(e) {
       case 'presence': return json_(presence_(payload));
       case 'telegramSettings': return json_(updateTelegramSettings_(payload));
       case 'telegramStatus': return json_(telegramStatus_());
+      case 'syncTilda': return json_(syncTildaCatalog());
       default: return json_({ok:false, error:'UNKNOWN_ACTION'});
     }
   } catch (err) {
@@ -226,10 +227,126 @@ function createOrder_(b) {
   return {ok:true, orderId:orderId, telegram:telegram};
 }
 
+/**
+ * Tilda catalog sync (server side).
+ * Source: public YML feed URL stored in Script Property TILDA_YML_URL.
+ * Updates only descriptive fields, price and photo in the Products sheet.
+ * Stock lives in StockMovements and is never touched here.
+ * New items get no stock movements, so the apps show them as "Под заказ".
+ */
+function ensureColumns_(sh, wanted) {
+  var lastCol = Math.max(sh.getLastColumn(), 1);
+  var headers = sh.getRange(1, 1, 1, lastCol).getValues()[0].map(String);
+  wanted.forEach(function(name){
+    if (headers.indexOf(name) < 0) {
+      headers.push(name);
+      sh.getRange(1, headers.length).setValue(name).setFontWeight('bold');
+    }
+  });
+  return headers.filter(String);
+}
+
+function parseTildaYml_(xmlText) {
+  var doc = XmlService.parse(xmlText);
+  var shop = doc.getRootElement().getChild('shop');
+  if (!shop) throw new Error('YML_SHOP_NOT_FOUND');
+  var categories = {};
+  var catsEl = shop.getChild('categories');
+  if (catsEl) catsEl.getChildren('category').forEach(function(c){
+    categories[String(c.getAttribute('id').getValue())] = String(c.getText()).trim();
+  });
+  var offersEl = shop.getChild('offers');
+  if (!offersEl) throw new Error('YML_OFFERS_NOT_FOUND');
+  return offersEl.getChildren('offer').map(function(o){
+    function t(n){ var e = o.getChild(n); return e ? String(e.getText()).trim() : ''; }
+    var params = {};
+    o.getChildren('param').forEach(function(p){
+      var a = p.getAttribute('name');
+      if (a) params[String(a.getValue()).toLowerCase()] = String(p.getText()).trim();
+    });
+    var idAttr = o.getAttribute('id');
+    var externalId = idAttr ? String(idAttr.getValue()) : '';
+    var pics = o.getChildren('picture');
+    var days = Number(String(params['срок производства'] || params['срок производства, дней'] || '').replace(/\D/g, '')) || 0;
+    return {
+      externalId: externalId,
+      sku: t('vendorCode') || externalId,
+      name: t('name'),
+      category: categories[t('categoryId')] || '',
+      price: Math.round(Number(t('price').replace(',', '.')) || 0),
+      image: pics.length ? String(pics[0].getText()).trim() : '',
+      quality: params['качество'] || params['класс'] || params['категория качества'] || '',
+      size: params['размер'] || params['высота'] || params['диаметр'] || '',
+      days: days
+    };
+  }).filter(function(x){ return x.sku && x.name; });
+}
+
+function syncTildaCatalog() {
+  var url = props_().getProperty('TILDA_YML_URL');
+  if (!url) return {ok:false, error:'TILDA_YML_URL_NOT_CONFIGURED'};
+  var resp = UrlFetchApp.fetch(url, {muteHttpExceptions:true, followRedirects:true});
+  if (resp.getResponseCode() !== 200) return {ok:false, error:'TILDA_HTTP_' + resp.getResponseCode()};
+  var items = parseTildaYml_(resp.getContentText('UTF-8'));
+  if (!items.length) return {ok:false, error:'TILDA_FEED_EMPTY'};
+
+  var sh = sheet_().getSheetByName('Products');
+  if (!sh) throw new Error('PRODUCTS_SHEET_MISSING');
+  var headers = ensureColumns_(sh, ['SKU','Name','CategoryID','Size','BasePrice','ProductionLeadDays','Active','ImageUrl','Quality','ExternalID','TildaSyncedAt']);
+  var idx = {};
+  headers.forEach(function(h, i){ idx[h] = i; });
+
+  var width = headers.length;
+  var rows = sh.getLastRow() > 1 ? sh.getRange(2, 1, sh.getLastRow() - 1, width).getValues() : [];
+  var rowBySku = {};
+  rows.forEach(function(r, i){ rowBySku[String(r[idx.SKU]).trim().toLowerCase()] = i; });
+
+  var now = new Date();
+  var added = 0, updated = 0, fresh = [];
+  items.forEach(function(it){
+    var key = it.sku.toLowerCase();
+    var row;
+    if (key in rowBySku) {
+      row = rows[rowBySku[key]];
+      updated++;
+    } else {
+      row = [];
+      for (var c = 0; c < width; c++) row.push('');
+      row[idx.SKU] = it.sku;
+      row[idx.Active] = true;
+      row[idx.ProductionLeadDays] = 3;
+      fresh.push(row);
+      added++;
+    }
+    row[idx.Name] = it.name;
+    if (it.category) row[idx.CategoryID] = it.category;
+    if (it.size) row[idx.Size] = it.size;
+    if (it.price > 0) row[idx.BasePrice] = it.price;
+    if (it.days) row[idx.ProductionLeadDays] = it.days;
+    if (it.image) row[idx.ImageUrl] = it.image;
+    if (it.quality) row[idx.Quality] = it.quality;
+    row[idx.ExternalID] = it.externalId;
+    row[idx.TildaSyncedAt] = now;
+  });
+
+  if (rows.length) sh.getRange(2, 1, rows.length, width).setValues(rows);
+  if (fresh.length) sh.getRange(sh.getLastRow() + 1, 1, fresh.length, width).setValues(fresh);
+  appendObject_('AuditLog', {Timestamp:now, UserID:'SYSTEM', EntityType:'CATALOG', EntityID:'TILDA', Action:'SYNC_TILDA', OldValue:'', NewValue:JSON.stringify({total:items.length, added:added, updated:updated})});
+  return {ok:true, total:items.length, added:added, updated:updated};
+}
+
+/** Run once: syncs the Tilda catalog automatically every hour. */
+function installTildaTrigger() {
+  ScriptApp.getProjectTriggers().forEach(function(t){
+    if (t.getHandlerFunction() === 'syncTildaCatalog') ScriptApp.deleteTrigger(t);
+  });
+  ScriptApp.newTrigger('syncTildaCatalog').timeBased().everyHours(1).create();
+}
+
 function setupSansaraSheets() {
   var ss = sheet_();
   var schemas = {
-    Products:['SKU','ModelID','Name','CategoryID','Size','BasePrice','ProductionLeadDays','Active','ImageUrl'],
+    Products:['SKU','ModelID','Name','CategoryID','Size','BasePrice','ProductionLeadDays','Active','ImageUrl','Quality','ExternalID','TildaSyncedAt'],
     Clients:['ClientID','Type','Name','INN','Phone','Email','City','Address','Status','DiscountPct','OrderingEnabled','ManagerID','CreatedAt'],
     ClientUsers:['UserID','ClientID','Name','Phone','Email','Role','Enabled','LastLogin','LastSeen'],
     StockMovements:['Timestamp','MovementType','SKU','Qty','UserID','Comment'],

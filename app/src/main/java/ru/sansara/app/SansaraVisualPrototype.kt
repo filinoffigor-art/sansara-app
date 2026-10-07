@@ -1924,6 +1924,7 @@ private fun ProtoClientHomeScreen(
                         mode=selected
                         onAvailability(selected)
                     }
+                    Spacer(Modifier.height(5.dp))
                 }
                 LazyColumn(
                     Modifier.weight(1f),
@@ -3641,7 +3642,7 @@ private fun ProtoChatScreen(
                     placeholder={Text("Сообщение",color=ProtoMuted)},
                     modifier=Modifier.weight(1f),
                     maxLines=4,
-                    colors=protoFieldColors()
+                    colors=protoChatFieldColors()
                 )
                 IconButton(onClick={if(text.isNotBlank()){val value=text;text="";onSend(value,"","","")}}){
                     Icon(Icons.Outlined.Send,contentDescription="Отправить",tint=if(text.isNotBlank())ProtoGold else ProtoMuted)
@@ -4687,6 +4688,9 @@ private fun ProtoSectionCard(modifier:Modifier=Modifier,content:@Composable Colu
 
 @Composable
 private fun ProtoField(value:String,onChange:(String)->Unit,label:String,keyboardType:KeyboardType=KeyboardType.Text){OutlinedTextField(value=value,onValueChange=onChange,label={Text(label)},modifier=Modifier.fillMaxWidth().padding(vertical=4.dp),singleLine=true,keyboardOptions=KeyboardOptions(keyboardType=keyboardType),colors=protoFieldColors())}
+
+@Composable
+private fun protoChatFieldColors()=OutlinedTextFieldDefaults.colors(focusedBorderColor=ProtoGold,unfocusedBorderColor=ProtoBorder,focusedTextColor=ProtoText,unfocusedTextColor=ProtoText,focusedLabelColor=ProtoGold,unfocusedLabelColor=ProtoMuted,focusedContainerColor=ProtoPanel2,unfocusedContainerColor=ProtoPanel2,cursorColor=ProtoGold,focusedPlaceholderColor=ProtoMuted,unfocusedPlaceholderColor=ProtoMuted)
 
 @Composable
 private fun protoFieldColors()=OutlinedTextFieldDefaults.colors(focusedBorderColor=ProtoGold,unfocusedBorderColor=ProtoBorder,focusedTextColor=ProtoText,unfocusedTextColor=ProtoText,focusedLabelColor=ProtoGold,unfocusedLabelColor=ProtoMuted,focusedLeadingIconColor=ProtoGold,unfocusedLeadingIconColor=ProtoMuted,disabledBorderColor=ProtoBorder,disabledTextColor=ProtoMuted)
