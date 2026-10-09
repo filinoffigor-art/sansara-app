@@ -270,6 +270,17 @@ data class ShipmentEntity(
     val confirmedAt: Long
 )
 
+@Entity(tableName = "expenses")
+data class ExpenseEntity(
+    @PrimaryKey val id: String,
+    val date: String,
+    val category: String,
+    val amount: Int,
+    val comment: String,
+    val createdBy: String,
+    val createdAt: Long
+)
+
 @Entity(tableName = "attendance", primaryKeys = ["date", "personId"])
 data class AttendanceEntity(
     val date: String,
@@ -467,6 +478,15 @@ interface SansaraDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun putShipments(items: List<ShipmentEntity>)
 
+    @Query("SELECT * FROM expenses ORDER BY createdAt DESC")
+    suspend fun expenses(): List<ExpenseEntity>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun putExpenses(items: List<ExpenseEntity>)
+
+    @Query("DELETE FROM expenses WHERE id = :id")
+    suspend fun deleteExpense(id: String)
+
     @Query("SELECT COUNT(*) FROM accounts WHERE role = :role")
     suspend fun accountCountByRole(role: String): Int
 
@@ -589,9 +609,10 @@ interface SansaraDao {
         ProductionAuditEntity::class,
         PresenceSessionEntity::class,
         AdminDailyStatusEntity::class,
-        ShipmentEntity::class
+        ShipmentEntity::class,
+        ExpenseEntity::class
     ],
-    version = 6,
+    version = 7,
     exportSchema = false
 )
 abstract class SansaraDatabase : RoomDatabase() {
@@ -648,6 +669,12 @@ abstract class SansaraDatabase : RoomDatabase() {
             }
         }
 
+        private val MIGRATION_6_7 = object : Migration(6, 7) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("CREATE TABLE IF NOT EXISTS expenses (id TEXT NOT NULL, date TEXT NOT NULL, category TEXT NOT NULL, amount INTEGER NOT NULL, comment TEXT NOT NULL, createdBy TEXT NOT NULL, createdAt INTEGER NOT NULL, PRIMARY KEY(id))")
+            }
+        }
+
         fun get(context: Context): SansaraDatabase =
             instance ?: synchronized(this) {
                 instance ?: Room.databaseBuilder(
@@ -655,7 +682,7 @@ abstract class SansaraDatabase : RoomDatabase() {
                     SansaraDatabase::class.java,
                     "sansara.db"
                 )
-                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6)
+                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7)
                     .build()
                     .also { instance = it }
             }
@@ -872,6 +899,23 @@ class SansaraRepository private constructor(
             dao.putRegistrations(registrations.map { it.toEntity() })
             dao.putOrders(orders.map { it.toEntity() })
             dao.putProductionOps(ops.mapIndexed { i, item -> item.toEntity("seed-"+i) })
+            val fmtDemo = DateTimeFormatter.ofPattern("dd.MM.yyyy")
+            fun dayDemo(n: Long) = LocalDate.now().plusDays(n).format(fmtDemo)
+            fun sh(id:String,order:String,cid:String,cname:String,amount:Int,ship:Long,type:String,due:Long?,status:String) = ShipmentEntity(
+                id, order, cid, cname, amount, dayDemo(ship), type, if (due != null) dayDemo(due) else "", status,
+                "U-SALES", now, if (status == "UNCONFIRMED") 0L else now, if (status == "CONFIRMED") "U-ADMIN" else "", if (status == "CONFIRMED") now else 0L
+            )
+            dao.putShipments(listOf(
+                sh("SH-DEMO1","S-002384","C-1024","ООО Ритуал-Сервис",28150,-2,"PAID",null,"CONFIRMED"),
+                sh("SH-DEMO2","S-002370","C-1027","Ритуал-Тула",41800,-1,"DEFERRED",10,"UNCONFIRMED"),
+                sh("SH-DEMO3","S-002382","C-1025","Агент Смирнов А.А.",16450,0,"PAID",null,"REQUESTED"),
+                sh("SH-DEMO4","S-002360","C-1029","ООО Вечная память",22000,-6,"DEFERRED",-3,"UNCONFIRMED")
+            ))
+            dao.putExpenses(listOf(
+                ExpenseEntity("EX-DEMO1",dayDemo(-3),"Сырьё",35000,"Ткань, каркасы",now,now),
+                ExpenseEntity("EX-DEMO2",dayDemo(-1),"Зарплата",60000,"Сборщицы, аванс",now,now),
+                ExpenseEntity("EX-DEMO3",dayDemo(0),"Доставка",4800,"",now,now)
+            ))
             dao.putAssemblers(
                 listOf(
                     AssemblerEntity("ASM-001","Анна К."),
@@ -1290,6 +1334,22 @@ class SansaraRepository private constructor(
         dao.putShipments(listOf(updated))
         return updated
     }
+
+    suspend fun expenses():List<ExpenseEntity> = dao.expenses()
+
+    suspend fun addExpense(date:String,category:String,amount:Int,comment:String,createdBy:String):ExpenseEntity {
+        require(amount > 0) { "Введите сумму расхода" }
+        require(category.isNotBlank()) { "Выберите статью расхода" }
+        val item = ExpenseEntity(
+            id = "EX-" + java.util.UUID.randomUUID().toString().replace("-","").take(8).uppercase(),
+            date = date, category = category, amount = amount, comment = comment.trim(),
+            createdBy = createdBy, createdAt = System.currentTimeMillis()
+        )
+        dao.putExpenses(listOf(item))
+        return item
+    }
+
+    suspend fun deleteExpense(id:String) { dao.deleteExpense(id) }
 
     suspend fun workshopTasks():List<WorkshopTaskEntity> = dao.workshopTasks()
 
