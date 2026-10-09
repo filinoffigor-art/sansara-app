@@ -1809,9 +1809,10 @@ private fun ProtoBrandHeader(
     unreadCount:Int=0,
     onBell:(()->Unit)?=null,
     onMenu:(()->Unit)?=null,
+    edge:Dp=18.dp,
     modifier:Modifier=Modifier
 ) {
-    Row(modifier.fillMaxWidth().padding(horizontal=16.dp,vertical=8.dp),verticalAlignment=Alignment.CenterVertically) {
+    Row(modifier.fillMaxWidth().padding(horizontal=edge,vertical=8.dp),verticalAlignment=Alignment.CenterVertically) {
         Box(Modifier.width(48.dp),contentAlignment=Alignment.CenterStart){
             if(onBack!=null)ProtoCircleBack(onBack)
             else if(onMenu!=null)Box(Modifier.size(44.dp).clip(CircleShape).background(Color(0xCC11100E)).border(1.dp,ProtoBorder,CircleShape).clickable{onMenu()},contentAlignment=Alignment.Center){
@@ -2044,7 +2045,7 @@ private fun ProtoClientHomeScreen(
 private fun ProtoCatalogHomeScreen(cartCount:Int,onBack:()->Unit,onSearch:(String)->Unit,onCategory:(String)->Unit,onAvailability:(String)->Unit,onHome:()->Unit,onCart:()->Unit,onOrders:()->Unit,onProfile:()->Unit,retailMode:Boolean=false,onRetailExit:()->Unit={}){
     var searchOpen by remember{mutableStateOf(false)};var searchText by remember{mutableStateOf("")};var mode by remember{mutableStateOf("Все")};val cats=listOf("Венки","Гробы","Одежда","Ленты","Цветы","Услуги")
     Box(Modifier.fillMaxSize()){ProtoLiveBackground();Scaffold(containerColor=Color.Transparent,bottomBar={if(retailMode)ProtoRetailBottomBar(ProtoScreen.RetailCatalog,cartCount,onHome,onCatalog={},onCart,onRetailExit,onOrders) else ProtoClientBottomBar(ProtoScreen.Catalog,cartCount,onHome,onCatalog={},onCart,onOrders,onProfile)}){pad->Column(Modifier.fillMaxSize().padding(pad).padding(horizontal=18.dp)){
-        ProtoBrandHeader(onBack=onBack);Text("Каталог",color=ProtoText,fontSize=32.sp,fontWeight=FontWeight.Bold,modifier=Modifier.padding(vertical=10.dp));ProtoSearchBar(searchText,{searchOpen=true},"Поиск по категориям");Spacer(Modifier.height(12.dp));ProtoAvailabilityChips(mode){mode=it;onAvailability(it)};Spacer(Modifier.height(14.dp))
+        ProtoBrandHeader(onBack=onBack,edge=0.dp);Text("Каталог",color=ProtoText,fontSize=32.sp,fontWeight=FontWeight.Bold,modifier=Modifier.padding(vertical=10.dp));ProtoSearchBar(searchText,{searchOpen=true},"Поиск по категориям");Spacer(Modifier.height(12.dp));ProtoAvailabilityChips(mode){mode=it;onAvailability(it)};Spacer(Modifier.height(14.dp))
         LazyVerticalGrid(columns=GridCells.Fixed(2),modifier=Modifier.weight(1f),horizontalArrangement=Arrangement.spacedBy(10.dp),verticalArrangement=Arrangement.spacedBy(10.dp),contentPadding=PaddingValues(bottom=12.dp)){items(cats){cat->val enabled=cat=="Венки";Card(colors=CardDefaults.cardColors(containerColor=ProtoPanel),border=BorderStroke(1.dp,ProtoBorder),shape=RoundedCornerShape(20.dp),modifier=Modifier.height(205.dp).clickable(enabled=enabled){onCategory(cat)}){Box(Modifier.fillMaxSize()){Image(painterResource(protoPlaceholderForType(cat)),null,Modifier.fillMaxSize(),contentScale=ContentScale.Crop);Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha=.28f)));Column(Modifier.align(Alignment.BottomStart).padding(12.dp)){Text(cat,color=ProtoText,fontSize=18.sp,fontWeight=FontWeight.Bold);Text(if(cat=="Венки")"126 позиций" else "",color=ProtoMuted,fontSize=13.sp)};Icon(Icons.Outlined.ArrowForward,null,tint=ProtoGold,modifier=Modifier.align(Alignment.BottomEnd).padding(10.dp));if(!enabled)Box(Modifier.align(Alignment.CenterEnd).fillMaxHeight().width(34.dp),contentAlignment=Alignment.Center){Text("В разработке",color=ProtoText,fontSize=15.sp,fontWeight=FontWeight.ExtraBold,maxLines=1,softWrap=false,textAlign=androidx.compose.ui.text.style.TextAlign.Center,modifier=Modifier.requiredWidth(160.dp).rotate(-90f))}}}}}
     }}}
     if(searchOpen)AlertDialog(onDismissRequest={searchOpen=false},containerColor=ProtoPanel,title={Text("Поиск по каталогу",color=ProtoText)},text={ProtoField(searchText,{searchText=it},"Артикул или название")},confirmButton={TextButton(onClick={if(searchText.isNotBlank()){searchOpen=false;onSearch(searchText.trim())}}){Text("Найти",color=ProtoGold)}},dismissButton={TextButton(onClick={searchOpen=false}){Text("Отмена",color=ProtoMuted)}})
@@ -2353,7 +2354,7 @@ private fun ProtoProductDetailScreen(
                 contentPadding=PaddingValues(horizontal=18.dp,vertical=8.dp),
                 verticalArrangement=Arrangement.spacedBy(12.dp)
             ){
-                item{ProtoBrandHeader(onBack=onBack)}
+                item{ProtoBrandHeader(onBack=onBack,edge=0.dp)}
                 item{
                     Card(
                         colors=CardDefaults.cardColors(containerColor=ProtoPanel),
@@ -3755,7 +3756,7 @@ private fun ProtoAdminHomeScreen(
                 contentPadding=PaddingValues(horizontal=18.dp,vertical=8.dp),
                 verticalArrangement=Arrangement.spacedBy(12.dp)
             ){
-                item{ProtoBrandHeader(unreadCount=unreadCount,onBell=onNotifications)}
+                item{ProtoBrandHeader(unreadCount=unreadCount,onBell=onNotifications,edge=0.dp)}
                 item{Text("Здравствуйте, Игорь",color=ProtoText,fontSize=30.sp,fontWeight=FontWeight.Bold);Text("Администратор",color=ProtoGoldSoft,fontSize=14.sp)}
                 item{ProtoSearchBar("",onSearch,"Поиск по клиентам, заказам, товарам")}
                 item{Row(horizontalArrangement=Arrangement.spacedBy(10.dp)){ProtoMetricCard("Всего заявок",registrationsTotal.toString(),"текущий месяц",Modifier.weight(1f),onRegistrations);ProtoMetricCard("Активные клиенты",activeClients.toString(),"",Modifier.weight(1f),onClients)}}
@@ -3859,7 +3860,7 @@ private fun ProtoAdminClientScreen(
             contentPadding = PaddingValues(horizontal = 18.dp, vertical = 8.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp)
         ) {
-            item { ProtoBrandHeader(onBack = onBack) }
+            item { ProtoBrandHeader(onBack = onBack, edge = 0.dp) }
             item { Text("Карточка клиента", color = ProtoText, fontSize = 30.sp, fontWeight = FontWeight.Bold) }
 
             item {
@@ -4192,7 +4193,7 @@ private fun ProtoProductionHomeScreen(
                 contentPadding=PaddingValues(horizontal=18.dp,vertical=8.dp),
                 verticalArrangement=Arrangement.spacedBy(12.dp)
             ){
-                item{ProtoBrandHeader()}
+                item{ProtoBrandHeader(edge=0.dp)}
                 item{
                     Row(verticalAlignment=Alignment.CenterVertically){
                         Column(Modifier.weight(1f)){
