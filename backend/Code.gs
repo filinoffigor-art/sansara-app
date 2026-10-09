@@ -257,7 +257,7 @@ function parseTildaYml_(xmlText) {
   });
   var offersEl = shop.getChild('offers');
   if (!offersEl) throw new Error('YML_OFFERS_NOT_FOUND');
-  return offersEl.getChildren('offer').map(function(o){
+  var offers = offersEl.getChildren('offer').map(function(o){
     function t(n){ var e = o.getChild(n); return e ? String(e.getText()).trim() : ''; }
     var params = {};
     o.getChildren('param').forEach(function(p){
@@ -267,19 +267,48 @@ function parseTildaYml_(xmlText) {
     var idAttr = o.getAttribute('id');
     var externalId = idAttr ? String(idAttr.getValue()) : '';
     var pics = o.getChildren('picture');
+    function p(){ // первое значение параметра, чьё имя содержит одно из слов
+      for (var k in params) for (var i = 0; i < arguments.length; i++) if (k.indexOf(arguments[i]) >= 0 && params[k]) return params[k];
+      return '';
+    }
     var days = Number(String(params['срок производства'] || params['срок производства, дней'] || '').replace(/\D/g, '')) || 0;
+    var catName = categories[t('categoryId')] || '';
+    var group = p('продукция');
     return {
       externalId: externalId,
       sku: t('vendorCode') || externalId,
-      name: t('name'),
-      category: categories[t('categoryId')] || '',
+      name: t('name').split(' - ')[0],
+      category: /круг|вен/i.test(group + ' ' + t('name')) ? 'Венки' : (group || catName),
       price: Math.round(Number(t('price').replace(',', '.')) || 0),
       image: pics.length ? String(pics[0].getText()).trim() : '',
-      quality: params['качество'] || params['класс'] || params['категория качества'] || '',
-      size: params['размер'] || params['высота'] || params['диаметр'] || '',
-      days: days
+      quality: p('качество', 'класс') || '',
+      size: (p('размер', 'высота', 'диаметр') || '').replace(/(\d)\s*(см|м)\b/i, '$1 $2'),
+      days: days,
+      wholesale: /опт/i.test(catName) && !/рознич/i.test(catName),
+      retail: /рознич/i.test(catName)
     };
   }).filter(function(x){ return x.sku && x.name; });
+  return aggregateTilda_(offers);
+}
+
+/** Один артикул встречается в «Опт», «Розница» и по цветам. Цена приложения — оптовая, фото — с первого оптового предложения. */
+function aggregateTilda_(offers) {
+  var bySku = {}, order = [];
+  offers.forEach(function(o){
+    if (!bySku[o.sku]) { bySku[o.sku] = []; order.push(o.sku); }
+    bySku[o.sku].push(o);
+  });
+  return order.map(function(sku){
+    var list = bySku[sku];
+    var w = list.filter(function(x){ return x.wholesale; });
+    var r = list.filter(function(x){ return x.retail; });
+    var primary = w[0] || r[0] || list[0];
+    var photo = (w.concat(r, list)).filter(function(x){ return x.image; })[0];
+    var item = JSON.parse(JSON.stringify(primary));
+    item.image = photo ? photo.image : '';
+    item.retailPrice = r.length ? r[0].price : 0;
+    return item;
+  });
 }
 
 function syncTildaCatalog() {
@@ -292,7 +321,7 @@ function syncTildaCatalog() {
 
   var sh = sheet_().getSheetByName('Products');
   if (!sh) throw new Error('PRODUCTS_SHEET_MISSING');
-  var headers = ensureColumns_(sh, ['SKU','Name','CategoryID','Size','BasePrice','ProductionLeadDays','Active','ImageUrl','Quality','ExternalID','TildaSyncedAt']);
+  var headers = ensureColumns_(sh, ['SKU','Name','CategoryID','Size','BasePrice','ProductionLeadDays','Active','ImageUrl','Quality','ExternalID','TildaSyncedAt','RetailPrice']);
   var idx = {};
   headers.forEach(function(h, i){ idx[h] = i; });
 
@@ -325,6 +354,7 @@ function syncTildaCatalog() {
     if (it.days) row[idx.ProductionLeadDays] = it.days;
     if (it.image) row[idx.ImageUrl] = it.image;
     if (it.quality) row[idx.Quality] = it.quality;
+    if (it.retailPrice) row[idx.RetailPrice] = it.retailPrice;
     row[idx.ExternalID] = it.externalId;
     row[idx.TildaSyncedAt] = now;
   });
