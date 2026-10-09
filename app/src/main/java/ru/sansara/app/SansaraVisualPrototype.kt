@@ -1278,6 +1278,7 @@ fun SansaraVisualPrototype() {
             )
             ProtoScreen.AdminWorkshop -> ProtoWorkshopTasksScreen(
                 tasks=workshopTasks,
+                products=products,
                 productionMode=false,
                 onBack={back()},
                 onCreate={date,linesJson,comment,commentOnly->
@@ -3336,20 +3337,23 @@ private fun ProtoAdminAccountsScreen(
 @Composable
 private fun ProtoWorkshopTasksScreen(
     tasks:List<WorkshopTaskEntity>,
+    products:List<ProtoCatalogProduct> = emptyList(),
     productionMode:Boolean,
     onBack:()->Unit,
     onCreate:(String,String,String,Boolean)->Unit,
     onFact:(WorkshopTaskEntity,Int,String)->Unit
 ){
     var category by remember{mutableStateOf("Венки")}
-    var qtyText by remember{mutableStateOf("1")}
+    var search by remember{mutableStateOf("")}
+    val picked=remember{mutableStateMapOf<String,Int>()}
     var comment by remember{mutableStateOf("")}
     var commentOnly by remember{mutableStateOf(false)}
     var dateText by remember{mutableStateOf(currentDateShort())}
     val sorted=tasks.sortedByDescending{it.createdAt}
+    val workshopCategories=listOf("Венки","Корзины","Флоретки")
     ProtoScaffold(
         if(productionMode)"Задания цеху" else "Задание в цех",
-        if(productionMode)"Полученные задания · план / факт" else "План производства и комментарии",
+        if(productionMode)"Полученные задания · план / факт" else "Выберите продукцию из каталога",
         onBack
     ){
         if(!productionMode){
@@ -3357,31 +3361,84 @@ private fun ProtoWorkshopTasksScreen(
                 ProtoSectionCard{
                     ProtoField(dateText,{dateText=it},"Дата · ДД.ММ.ГГГГ")
                     ProtoSwitchRow("Только комментарий",commentOnly){commentOnly=it}
-                    if(!commentOnly){
-                        Text("Категория",color=ProtoGoldSoft,fontWeight=FontWeight.SemiBold,modifier=Modifier.padding(top=6.dp))
-                        LazyRow(horizontalArrangement=Arrangement.spacedBy(6.dp)){
-                            items(listOf("Венки","Гробы","Кресты","Ленты","Одежда")){label->
-                                FilterChip(
-                                    selected=category==label,
-                                    onClick={category=label},
-                                    label={Text(label)},
-                                    colors=FilterChipDefaults.filterChipColors(selectedContainerColor=ProtoGold,selectedLabelColor=Color.Black,labelColor=ProtoText)
-                                )
+                }
+            }
+            if(!commentOnly){
+                item{
+                    ProtoSectionCard{
+                        Text("Категория",color=ProtoGoldSoft,fontSize=17.sp,fontWeight=FontWeight.SemiBold)
+                        Spacer(Modifier.height(8.dp))
+                        Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.spacedBy(8.dp)){
+                            workshopCategories.forEach{label->
+                                val active=category==label
+                                Surface(
+                                    color=if(active)ProtoGold else ProtoPanel,
+                                    border=BorderStroke(1.dp,if(active)ProtoGold else ProtoBorder),
+                                    shape=RoundedCornerShape(24.dp),
+                                    modifier=Modifier.weight(1f).height(42.dp).clickable{category=label}
+                                ){
+                                    Box(contentAlignment=Alignment.Center){
+                                        Text(label,color=if(active)Color.Black else ProtoText,fontSize=14.sp,fontWeight=FontWeight.SemiBold,maxLines=1)
+                                    }
+                                }
                             }
                         }
-                        ProtoField(qtyText,{qtyText=it.filter(Char::isDigit).take(4)},"Количество, шт.",KeyboardType.Number)
+                        Spacer(Modifier.height(10.dp))
+                        ProtoField(search,{search=it},"Поиск по артикулу или названию")
+                    }
+                }
+                val shown=products.filter{p->
+                    p.type==category&&(search.isBlank()||p.sku.contains(search,true)||p.name.contains(search,true))
+                }.sortedBy{it.sku}
+                if(shown.isEmpty())item{ProtoSectionCard{Text("В категории «"+category+"» товаров не найдено",color=ProtoMuted)}}
+                items(shown.take(60),key={"w-"+it.sku}){p->
+                    val q=picked[p.sku]?:0
+                    ProtoSectionCard{
+                        Row(verticalAlignment=Alignment.CenterVertically){
+                            ProtoProductImage(p,Modifier.size(56.dp).clip(RoundedCornerShape(10.dp)))
+                            Spacer(Modifier.width(10.dp))
+                            Column(Modifier.weight(1f)){
+                                Text(p.name,color=ProtoText,fontWeight=FontWeight.Bold,fontSize=14.sp,maxLines=2,overflow=TextOverflow.Ellipsis)
+                                Text("Артикул: "+p.sku,color=ProtoGoldSoft,fontSize=12.sp,fontWeight=FontWeight.Bold,maxLines=1,overflow=TextOverflow.Ellipsis)
+                                if(p.size.isNotBlank()&&p.size!="—")Text("Размер: "+p.size,color=ProtoMuted,fontSize=12.sp,maxLines=1)
+                            }
+                        }
+                        Spacer(Modifier.height(8.dp))
+                        Row(Modifier.fillMaxWidth().height(40.dp),verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.SpaceBetween){
+                            ProtoQtyButton(Icons.Outlined.Remove,{if(q<=1)picked.remove(p.sku) else picked[p.sku]=q-1},40.dp)
+                            Text(q.toString()+" шт.",color=if(q>0)ProtoGold else ProtoMuted,fontSize=16.sp,fontWeight=FontWeight.Bold)
+                            ProtoQtyButton(Icons.Outlined.Add,{picked[p.sku]=(q+1).coerceAtMost(9999)},40.dp)
+                        }
+                    }
+                }
+                if(shown.size>60)item{Text("Показаны первые 60 из "+shown.size+" · уточните поиск",color=ProtoMuted,fontSize=12.sp)}
+            }
+            item{
+                ProtoSectionCard{
+                    val chosen=picked.entries.mapNotNull{(sku,q)->products.firstOrNull{it.sku==sku}?.let{it to q}}
+                    if(!commentOnly){
+                        Text("Состав задания",color=ProtoGoldSoft,fontSize=17.sp,fontWeight=FontWeight.SemiBold)
+                        if(chosen.isEmpty())Text("Позиции пока не выбраны",color=ProtoMuted,modifier=Modifier.padding(top=6.dp))
+                        chosen.forEach{(p,q)->ProtoInfoRow(p.name+" · "+p.sku,q.toString()+" шт.")}
+                        if(chosen.isNotEmpty()){
+                            HorizontalDivider(color=ProtoBorder,modifier=Modifier.padding(vertical=6.dp))
+                            ProtoInfoRow("Итого",chosen.sumOf{it.second}.toString()+" шт.")
+                        }
+                        Spacer(Modifier.height(8.dp))
                     }
                     OutlinedTextField(
                         value=comment,onValueChange={comment=it.take(500)},label={Text("Комментарий")},
                         modifier=Modifier.fillMaxWidth().padding(vertical=4.dp),minLines=3,maxLines=5,colors=protoFieldColors()
                     )
-                    val valid=if(commentOnly)comment.isNotBlank() else (qtyText.toIntOrNull()?:0)>0
+                    val valid=if(commentOnly)comment.isNotBlank() else chosen.isNotEmpty()
                     ProtoPrimaryButton("Отправить в цех",{
-                        val lines=if(commentOnly)"" else JSONArray().put(
-                            JSONObject().put("category",category).put("qty",qtyText.toIntOrNull()?:0)
-                        ).toString()
+                        val lines=if(commentOnly)"" else JSONArray().also{arr->
+                            chosen.forEach{(p,q)->
+                                arr.put(JSONObject().put("sku",p.sku).put("name",p.name).put("category",p.type).put("size",p.size).put("qty",q))
+                            }
+                        }.toString()
                         onCreate(dateText,lines,comment,commentOnly)
-                        if(!commentOnly)qtyText="1"
+                        picked.clear()
                         comment=""
                     },enabled=valid)
                 }
@@ -3437,9 +3494,11 @@ private fun protoWorkshopPlanQty(linesJson:String):Int=runCatching{
 
 private fun protoWorkshopLinesLabel(linesJson:String):String=runCatching{
     val a=JSONArray(linesJson)
-    (0 until a.length()).joinToString(" · "){i->
+    (0 until a.length()).joinToString("\n"){i->
         val o=a.getJSONObject(i)
-        o.optString("category","Позиция")+" — "+o.optInt("qty",0)+" шт."
+        val name=o.optString("name")
+        if(name.isNotBlank())name+" ("+o.optString("sku")+") — "+o.optInt("qty",0)+" шт."
+        else o.optString("category","Позиция")+" — "+o.optInt("qty",0)+" шт."
     }
 }.getOrDefault(linesJson.ifBlank{"Без позиций"})
 
