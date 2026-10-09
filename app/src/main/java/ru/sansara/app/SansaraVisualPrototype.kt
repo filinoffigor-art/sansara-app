@@ -36,6 +36,10 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.*
 import androidx.compose.material3.*
+import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.gestures.detectTransformGestures
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.runtime.*
 import androidx.compose.runtime.snapshots.SnapshotStateList
 import androidx.compose.runtime.snapshots.SnapshotStateMap
@@ -2356,7 +2360,7 @@ private fun ProtoProductDetailScreen(
             LazyColumn(
                 Modifier.fillMaxSize().padding(pad),
                 contentPadding=PaddingValues(horizontal=18.dp,vertical=8.dp),
-                verticalArrangement=Arrangement.spacedBy(12.dp)
+                verticalArrangement=Arrangement.spacedBy(8.dp)
             ){
                 item{ProtoBrandHeader(onBack=onBack,edge=0.dp)}
                 item{
@@ -2364,7 +2368,7 @@ private fun ProtoProductDetailScreen(
                         colors=CardDefaults.cardColors(containerColor=ProtoPanel),
                         border=BorderStroke(1.dp,ProtoBorder),
                         shape=RoundedCornerShape(22.dp),
-                        modifier=Modifier.fillMaxWidth().height(365.dp).clickable{preview=true}
+                        modifier=Modifier.fillMaxWidth().height(320.dp).clickable{preview=true}
                     ){ProtoProductImage(p,Modifier.fillMaxSize(),ContentScale.Fit)}
                 }
                 item{
@@ -4735,21 +4739,37 @@ private fun BoxWithConstraintsScope.ProtoReferenceCartBadge(count:Int){
 private fun ProtoProductImagePreview(product:ProtoCatalogProduct,onDismiss:()->Unit){
     Dialog(onDismissRequest=onDismiss,properties=DialogProperties(usePlatformDefaultWidth=false,decorFitsSystemWindows=false)){
         BackHandler { onDismiss() }
+        var scale by remember{mutableFloatStateOf(1f)}
+        var offX by remember{mutableFloatStateOf(0f)}
+        var offY by remember{mutableFloatStateOf(0f)}
         Box(Modifier.fillMaxSize().background(Color.Black)){
-            ProtoProductImage(product,Modifier.fillMaxSize().padding(bottom=190.dp),ContentScale.Fit)
-            IconButton(onClick=onDismiss,modifier=Modifier.align(Alignment.TopEnd).padding(18.dp).size(50.dp).background(Color.Black.copy(alpha=.72f),CircleShape).border(1.dp,ProtoGold,CircleShape)){Icon(Icons.Outlined.Close,null,tint=ProtoGold)}
-            Box(Modifier.align(Alignment.BottomCenter).fillMaxWidth().height(190.dp).background(ProtoPanel.copy(alpha=.98f)).border(BorderStroke(1.dp,ProtoBorder))){
-                Column(Modifier.fillMaxSize().padding(horizontal=20.dp,vertical=14.dp)){
-                    Text(product.name,color=ProtoText,fontSize=20.sp,fontWeight=FontWeight.Bold,maxLines=1,overflow=TextOverflow.Ellipsis)
-                    ProtoSkuText(product.sku,fontSize=14)
-                    ProtoInfoRow("Качество",product.quality)
-                    ProtoInfoRow("Размер",product.size)
-                    ProtoInfoRow("Категория",product.type)
-                }
-            }
+            ProtoProductImage(
+                product,
+                Modifier.fillMaxSize()
+                    .androidx_pointerInput_zoom({sc,ox,oy->scale=sc;offX=ox;offY=oy},{scale},{offX},{offY})
+                    .graphicsLayer(scaleX=scale,scaleY=scale,translationX=offX,translationY=offY),
+                ContentScale.Fit
+            )
+            IconButton(onClick=onDismiss,modifier=Modifier.align(Alignment.TopEnd).padding(18.dp).size(50.dp).background(Color.Black.copy(alpha=.72f),CircleShape).border(1.dp,ProtoGold,CircleShape)){Icon(Icons.Outlined.Close,contentDescription="Закрыть",tint=ProtoGold)}
         }
     }
 }
+
+private fun Modifier.androidx_pointerInput_zoom(
+    set:(Float,Float,Float)->Unit,
+    scale:()->Float,
+    offX:()->Float,
+    offY:()->Float
+):Modifier=this
+    .pointerInput(Unit){
+        detectTransformGestures{_,pan,zoom,_->
+            val ns=(scale()*zoom).coerceIn(1f,5f)
+            if(ns<=1f)set(1f,0f,0f) else set(ns,offX()+pan.x,offY()+pan.y)
+        }
+    }
+    .pointerInput(Unit){
+        detectTapGestures(onDoubleTap={ if(scale()>1f)set(1f,0f,0f) else set(2.5f,0f,0f) })
+    }
 
 @Composable
 private fun ProtoSectionCard(modifier:Modifier=Modifier,content:@Composable ColumnScope.()->Unit){Card(colors=CardDefaults.cardColors(containerColor=ProtoPanel),border=BorderStroke(1.dp,ProtoBorder),shape=RoundedCornerShape(14.dp),modifier=modifier.fillMaxWidth()){Column(Modifier.padding(14.dp),content=content)}}
