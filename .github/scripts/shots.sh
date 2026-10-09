@@ -6,9 +6,10 @@ adb shell pm grant ru.sansara.app android.permission.POST_NOTIFICATIONS || true
 shot() { # code screen
   adb shell am force-stop ru.sansara.app
   adb shell am start -n ru.sansara.app/.MainActivity ${1:+--es debug_code $1} --es debug_screen "$2" >/dev/null
-  sleep 4
+  sleep 6
   adb exec-out screencap -p > "shots/$3_$2.png"
 }
+adb shell am start -n ru.sansara.app/.MainActivity >/dev/null; sleep 15
 n=0
 run() { code=$1; shift; for s in "$@"; do n=$((n+1)); shot "$code" "$s" "$(printf %02d $n)"; done; }
 run "" Welcome Login Registration RegistrationSent
