@@ -1064,7 +1064,7 @@ fun SansaraVisualPrototype() {
                 onNotifications = { notificationsOrders = it },
                 onBack = { back() }
             )
-            ProtoScreen.Profile -> ProtoProfileScreen(clients.firstOrNull { it.id == selectedClientId } ?: clients.first(), onBack = { back() }, onCall = { protoDial(context) }, onLogout = { authProvider.signOut(); session = null; history.clear(); screen = ProtoScreen.Welcome }, onHome = { history.clear(); screen = ProtoScreen.Home }, onCatalog = { go(ProtoScreen.Catalog) }, onCart = { go(ProtoScreen.Cart) }, onOrders = { go(ProtoScreen.OrderList) })
+            ProtoScreen.Profile -> ProtoProfileScreen(clients.firstOrNull { it.id == selectedClientId } ?: clients.first(), onBack = { back() }, onCall = { protoDial(context) }, onLogout = { authProvider.signOut(); session = null; history.clear(); screen = ProtoScreen.Welcome }, onHome = { history.clear(); screen = ProtoScreen.Home }, onCatalog = { go(ProtoScreen.Catalog) }, onCart = { go(ProtoScreen.Cart) }, onOrders = { go(ProtoScreen.OrderList) }, onAnalytics = { refreshShipments(); go(ProtoScreen.ClientReports) })
             ProtoScreen.Suspended -> ProtoSuspendedScreen(onCall = { protoDial(context) }, onMessage = { protoMessage(context) }, onBack = { back() }, onCatalog = { go(ProtoScreen.Catalog) }, onHome = { history.clear(); screen = ProtoScreen.Home }, onOrders = { go(ProtoScreen.OrderList) })
 
             else -> Unit
@@ -3183,7 +3183,8 @@ private fun ProtoProfileScreen(
     onHome:()->Unit,
     onCatalog:()->Unit,
     onCart:()->Unit,
-    onOrders:()->Unit
+    onOrders:()->Unit,
+    onAnalytics:()->Unit={}
 ){
     Box(Modifier.fillMaxSize()){
         ProtoLiveBackground()
@@ -3209,6 +3210,7 @@ private fun ProtoProfileScreen(
                             ProtoInfoRow("Администратор",BuildConfig.ADMIN_PHONE)
                         }
                     }
+                    item{ProtoPrimaryButton("Моя аналитика и расчёты",onAnalytics)}
                     item{ProtoSecondaryButton("Позвонить администратору",onCall)}
                     item{TextButton(onClick=onLogout,modifier=Modifier.fillMaxWidth()){Text("Выйти",color=ProtoMuted)}}
                 }
@@ -5803,7 +5805,7 @@ private fun ProtoManagerDashboardScreen(
         }
         item {
             ProtoFinanceCard(
-                "Ждут подтверждения админом", protoMoney(t.pendingSum), t.pendingCount.toString() + " запросов от продаж",
+                "Ждут подтверждения админом", protoMoney(t.pendingSum), protoPlural(t.pendingCount, "запрос", "запроса", "запросов") + " от продаж",
                 if (t.pendingSum > 0) ProtoRed else ProtoText, Modifier.fillMaxWidth(), onPayments
             )
         }
@@ -5895,6 +5897,16 @@ private fun ProtoManagerDashboardScreen(
     }
 }
 
+private fun protoPlural(n: Int, one: String, few: String, many: String): String {
+    val m100 = n % 100; val m10 = n % 10
+    val w = if (m100 in 11..14) many else when (m10) { 1 -> one; 2, 3, 4 -> few; else -> many }
+    return "$n $w"
+}
+
+private fun protoGuessType(name: String): String = name.lowercase().let {
+    when { "корзин" in it -> "Корзины"; "полян" in it -> "Полянки"; "флорет" in it -> "Флоретки"; "венок" in it || "венк" in it -> "Венки"; else -> "Прочее" }
+}
+
 private data class ProtoSkuStat(val sku: String, val name: String, val qty: Int, val sum: Int)
 
 /** Что и сколько заказывал клиент: по группам товара и по артикулам, на какую сумму. */
@@ -5906,7 +5918,7 @@ private fun ProtoClientAnalyticsBlock(orders: List<ProtoOrder>, typeOf: (String)
         .sortedWith(compareByDescending<ProtoSkuStat> { it.qty }.thenByDescending { it.sum })
     val totalQty = stats.sumOf { it.qty }
     val totalSum = stats.sumOf { it.sum }
-    val groups = stats.groupBy { typeOf(it.sku) }.map { (g, l) -> Triple(g, l.sumOf { it.qty }, l.sumOf { it.sum }) }.sortedByDescending { it.second }
+    val groups = stats.groupBy { st -> typeOf(st.sku).takeIf { it != "Прочее" } ?: protoGuessType(st.name) }.map { (g, l) -> Triple(g, l.sumOf { it.qty }, l.sumOf { it.sum }) }.sortedByDescending { it.second }
     val maxQty = (stats.firstOrNull()?.qty ?: 1).coerceAtLeast(1)
     ProtoSectionCard {
         Text(title, color = ProtoGoldSoft, fontWeight = FontWeight.Bold)
