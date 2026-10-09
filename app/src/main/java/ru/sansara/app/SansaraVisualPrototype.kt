@@ -1813,14 +1813,14 @@ private fun ProtoBrandHeader(
     modifier:Modifier=Modifier
 ) {
     Row(modifier.fillMaxWidth().padding(horizontal=edge,vertical=8.dp),verticalAlignment=Alignment.CenterVertically) {
-        Box(Modifier.width(48.dp),contentAlignment=Alignment.CenterStart){
+        Box(Modifier.width(48.dp).offset(y=(-6).dp),contentAlignment=Alignment.CenterStart){
             if(onBack!=null)ProtoCircleBack(onBack)
             else if(onMenu!=null)Box(Modifier.size(44.dp).clip(CircleShape).background(Color(0xCC11100E)).border(1.dp,ProtoBorder,CircleShape).clickable{onMenu()},contentAlignment=Alignment.Center){
                 Icon(Icons.Outlined.Menu,contentDescription="Меню",tint=ProtoGold,modifier=Modifier.size(25.dp))
             }
         }
         Image(painter=painterResource(R.drawable.sansara_wordmark_large),contentDescription="SANSARA",contentScale=ContentScale.Fit,modifier=Modifier.weight(1f).height(68.dp))
-        Box(Modifier.width(48.dp),contentAlignment=Alignment.CenterEnd){
+        Box(Modifier.width(48.dp).offset(y=(-6).dp),contentAlignment=Alignment.CenterEnd){
             if(showBell){
                 BadgedBox(
                     badge={
@@ -1830,10 +1830,10 @@ private fun ProtoBrandHeader(
                     }
                 ){
                     Box(
-                        Modifier.size(42.dp).clip(CircleShape).then(if(onBell!=null)Modifier.clickable{onBell()} else Modifier),
+                        Modifier.size(44.dp).clip(CircleShape).background(Color(0xCC11100E)).border(1.dp,ProtoGold,CircleShape).then(if(onBell!=null)Modifier.clickable{onBell()} else Modifier),
                         contentAlignment=Alignment.Center
                     ){
-                        Icon(Icons.Outlined.Notifications,contentDescription="Уведомления",tint=ProtoGold,modifier=Modifier.size(27.dp))
+                        Icon(Icons.Outlined.Notifications,contentDescription="Уведомления",tint=ProtoGold,modifier=Modifier.size(25.dp))
                     }
                 }
             }
