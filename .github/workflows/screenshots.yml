@@ -9,6 +9,9 @@ on:
 permissions:
   contents: write
 
+permissions:
+  contents: write
+
 jobs:
   shots:
     runs-on: ubuntu-latest
@@ -71,3 +74,11 @@ jobs:
           git rm -rf . >/dev/null 2>&1 || true
           mkdir -p shots && cp "$RUNNER_TEMP"/shots/* shots/
           git add shots && git commit -qm "screenshots" && git push -f origin ci-screens
+      - name: Publish screenshots to branch ci-screens
+        run: |
+          git config user.name ci; git config user.email ci@example.com
+          git checkout --orphan ci-screens
+          git rm -rf . >/dev/null 2>&1 || true
+          git add -f shots
+          git commit -qm "screenshots"
+          git push -f origin ci-screens
