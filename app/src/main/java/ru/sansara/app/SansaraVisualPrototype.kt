@@ -109,7 +109,8 @@ data class ProtoCatalogProduct(
     val status: String,
     val productionDays: Int,
     val imageUrl: String = "",
-    val externalId: String = ""
+    val externalId: String = "",
+    val retailPrice: Int = 0
 )
 
 data class ProtoProductionOp(
@@ -465,18 +466,27 @@ fun SansaraVisualPrototype() {
         scope.launch {
             try {
                 val result = TildaCatalogSync.fetchYml(url)
+                val feedSkus = result.items.map { it.sku.lowercase() }.toSet()
                 result.items.forEach { item ->
-                    val idx = products.indexOfFirst { it.sku.equals(item.sku, true) || (it.externalId.isNotBlank() && it.externalId == item.externalId) }
+                    val idx = products.indexOfFirst { it.sku.equals(item.sku, true) }
                     if (idx >= 0) {
                         val old = products[idx]
                         products[idx] = old.copy(
                             name = item.name, type = item.category, quality = item.quality, size = item.size,
                             price = if (item.price > 0) item.price else old.price, productionDays = item.productionDays,
-                            imageUrl = item.imageUrl, externalId = item.externalId
+                            imageUrl = item.imageUrl.ifBlank { old.imageUrl }, externalId = item.externalId,
+                            retailPrice = item.retailPrice
                         )
                     } else {
-                        products.add(ProtoCatalogProduct(item.sku,item.name,item.category,item.quality,item.size,item.price,0,"Под заказ",item.productionDays,item.imageUrl,item.externalId))
+                        // Новый артикул: остаток 0 / «Под заказ» до первого прихода. В debug-сборке — демо-остаток, чтобы экраны были живыми.
+                        val demoStock = if (BuildConfig.DEBUG) (item.sku.hashCode().let { kotlin.math.abs(it) } % 5).let { if (it == 0) 0 else 4 + it * 6 } else 0
+                        products.add(ProtoCatalogProduct(item.sku,item.name,item.category,item.quality,item.size,item.price,demoStock,if (demoStock > 0) "В наличии" else "Под заказ",item.productionDays,item.imageUrl,item.externalId,item.retailPrice))
                     }
+                }
+                // Демо-позиции старых сборок (V-060-001, KOR-070-004 …) заменяются каталогом Tilda, когда фид полный.
+                if (result.items.size >= 100) {
+                    val demoSku = Regex("^(V|VK|KOR|POL|FL|L)-\\d{3}(-\\d{3})?$")
+                    products.removeAll { demoSku.matches(it.sku) && it.sku.lowercase() !in feedSkus }
                 }
                 lastCatalogSync = LocalDateTime.now().format(DateTimeFormatter.ofPattern("dd.MM.yyyy HH:mm"))
                 prefs.edit().putString("last_catalog_sync", lastCatalogSync).apply()

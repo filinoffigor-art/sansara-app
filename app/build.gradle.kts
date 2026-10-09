@@ -23,7 +23,7 @@ android {
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         testInstrumentationRunnerArguments["clearPackageData"] = "true"
         buildConfigField("String", "ADMIN_PHONE", "\"+79263046019\"")
-        buildConfigField("String", "TILDA_YML_URL", "\"\"")
+        buildConfigField("String", "TILDA_YML_URL", "\"https://sansararitual.ru/tstore/yml/624c35d532ff51ab882ee8b031b31a93.yml\"")
         val backendApiUrl = providers.gradleProperty("SANSARA_BACKEND_API_URL").orElse("").get().trim()
             .replace("\\", "\\\\")
             .replace("\"", "\\\"")

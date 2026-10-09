@@ -36,7 +36,8 @@ data class ProductEntity(
     val productionDays: Int,
     val imageUrl: String,
     val externalId: String,
-    val updatedAt: Long = System.currentTimeMillis()
+    val updatedAt: Long = System.currentTimeMillis(),
+    val retailPrice: Int = 0
 )
 
 @Entity(tableName = "clients")
@@ -612,7 +613,7 @@ interface SansaraDao {
         ShipmentEntity::class,
         ExpenseEntity::class
     ],
-    version = 7,
+    version = 8,
     exportSchema = false
 )
 abstract class SansaraDatabase : RoomDatabase() {
@@ -675,6 +676,12 @@ abstract class SansaraDatabase : RoomDatabase() {
             }
         }
 
+        private val MIGRATION_7_8 = object : Migration(7, 8) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE products ADD COLUMN retailPrice INTEGER NOT NULL DEFAULT 0")
+            }
+        }
+
         fun get(context: Context): SansaraDatabase =
             instance ?: synchronized(this) {
                 instance ?: Room.databaseBuilder(
@@ -682,7 +689,7 @@ abstract class SansaraDatabase : RoomDatabase() {
                     SansaraDatabase::class.java,
                     "sansara.db"
                 )
-                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7)
+                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8)
                     .build()
                     .also { instance = it }
             }
@@ -1501,9 +1508,9 @@ class SansaraRepository private constructor(
 }
 
 private fun ProtoCatalogProduct.toEntity(physicalOverride:Int?)=ProductEntity(
-    sku,name,type,quality,size,price,stock,physicalOverride,status,productionDays,imageUrl,externalId
+    sku,name,type,quality,size,price,stock,physicalOverride,status,productionDays,imageUrl,externalId,retailPrice = retailPrice
 )
-private fun ProductEntity.toProto()=ProtoCatalogProduct(sku,name,type,quality,size,price,stock,status,productionDays,imageUrl,externalId)
+private fun ProductEntity.toProto()=ProtoCatalogProduct(sku,name,type,quality,size,price,stock,status,productionDays,imageUrl,externalId,retailPrice)
 
 private fun ProtoClient.toEntity()=ClientEntity(
     id,name,firstName,contact,phone,status,discount,monthTurnover,orderCount,email,clientType,registeredAt,orderingEnabled,city,address

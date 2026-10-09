@@ -16,7 +16,9 @@ data class TildaCatalogItem(
     val size: String,
     val price: Int,
     val imageUrl: String,
-    val productionDays: Int = 3
+    val productionDays: Int = 3,
+    val retailPrice: Int = 0,
+    val colors: List<String> = emptyList()
 )
 
 data class CatalogSyncResult(
@@ -25,11 +27,21 @@ data class CatalogSyncResult(
     val message: String
 )
 
+/** Одно предложение (offer) из YML Tilda. Один артикул может встречаться несколько раз: опт, розница, цвета. */
+private data class RawOffer(
+    val id: String,
+    val name: String,
+    val sku: String,
+    val categoryId: String,
+    val price: Int,
+    val picture: String,
+    val params: Map<String, String>
+)
+
 object TildaCatalogSync {
     private fun normalizeCategory(raw: String, name: String): String {
         val text = "$raw $name".lowercase()
         return when {
-            "круг" in text && "вен" in text -> "Венки круглые"
             "вен" in text -> "Венки"
             "корз" in text -> "Корзины"
             "флорет" in text -> "Флоретки"
@@ -44,51 +56,82 @@ object TildaCatalogSync {
         }
     }
 
+    private fun param(params: Map<String, String>, vararg keys: String): String? =
+        params.entries.firstOrNull { e -> keys.any { k -> e.key.lowercase().contains(k) } }?.value?.trim()?.takeIf { it.isNotEmpty() }
+
+    /** «110см» → «110 см» (как в остальном приложении). */
+    private fun prettySize(raw: String): String =
+        raw.replace(Regex("(\\d)\\s*(см|м)\\b", RegexOption.IGNORE_CASE), "$1 $2").trim()
+
+    /** Убираем цвет из названия: «Венок ритуальный - Красный» → «Венок ритуальный». */
+    private fun baseName(name: String): String = name.substringBefore(" - ").trim().ifBlank { name }
+
+    /**
+     * Сводим предложения к одной позиции на артикул. Цена приложения — оптовая (категория «Опт»),
+     * розничная сохраняется отдельно. Фото берём с первого оптового предложения.
+     */
+    private fun aggregate(offers: List<RawOffer>, categories: Map<String, String>): List<TildaCatalogItem> {
+        fun isWholesale(o: RawOffer) = categories[o.categoryId].orEmpty().lowercase().let { "опт" in it && "рознич" !in it }
+        fun isRetail(o: RawOffer) = categories[o.categoryId].orEmpty().lowercase().contains("рознич")
+        return offers.groupBy { it.sku }.map { (sku, list) ->
+            val wholesale = list.filter { isWholesale(it) }
+            val retail = list.filter { isRetail(it) }
+            val primary = wholesale.firstOrNull() ?: retail.firstOrNull() ?: list.first()
+            val withPhoto = (wholesale + retail + list).firstOrNull { it.picture.isNotBlank() }
+            val group = param(primary.params, "продукция").orEmpty()
+            val colors = list.mapNotNull { param(it.params, "цвет") }.distinct()
+            TildaCatalogItem(
+                externalId = primary.id,
+                sku = sku,
+                name = baseName(primary.name),
+                category = normalizeCategory(group, primary.name),
+                quality = param(primary.params, "качество") ?: "—",
+                size = param(primary.params, "размер")?.let { prettySize(it) } ?: "—",
+                price = primary.price,
+                imageUrl = withPhoto?.picture.orEmpty(),
+                retailPrice = retail.firstOrNull()?.price ?: 0,
+                colors = colors
+            )
+        }
+    }
+
     suspend fun fetchYml(feedUrl: String): CatalogSyncResult = withContext(Dispatchers.IO) {
         require(feedUrl.startsWith("https://") || feedUrl.startsWith("http://")) { "Некорректная ссылка YML" }
 
         val connection = (URL(feedUrl).openConnection() as HttpURLConnection).apply {
             requestMethod = "GET"
             connectTimeout = 12_000
-            readTimeout = 20_000
+            readTimeout = 30_000
             instanceFollowRedirects = true
-            setRequestProperty("User-Agent", "SANSARA-App/0.9")
+            setRequestProperty("User-Agent", "SANSARA-App/0.23")
         }
         try {
             val code = connection.responseCode
             if (code !in 200..299) error("Tilda вернула HTTP $code")
 
             connection.inputStream.use { input ->
-                val parser = XmlPullParserFactory.newInstance().newPullParser().apply {
-                    setInput(input, "UTF-8")
-                }
+                val parser = XmlPullParserFactory.newInstance().newPullParser().apply { setInput(input, "UTF-8") }
 
                 val categories = linkedMapOf<String, String>()
-                val products = mutableListOf<TildaCatalogItem>()
+                val offers = mutableListOf<RawOffer>()
+                var inOffer = false
                 var currentCategoryId: String? = null
-                var currentOfferId: String? = null
-                var currentTag: String? = null
-                var name = ""
-                var sku = ""
-                var categoryId = ""
-                var price = 0
-                var image = ""
-                var quality = "—"
-                var size = "—"
-                var productionDays = 3
                 var currentParamName: String? = null
+                var tag: String? = null
+                var id = ""; var name = ""; var sku = ""; var categoryId = ""; var price = 0; var picture = ""
+                var params = linkedMapOf<String, String>()
 
                 var event = parser.eventType
                 while (event != XmlPullParser.END_DOCUMENT) {
                     when (event) {
                         XmlPullParser.START_TAG -> {
-                            currentTag = parser.name
+                            tag = parser.name
                             when (parser.name) {
                                 "category" -> currentCategoryId = parser.getAttributeValue(null, "id")
                                 "offer" -> {
-                                    currentOfferId = parser.getAttributeValue(null, "id") ?: ""
-                                    name = ""; sku = ""; categoryId = ""; price = 0; image = ""
-                                    quality = "—"; size = "—"; productionDays = 3
+                                    inOffer = true
+                                    id = parser.getAttributeValue(null, "id").orEmpty()
+                                    name = ""; sku = ""; categoryId = ""; price = 0; picture = ""; params = linkedMapOf()
                                 }
                                 "param" -> currentParamName = parser.getAttributeValue(null, "name")
                             }
@@ -96,58 +139,44 @@ object TildaCatalogSync {
                         XmlPullParser.TEXT -> {
                             val text = parser.text?.trim().orEmpty()
                             if (text.isNotEmpty()) {
-                                if (currentOfferId == null && currentTag == "category" && currentCategoryId != null) {
+                                if (!inOffer && tag == "category" && currentCategoryId != null) {
                                     categories[currentCategoryId!!] = text
-                                } else if (currentOfferId != null) {
-                                    when (currentTag) {
+                                } else if (inOffer) {
+                                    when (tag) {
                                         "name" -> name = text
                                         "vendorCode" -> sku = text
                                         "categoryId" -> categoryId = text
                                         "price" -> price = text.replace(',', '.').toDoubleOrNull()?.toInt() ?: price
-                                        "picture" -> if (image.isBlank()) image = text
-                                        "param" -> when (currentParamName?.lowercase()) {
-                                            "качество", "класс", "категория качества" -> quality = text
-                                            "размер", "высота", "диаметр" -> size = text
-                                            "срок производства", "срок производства, дней" -> productionDays = text.filter { it.isDigit() }.toIntOrNull() ?: 3
-                                        }
+                                        "picture" -> if (picture.isBlank()) picture = text
+                                        "param" -> currentParamName?.let { params[it] = text }
                                     }
                                 }
                             }
                         }
                         XmlPullParser.END_TAG -> {
                             when (parser.name) {
-                                "category" -> { currentCategoryId = null; currentTag = null }
-                                "param" -> { currentParamName = null; currentTag = null }
+                                "category" -> { currentCategoryId = null; tag = null }
+                                "param" -> { currentParamName = null; tag = null }
                                 "offer" -> {
-                                    val ext = currentOfferId.orEmpty()
-                                    val resolvedSku = sku.ifBlank { ext }
+                                    val resolvedSku = sku.ifBlank { id }
                                     if (resolvedSku.isNotBlank() && name.isNotBlank()) {
-                                        products += TildaCatalogItem(
-                                            externalId = ext,
-                                            sku = resolvedSku,
-                                            name = name,
-                                            category = normalizeCategory(categories[categoryId].orEmpty(), name),
-                                            quality = quality,
-                                            size = size,
-                                            price = price,
-                                            imageUrl = image,
-                                            productionDays = productionDays
-                                        )
+                                        offers += RawOffer(id, name, resolvedSku, categoryId, price, picture, params)
                                     }
-                                    currentOfferId = null
-                                    currentTag = null
+                                    inOffer = false
+                                    tag = null
                                 }
-                                else -> currentTag = null
+                                else -> tag = null
                             }
                         }
                     }
                     event = parser.next()
                 }
 
+                val items = aggregate(offers, categories)
                 CatalogSyncResult(
-                    items = products,
+                    items = items,
                     source = feedUrl,
-                    message = "Получено ${products.size} позиций из Tilda"
+                    message = "Получено ${items.size} артикулов из Tilda"
                 )
             }
         } finally {
