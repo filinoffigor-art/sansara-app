@@ -636,6 +636,30 @@ fun SansaraVisualPrototype() {
             }
             screen = startScreenForRole(saved.role)
         }
+        if (BuildConfig.DEBUG) {
+            val dbgIntent = (context as? android.app.Activity)?.intent
+            val dbgCode = dbgIntent?.getStringExtra("debug_code").orEmpty()
+            val dbgScreen = dbgIntent?.getStringExtra("debug_screen").orEmpty()
+            if (dbgCode.isNotBlank()) {
+                val res = authProvider.signInWithAccessCode(dbgCode)
+                if (res.ok) {
+                    session = res.session
+                    res.session?.clientId?.let { clientId ->
+                        selectedClientId = clientId
+                        companyContacts.clear()
+                        companyContacts.addAll(repository.contactsForClient(clientId))
+                    }
+                    screen = startScreenForRole(res.session!!.role)
+                }
+            }
+            runCatching { ProtoScreen.valueOf(dbgScreen) }.getOrNull()?.let { target ->
+                selectedProduct = products.firstOrNull()
+                retailSelectedProduct = products.firstOrNull()
+                productionProduct = products.firstOrNull()
+                if (target == ProtoScreen.ProductDetail || target == ProtoScreen.RetailProductDetail) detailQty = 1
+                screen = target
+            }
+        }
         dataReady = true
         if (tildaFeedUrl.isNotBlank()) syncTildaCatalog(showToast = false)
     }
