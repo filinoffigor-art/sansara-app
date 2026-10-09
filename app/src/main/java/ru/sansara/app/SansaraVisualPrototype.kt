@@ -3350,7 +3350,7 @@ private fun ProtoWorkshopTasksScreen(
     var commentOnly by remember{mutableStateOf(false)}
     var dateText by remember{mutableStateOf(currentDateShort())}
     val sorted=tasks.sortedByDescending{it.createdAt}
-    val workshopCategories=listOf("Венки","Корзины","Флоретки")
+    val workshopCategories=listOf("Венки","Корзины","Флоретки","Полянки")
     ProtoScaffold(
         if(productionMode)"Задания цеху" else "Задание в цех",
         if(productionMode)"Полученные задания · план / факт" else "Выберите продукцию из каталога",
@@ -3368,7 +3368,7 @@ private fun ProtoWorkshopTasksScreen(
                     ProtoSectionCard{
                         Text("Категория",color=ProtoGoldSoft,fontSize=17.sp,fontWeight=FontWeight.SemiBold)
                         Spacer(Modifier.height(8.dp))
-                        Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.spacedBy(8.dp)){
+                        Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.spacedBy(6.dp)){
                             workshopCategories.forEach{label->
                                 val active=category==label
                                 Surface(
@@ -3378,7 +3378,7 @@ private fun ProtoWorkshopTasksScreen(
                                     modifier=Modifier.weight(1f).height(42.dp).clickable{category=label}
                                 ){
                                     Box(contentAlignment=Alignment.Center){
-                                        Text(label,color=if(active)Color.Black else ProtoText,fontSize=14.sp,fontWeight=FontWeight.SemiBold,maxLines=1)
+                                        Text(label,color=if(active)Color.Black else ProtoText,fontSize=12.sp,fontWeight=FontWeight.SemiBold,maxLines=1)
                                     }
                                 }
                             }
