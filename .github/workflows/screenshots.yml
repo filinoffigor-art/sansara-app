@@ -2,6 +2,9 @@ name: Screens
 
 on:
   workflow_dispatch:
+  push:
+    branches: [ claude/stage-b-ui-fixes ]
+    paths: [ ".github/workflows/screenshots.yml", ".github/scripts/**" ]
 
 jobs:
   shots:
