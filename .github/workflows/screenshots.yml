@@ -1,5 +1,8 @@
 name: Screens
 
+permissions:
+  contents: write
+
 on:
   workflow_dispatch:
   push:
@@ -52,4 +55,13 @@ jobs:
           mkdir -p shots_out && cp shots/*.png shots_out/ 2>/dev/null || true
           git add shots_out
           git commit -m "screenshots"
+          git push -f origin ci-screens
+      - name: Publish shots to branch ci-screens
+        run: |
+          mkdir -p "$RUNNER_TEMP/s" && cp shots/* "$RUNNER_TEMP/s/"
+          git config user.name ci; git config user.email ci@example.com
+          git checkout --orphan ci-screens
+          git rm -rf . >/dev/null 2>&1 || true
+          mkdir shots && cp "$RUNNER_TEMP"/s/* shots/
+          git add shots && git commit -qm "screens $GITHUB_SHA"
           git push -f origin ci-screens
