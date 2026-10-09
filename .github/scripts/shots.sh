@@ -4,12 +4,13 @@ adb shell settings put secure immersive_mode_confirmations confirmed || true
 adb install -r app/build/outputs/apk/debug/app-debug.apk
 adb shell pm grant ru.sansara.app android.permission.POST_NOTIFICATIONS || true
 shot() { # code screen
+  if [ -n "${ONLY:-}" ] && ! echo " $ONLY " | grep -q " $2 "; then return; fi
   adb shell am force-stop ru.sansara.app
   adb shell am start -n ru.sansara.app/.MainActivity ${1:+--es debug_code $1} --es debug_screen "$2" >/dev/null
   sleep 6
   adb exec-out screencap -p > "shots/$3_$2.png"
 }
-adb shell am start -n ru.sansara.app/.MainActivity >/dev/null; sleep 15
+adb shell am start -n ru.sansara.app/.MainActivity >/dev/null; sleep ${WARM:-15}
 n=0
 run() { code=$1; shift; for s in "$@"; do n=$((n+1)); shot "$code" "$s" "$(printf %02d $n)"; done; }
 run "" Welcome Login Registration RegistrationSent

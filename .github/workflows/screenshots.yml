@@ -2,6 +2,11 @@ name: Screens
 
 on:
   workflow_dispatch:
+    inputs:
+      only:
+        description: 'Список экранов через пробел (пусто = все)'
+        required: false
+        default: ''
   push:
     branches: [ claude/stage-b-ui-fixes ]
     paths: [ ".github/workflows/screenshots.yml", ".github/scripts/**" ]
@@ -39,7 +44,7 @@ jobs:
           arch: x86_64
           profile: pixel_6
           disable-animations: true
-          script: bash .github/scripts/shots.sh
+          script: ONLY="${{ inputs.only }}" bash .github/scripts/shots.sh
       - uses: actions/upload-artifact@v4
         with:
           name: SANSARA-screens
@@ -47,9 +52,11 @@ jobs:
       - name: Publish shots to branch ci-screens
         run: |
           mkdir -p "$RUNNER_TEMP/s" && cp shots/* "$RUNNER_TEMP/s/"
+          git fetch origin ci-screens:oldshots 2>/dev/null || true
           git config user.name ci; git config user.email ci@example.com
           git checkout --orphan ci-screens
           git rm -rf . >/dev/null 2>&1 || true
-          mkdir shots && cp "$RUNNER_TEMP"/s/* shots/
+          mkdir shots && (git checkout oldshots -- shots 2>/dev/null || true)
+          cp "$RUNNER_TEMP"/s/* shots/
           git add shots && git commit -qm "screens $GITHUB_SHA"
           git push -f origin ci-screens
