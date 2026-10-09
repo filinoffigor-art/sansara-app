@@ -1754,7 +1754,7 @@ fun SansaraVisualPrototype() {
             Box(
                 Modifier
                     .align(Alignment.TopStart)
-                    .padding(start=16.dp,top=10.dp)
+                    .padding(start=16.dp,top=20.dp)
                     .size(44.dp)
                     .clip(CircleShape)
                     .background(Color(0xCC11100E))
@@ -1827,7 +1827,7 @@ private fun ProtoBrandHeader(
 ) {
     Row(modifier.fillMaxWidth().padding(horizontal=16.dp,vertical=8.dp),verticalAlignment=Alignment.CenterVertically) {
         Box(Modifier.width(48.dp),contentAlignment=Alignment.CenterStart){if(onBack!=null)ProtoCircleBack(onBack)}
-        Image(painter=painterResource(R.drawable.sansara_brand_header),contentDescription="SANSARA",contentScale=ContentScale.Fit,modifier=Modifier.weight(1f).height(52.dp))
+        Image(painter=painterResource(R.drawable.sansara_wordmark_large),contentDescription="SANSARA",contentScale=ContentScale.Fit,modifier=Modifier.weight(1f).height(68.dp))
         Box(Modifier.width(48.dp),contentAlignment=Alignment.CenterEnd){
             if(showBell){
                 BadgedBox(
@@ -1850,7 +1850,7 @@ private fun ProtoBrandHeader(
 }
 @Composable
 private fun ProtoSearchBar(text:String,onClick:()->Unit,placeholder:String="Поиск по артикулу, названию") {
-    Surface(color=ProtoPanel,border=BorderStroke(1.dp,ProtoBorder),shape=RoundedCornerShape(28.dp),modifier=Modifier.fillMaxWidth().height(58.dp).clickable{onClick()}){
+    Surface(color=ProtoPanel,border=BorderStroke(1.dp,ProtoBorder),shape=RoundedCornerShape(28.dp),modifier=Modifier.fillMaxWidth().height(48.dp).clickable{onClick()}){
         Row(Modifier.fillMaxSize().padding(horizontal=18.dp),verticalAlignment=Alignment.CenterVertically){
             Icon(Icons.Outlined.Search,null,tint=ProtoGold,modifier=Modifier.size(25.dp));Spacer(Modifier.width(11.dp))
             Text(if(text.isBlank())placeholder else text,color=if(text.isBlank())ProtoMuted else ProtoText,fontSize=14.sp,maxLines=1,overflow=TextOverflow.Ellipsis)
@@ -1863,7 +1863,7 @@ private fun ProtoAvailabilityChips(selected:String,onSelect:(String)->Unit){
     Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.spacedBy(10.dp)){
         listOf("Все","В наличии","Под заказ").forEach{label->
             val active=label==selected
-            Surface(color=if(active)ProtoGold else ProtoPanel,border=BorderStroke(1.dp,if(active)ProtoGold else ProtoBorder),shape=RoundedCornerShape(28.dp),modifier=Modifier.weight(1f).height(52.dp).clickable{onSelect(label)}){
+            Surface(color=if(active)ProtoGold else ProtoPanel,border=BorderStroke(1.dp,if(active)ProtoGold else ProtoBorder),shape=RoundedCornerShape(28.dp),modifier=Modifier.weight(1f).height(42.dp).clickable{onSelect(label)}){
                 Box(Modifier.fillMaxSize(),contentAlignment=Alignment.Center){Text(label,color=if(active)Color.Black else ProtoText,fontSize=13.sp,fontWeight=FontWeight.SemiBold,maxLines=1)}
             }
         }
@@ -1959,7 +1959,7 @@ private fun ProtoClientHomeScreen(
             Column(Modifier.fillMaxSize().padding(pad)){
                 ProtoBrandHeader(unreadCount=unreadCount,onBell=onNotifications)
                 Column(Modifier.padding(horizontal=18.dp)){
-                    Text("Здравствуйте, "+client.firstName,color=ProtoText,fontSize=30.sp,fontWeight=FontWeight.Bold)
+                    Text("Здравствуйте, "+client.firstName,color=ProtoText,fontSize=26.sp,fontWeight=FontWeight.Bold)
                     if(retailMode)Text("Режим клиента · закупочные цены скрыты",color=ProtoGoldSoft,fontSize=13.sp)
                     else Text("Статус: "+client.status+"  ·  Скидка "+client.discount+"%",color=ProtoGoldSoft,fontSize=14.sp)
                     Spacer(Modifier.height(12.dp))
@@ -1992,10 +1992,12 @@ private fun ProtoClientHomeScreen(
                                         if(!group.enabled){
                                             Text(
                                                 "В разработке",
-                                                color=ProtoMuted,
-                                                fontSize=9.sp,
-                                                fontWeight=FontWeight.SemiBold,
-                                                modifier=Modifier.align(Alignment.CenterEnd).rotate(-90f).offset(x=30.dp)
+                                                color=ProtoText,
+                                                fontSize=13.sp,
+                                                fontWeight=FontWeight.ExtraBold,
+                                                maxLines=1,
+                                                softWrap=false,
+                                                modifier=Modifier.align(Alignment.CenterEnd).rotate(-90f).offset(x=36.dp)
                                             )
                                         }
                                     }
@@ -2004,9 +2006,9 @@ private fun ProtoClientHomeScreen(
                         }
                     }
                     item{
-                        Row(verticalAlignment=Alignment.CenterVertically){
-                            Text("Популярные товары",color=ProtoText,fontSize=25.sp,fontWeight=FontWeight.Bold,modifier=Modifier.weight(1f))
-                            TextButton(onClick=onSeeAll){Text("Смотреть все →",color=ProtoGold)}
+                        Column{
+                            Text("Популярные товары",color=ProtoText,fontSize=24.sp,fontWeight=FontWeight.Bold,maxLines=1,softWrap=false)
+                            TextButton(onClick=onSeeAll,contentPadding=PaddingValues(0.dp),modifier=Modifier.height(32.dp)){Text("Смотреть все →",color=ProtoGold)}
                         }
                     }
                     if(popular.isEmpty()){
@@ -2264,9 +2266,9 @@ private fun ProtoProductCard(
         colors=CardDefaults.cardColors(containerColor=ProtoPanel),
         border=BorderStroke(1.dp,ProtoBorder),
         shape=RoundedCornerShape(15.dp),
-        modifier=modifier.height(392.dp)
+        modifier=modifier.height(372.dp)
     ){
-        Box(Modifier.fillMaxWidth().height(158.dp).background(ProtoPanel2).clickable(onClick=onImage)){
+        Box(Modifier.fillMaxWidth().height(150.dp).background(ProtoPanel2).clickable(onClick=onImage)){
             ProtoProductImage(p,Modifier.fillMaxSize())
             Surface(
                 Modifier.align(Alignment.BottomStart).padding(7.dp),
@@ -2281,42 +2283,40 @@ private fun ProtoProductCard(
                 )
             }
         }
-        Column(Modifier.padding(horizontal=9.dp,vertical=8.dp).fillMaxSize()){
+        Column(Modifier.padding(horizontal=9.dp,vertical=8.dp).fillMaxSize(),verticalArrangement=Arrangement.spacedBy(6.dp)){
             Text(
                 p.name,
                 color=ProtoText,
                 fontWeight=FontWeight.Bold,
                 fontSize=14.sp,
+                lineHeight=17.sp,
                 maxLines=2,
                 overflow=TextOverflow.Ellipsis,
-                modifier=Modifier.height(40.dp)
+                modifier=Modifier.height(34.dp)
             )
-            Spacer(Modifier.height(2.dp))
             Text("Артикул: "+p.sku,color=ProtoGoldSoft,fontSize=13.sp,fontWeight=FontWeight.Bold,maxLines=1,overflow=TextOverflow.Ellipsis)
             Text(if(p.size.isBlank()||p.size=="—")" " else "Размер: "+p.size,color=ProtoMuted,fontSize=12.sp,maxLines=1,overflow=TextOverflow.Ellipsis)
-            Text(protoMoney(p.price),color=ProtoText,fontWeight=FontWeight.Bold,fontSize=20.sp,modifier=Modifier.padding(vertical=3.dp))
+            Text(protoMoney(p.price),color=ProtoText,fontWeight=FontWeight.Bold,fontSize=20.sp)
             OutlinedButton(
                 onClick=onOpen,
-                modifier=Modifier.fillMaxWidth().height(34.dp),
+                modifier=Modifier.fillMaxWidth().height(38.dp),
                 contentPadding=PaddingValues(horizontal=4.dp),
                 border=BorderStroke(1.dp,ProtoGold),
-                shape=RoundedCornerShape(9.dp)
+                shape=RoundedCornerShape(10.dp)
             ){
-                Text("ПОДРОБНЕЕ",color=ProtoGold,fontSize=11.sp,fontWeight=FontWeight.Bold,maxLines=1)
+                Text("ПОДРОБНЕЕ",color=ProtoGold,fontSize=12.sp,fontWeight=FontWeight.Bold,maxLines=1)
             }
-            Spacer(Modifier.weight(1f))
-            Row(Modifier.fillMaxWidth(),verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.SpaceBetween){
+            Row(Modifier.fillMaxWidth().height(34.dp),verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.SpaceBetween){
                 ProtoQtyButton(Icons.Outlined.Remove,{qty=(qty-1).coerceAtLeast(1)},34.dp)
                 Text(qty.toString(),color=ProtoText,fontSize=16.sp,fontWeight=FontWeight.Bold)
                 ProtoQtyButton(Icons.Outlined.Add,{qty+=1},34.dp)
             }
-            Spacer(Modifier.height(6.dp))
             Button(
                 onClick={onAddToCart(qty);qty=1},
                 modifier=Modifier.fillMaxWidth().height(38.dp),
                 contentPadding=PaddingValues(horizontal=4.dp),
                 colors=ButtonDefaults.buttonColors(containerColor=ProtoGold),
-                shape=RoundedCornerShape(9.dp)
+                shape=RoundedCornerShape(10.dp)
             ){
                 Text("В КОРЗИНУ",color=Color.Black,fontSize=12.sp,fontWeight=FontWeight.Bold,maxLines=1)
             }
@@ -4860,7 +4860,7 @@ private fun ProtoClientBottomBar(current:ProtoScreen,cartCount:Int,onHome:()->Un
     val cart=current in setOf(ProtoScreen.Cart,ProtoScreen.Checkout)
     val orders=current in setOf(ProtoScreen.OrderList,ProtoScreen.OrderDetail,ProtoScreen.OrderSent)
     val chat=current==ProtoScreen.ClientChat
-    NavigationBar(containerColor=ProtoPanel,tonalElevation=0.dp){
+    NavigationBar(containerColor=ProtoPanel,tonalElevation=0.dp,modifier=Modifier.height(66.dp)){
         ProtoNavItem(current==ProtoScreen.Home,"Главная",Icons.Outlined.Home,onHome)
         ProtoNavItem(catalog,"Каталог",Icons.Outlined.Inventory2,onCatalog)
         NavigationBarItem(
@@ -4897,7 +4897,7 @@ private fun ProtoRetailBottomBar(
     val catalog=current in setOf(ProtoScreen.RetailCatalog,ProtoScreen.RetailFilter,ProtoScreen.RetailProductList,ProtoScreen.RetailProductDetail)
     val cart=current in setOf(ProtoScreen.RetailCart,ProtoScreen.RetailCheckout)
     val orders=current in setOf(ProtoScreen.RetailOrderList,ProtoScreen.RetailOrderDetail,ProtoScreen.RetailOrderSent)
-    NavigationBar(containerColor=ProtoPanel,tonalElevation=0.dp){
+    NavigationBar(containerColor=ProtoPanel,tonalElevation=0.dp,modifier=Modifier.height(66.dp)){
         ProtoNavItem(current==ProtoScreen.RetailHome,"Главная",Icons.Outlined.Home,onHome)
         ProtoNavItem(catalog,"Каталог",Icons.Outlined.Inventory2,onCatalog)
         NavigationBarItem(
@@ -4946,6 +4946,7 @@ private fun protoPlaceholderForType(type:String)=when(type){
     "Ленты"->R.drawable.mock_ribbon
     "Гробы"->R.drawable.mock_coffin
     "Одежда"->R.drawable.mock_clothes
+    "Кресты"->R.drawable.mock_cross
     "Цветы"->R.drawable.mock_flowers
     "Услуги"->R.drawable.mock_service
     else->R.drawable.mock_generic
