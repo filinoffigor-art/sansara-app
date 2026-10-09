@@ -5287,7 +5287,6 @@ private fun protoMessage(context:Context){context.startActivity(Intent(Intent.AC
 
 // ───────────── Продажи: отгрузки, оплаты, клиенты ─────────────
 
-private val ProtoRed = Color(0xFFE5534B)
 private val protoDateFmt: DateTimeFormatter = DateTimeFormatter.ofPattern("dd.MM.yyyy")
 
 private fun protoParseDate(value: String): LocalDate? = runCatching { LocalDate.parse(value.trim(), protoDateFmt) }.getOrNull()
