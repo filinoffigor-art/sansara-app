@@ -794,7 +794,7 @@ fun SansaraVisualPrototype() {
                 onHome = { history.clear(); screen = ProtoScreen.Home }, onCart = { go(ProtoScreen.Cart) }, onOrders = { go(ProtoScreen.OrderList) }, onProfile = { go(ProtoScreen.ClientChat) }
             )
             ProtoScreen.Filter -> ProtoFilterScreen(
-                products = products.filter { it.type == "Венки" },
+                products = products.filter { it.type in setOf("Венки","Корзины","Флоретки","Полянки") },
                 selectedTypes = selectedTypes,
                 selectedQualities = selectedQualities,
                 selectedSizes = selectedSizes,
