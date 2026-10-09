@@ -3260,7 +3260,7 @@ private fun ProtoClientMenuOverlay(
 }
 
 @Composable
-private fun ProtoClientReportsScreen(orders:List<ProtoOrder>,shipments:List<ShipmentEntity>=emptyList(),typeOf:(String)->String={"Прочее"},onBack:()->Unit){
+private fun ProtoClientReportsScreen(orders:List<ProtoOrder>,shipments:List<ShipmentEntity> = emptyList(),typeOf:(String)->String = {"Прочее"},onBack:()->Unit){
     val delivered=orders.filter{it.status=="Доставлен"}
     val total=orders.sumOf{it.total}
     ProtoScaffold("Отчётность","Ваши заказы и оборот",onBack){
