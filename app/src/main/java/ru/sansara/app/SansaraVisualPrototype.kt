@@ -657,6 +657,7 @@ fun SansaraVisualPrototype() {
                 retailSelectedProduct = products.firstOrNull()
                 productionProduct = products.firstOrNull()
                 if (target == ProtoScreen.ProductDetail || target == ProtoScreen.RetailProductDetail) detailQty = 1
+                dbgIntent?.getStringExtra("debug_types")?.takeIf { it.isNotBlank() }?.let { selectedTypes = it.split(",").toSet() }
                 screen = target
             }
         }
@@ -2071,14 +2072,19 @@ private fun ProtoFilterScreen(
     var draftMin by remember { mutableStateOf(minPrice?.toString().orEmpty()) }
     var draftMax by remember { mutableStateOf(maxPrice?.toString().orEmpty()) }
 
-    val qualities=products.map{it.quality}.filter{it.isNotBlank()&&it!="—"}.distinct().sorted()
-    val sizes=products.map{it.size}.filter{it.isNotBlank()}.distinct().sortedBy{it.filter(Char::isDigit).toIntOrNull()?:9999}
-    val catalogMin=products.minOfOrNull{it.price} ?: 0
-    val catalogMax=products.maxOfOrNull{it.price} ?: 0
+    val groupTypes=listOf("Венки","Корзины","Флоретки","Полянки")
+    val scope=products.filter{it.type in groupTypes && (draftTypes.isEmpty() || it.type in draftTypes)}
+    val qualities=scope.map{it.quality}.filter{it.isNotBlank()&&it!="—"}.distinct().sorted()
+    val sizes=scope.map{it.size}.filter{it.isNotBlank()}.distinct().sortedBy{it.filter(Char::isDigit).toIntOrNull()?:9999}
+    LaunchedEffect(draftTypes){
+        draftQualities=draftQualities.filter{it in qualities}.toSet()
+        draftSizes=draftSizes.filter{it in sizes}.toSet()
+    }
+    val catalogMin=scope.minOfOrNull{it.price} ?: 0
+    val catalogMax=scope.maxOfOrNull{it.price} ?: 0
     val minValue=draftMin.toIntOrNull()
     val maxValue=draftMax.toIntOrNull()
-    val matchedCount=products.count { p ->
-        (draftTypes.isEmpty() || p.type in draftTypes) &&
+    val matchedCount=scope.count { p ->
         (draftQualities.isEmpty() || p.quality in draftQualities) &&
         (draftSizes.isEmpty() || p.size in draftSizes) &&
         (draftAvailability.isEmpty() || (if(availableStock(p)>0)"В наличии" else "Под заказ") in draftAvailability) &&
@@ -2115,15 +2121,13 @@ private fun ProtoFilterScreen(
                     item{
                         ProtoCompactGrid(
                             title="Продукция",
-                            options=listOf("Венки","Венки круглые","Корзины","Полянки","Флоретки","Ленты"),
+                            options=groupTypes,
                             selected=draftTypes,
-                            toggle={draftTypes=protoToggle(draftTypes,it)},
-                            disabled=setOf("Венки круглые","Корзины","Полянки","Флоретки","Ленты")
+                            toggle={draftTypes=protoToggle(draftTypes,it)}
                         )
                     }
                     item{
-                        if(qualities.isEmpty())Text("Качества будут подгружены из каталога",color=ProtoMuted)
-                        else ProtoCompactGrid("Качество",qualities,draftQualities,{draftQualities=protoToggle(draftQualities,it)})
+                        if(qualities.isNotEmpty())ProtoCompactGrid("Качество",qualities,draftQualities,{draftQualities=protoToggle(draftQualities,it)})
                     }
                     item{
                         if(sizes.isEmpty())Text("Размеры будут подгружены из каталога",color=ProtoMuted)
@@ -2158,7 +2162,7 @@ private fun ProtoFilterScreen(
                 }
                 Spacer(Modifier.height(10.dp))
                 ProtoPrimaryButton("Показать "+matchedCount+" позиций",{
-                    onApply(draftTypes,draftQualities,draftSizes,draftAvailability,minValue,maxValue)
+                    onApply(if(draftTypes.isEmpty())groupTypes.toSet() else draftTypes,draftQualities,draftSizes,draftAvailability,minValue,maxValue)
                 })
             }
         }
