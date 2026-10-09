@@ -723,41 +723,8 @@ fun SansaraVisualPrototype() {
         return
     }
 
-    BackHandler(enabled = screen != ProtoScreen.Welcome) { back() }
-
-    SansaraTheme {
-        Box(Modifier.fillMaxSize()) {
+    @Composable fun protoGroupA() {
         when (screen) {
-            ProtoScreen.Welcome -> ProtoWelcomeScreen(
-                onLogin = { go(ProtoScreen.Login) },
-                onRegister = { go(ProtoScreen.Registration) },
-                onRole = { if (BuildConfig.DEBUG) showRolePicker = true }
-            )
-            ProtoScreen.Login -> ProtoLoginScreen(onBack = { back() }, onLogin = { code ->
-                scope.launch {
-                    val result = authProvider.signInWithAccessCode(code)
-                    if (result.ok) {
-                        session = result.session
-                        result.session?.clientId?.let { clientId ->
-                            selectedClientId = clientId
-                            companyContacts.clear()
-                            companyContacts.addAll(repository.contactsForClient(clientId))
-                        }
-                        history.clear()
-                        screen = startScreenForRole(result.session!!.role)
-                    } else toast(result.message)
-                }
-            })
-            ProtoScreen.Registration -> ProtoRegistrationScreen(onBack = { back() }, onSubmit = { reg ->
-                registrations.add(0, reg)
-                lastRegistration = reg
-                registrationsTotalThisMonth += 1
-                persistAll()
-                sendRegistrationEvent(reg)
-                go(ProtoScreen.RegistrationSent)
-            })
-            ProtoScreen.RegistrationSent -> ProtoRegistrationSentScreen(lastRegistration, onBack = { history.clear(); screen = ProtoScreen.Welcome })
-
             ProtoScreen.Home -> ProtoClientHomeScreen(
                 client = clients.firstOrNull { it.id == selectedClientId } ?: clients.first(),
                 products = products,
@@ -1027,6 +994,12 @@ fun SansaraVisualPrototype() {
                     }
                 }
             )
+            else -> Unit
+        }
+    }
+
+    @Composable fun protoGroupB() {
+        when (screen) {
             ProtoScreen.Notifications -> {
                 val clientName = currentClient().name
                 ProtoNotificationsScreen(
@@ -1076,6 +1049,12 @@ fun SansaraVisualPrototype() {
             ProtoScreen.Profile -> ProtoProfileScreen(clients.firstOrNull { it.id == selectedClientId } ?: clients.first(), onBack = { back() }, onCall = { protoDial(context) }, onLogout = { authProvider.signOut(); session = null; history.clear(); screen = ProtoScreen.Welcome }, onHome = { history.clear(); screen = ProtoScreen.Home }, onCatalog = { go(ProtoScreen.Catalog) }, onCart = { go(ProtoScreen.Cart) }, onOrders = { go(ProtoScreen.OrderList) })
             ProtoScreen.Suspended -> ProtoSuspendedScreen(onCall = { protoDial(context) }, onMessage = { protoMessage(context) }, onBack = { back() }, onCatalog = { go(ProtoScreen.Catalog) }, onHome = { history.clear(); screen = ProtoScreen.Home }, onOrders = { go(ProtoScreen.OrderList) })
 
+            else -> Unit
+        }
+    }
+
+    @Composable fun protoGroupC() {
+        when (screen) {
             ProtoScreen.AdminHome -> ProtoAdminHomeScreen(
                 registrationsTotal = registrationsTotalThisMonth, clients = clients, orders = orders, productionOps = productionOps, products = products, stockOverrides = stockOverrides, lowStockThreshold = lowStockThreshold,
                 reservedForSku = { reservedForSku(it) },
@@ -1315,6 +1294,12 @@ fun SansaraVisualPrototype() {
                     }
                 }
             )
+            else -> Unit
+        }
+    }
+
+    @Composable fun protoGroupD() {
+        when (screen) {
             ProtoScreen.SalesHome -> ProtoSalesHomeScreen(
                 name = session?.firstName.orEmpty().ifBlank { "Продажи" },
                 shipments = shipments,
@@ -1389,6 +1374,12 @@ fun SansaraVisualPrototype() {
                 }
             )
 
+            else -> Unit
+        }
+    }
+
+    @Composable fun protoGroupE() {
+        when (screen) {
             ProtoScreen.Production -> {
                 val productionDateKey = selectedProductionDate.format(DateTimeFormatter.ofPattern("dd.MM.yyyy"))
                 ProtoProductionHomeScreen(
@@ -1641,6 +1632,12 @@ fun SansaraVisualPrototype() {
                     }
                 )
             }
+            else -> Unit
+        }
+    }
+
+    @Composable fun protoGroupF() {
+        when (screen) {
             ProtoScreen.RetailHome -> {
                 val ownerId=currentClient().id
                 val customer=agentCustomers.firstOrNull{it.id==selectedAgentCustomerId}
@@ -1825,6 +1822,51 @@ fun SansaraVisualPrototype() {
                 "Заказ на "+protoMoney(retailLastTotal)+" передан администратору. Закупочные цены клиенту не показываются.",
                 onBack={history.clear();screen=ProtoScreen.AgentClientDetail}
             )
+            else -> Unit
+        }
+    }
+
+    BackHandler(enabled = screen != ProtoScreen.Welcome) { back() }
+
+    SansaraTheme {
+        Box(Modifier.fillMaxSize()) {
+        when (screen) {
+            ProtoScreen.Welcome -> ProtoWelcomeScreen(
+                onLogin = { go(ProtoScreen.Login) },
+                onRegister = { go(ProtoScreen.Registration) },
+                onRole = { if (BuildConfig.DEBUG) showRolePicker = true }
+            )
+            ProtoScreen.Login -> ProtoLoginScreen(onBack = { back() }, onLogin = { code ->
+                scope.launch {
+                    val result = authProvider.signInWithAccessCode(code)
+                    if (result.ok) {
+                        session = result.session
+                        result.session?.clientId?.let { clientId ->
+                            selectedClientId = clientId
+                            companyContacts.clear()
+                            companyContacts.addAll(repository.contactsForClient(clientId))
+                        }
+                        history.clear()
+                        screen = startScreenForRole(result.session!!.role)
+                    } else toast(result.message)
+                }
+            })
+            ProtoScreen.Registration -> ProtoRegistrationScreen(onBack = { back() }, onSubmit = { reg ->
+                registrations.add(0, reg)
+                lastRegistration = reg
+                registrationsTotalThisMonth += 1
+                persistAll()
+                sendRegistrationEvent(reg)
+                go(ProtoScreen.RegistrationSent)
+            })
+            ProtoScreen.RegistrationSent -> ProtoRegistrationSentScreen(lastRegistration, onBack = { history.clear(); screen = ProtoScreen.Welcome })
+
+            ProtoScreen.Home, ProtoScreen.Catalog, ProtoScreen.Filter, ProtoScreen.ProductList, ProtoScreen.ProductDetail, ProtoScreen.Cart, ProtoScreen.Checkout, ProtoScreen.OrderSent, ProtoScreen.OrderList, ProtoScreen.OrderDetail -> protoGroupA()
+            ProtoScreen.Notifications, ProtoScreen.ClientChat, ProtoScreen.ClientReports, ProtoScreen.ClientSettings, ProtoScreen.Profile, ProtoScreen.Suspended -> protoGroupB()
+            ProtoScreen.AdminHome, ProtoScreen.AdminSearch, ProtoScreen.AdminClients, ProtoScreen.AdminClient, ProtoScreen.AdminOrders, ProtoScreen.AdminOrderDetail, ProtoScreen.AdminChats, ProtoScreen.AdminChat, ProtoScreen.AdminProductionChat, ProtoScreen.AdminNotifications, ProtoScreen.AdminCatalog, ProtoScreen.AdminSettings, ProtoScreen.AdminSettingsDetail, ProtoScreen.AdminAttention, ProtoScreen.OnlineController, ProtoScreen.LowStockList, ProtoScreen.AdminAssemblers, ProtoScreen.AdminAdmins, ProtoScreen.AdminWorkshop, ProtoScreen.AdminAttendance -> protoGroupC()
+            ProtoScreen.SalesHome, ProtoScreen.SalesShipmentNew, ProtoScreen.SalesShipments, ProtoScreen.AdminPayments, ProtoScreen.SalesClients, ProtoScreen.SalesClient, ProtoScreen.AdminReports -> protoGroupD()
+            ProtoScreen.Production, ProtoScreen.ProductionCategory, ProtoScreen.ProductionCatalog, ProtoScreen.ProductionEntry, ProtoScreen.ProductionHistory, ProtoScreen.ProductionReport, ProtoScreen.ProductionPayments, ProtoScreen.ProductionProfile, ProtoScreen.ProductionWorkshop, ProtoScreen.ProductionAttendance, ProtoScreen.ProductionChat, ProtoScreen.Server, ProtoScreen.StockList, ProtoScreen.ReserveList, ProtoScreen.NewClients, ProtoScreen.Export, ProtoScreen.AgentClients, ProtoScreen.AgentClientDetail -> protoGroupE()
+            ProtoScreen.RetailHome, ProtoScreen.RetailCatalog, ProtoScreen.RetailFilter, ProtoScreen.RetailProductList, ProtoScreen.RetailProductDetail, ProtoScreen.RetailCart, ProtoScreen.RetailCheckout, ProtoScreen.RetailOrderList, ProtoScreen.RetailOrderDetail, ProtoScreen.RetailNotifications, ProtoScreen.RetailOrderSent -> protoGroupF()
         }
 
         if (showClientMenu) {
