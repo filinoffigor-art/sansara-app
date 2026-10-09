@@ -2261,9 +2261,9 @@ private fun ProtoProductCard(
         colors=CardDefaults.cardColors(containerColor=ProtoPanel),
         border=BorderStroke(1.dp,ProtoBorder),
         shape=RoundedCornerShape(15.dp),
-        modifier=modifier.height(372.dp)
+        modifier=modifier.height(392.dp)
     ){
-        Box(Modifier.fillMaxWidth().height(150.dp).background(ProtoPanel2).clickable(onClick=onImage)){
+        Box(Modifier.fillMaxWidth().height(140.dp).background(ProtoPanel2).clickable(onClick=onImage)){
             ProtoProductImage(p,Modifier.fillMaxSize())
             Surface(
                 Modifier.align(Alignment.BottomStart).padding(7.dp),
@@ -2278,7 +2278,7 @@ private fun ProtoProductCard(
                 )
             }
         }
-        Column(Modifier.padding(horizontal=9.dp,vertical=8.dp).fillMaxSize(),verticalArrangement=Arrangement.spacedBy(6.dp)){
+        Column(Modifier.padding(horizontal=9.dp).padding(top=6.dp,bottom=10.dp).fillMaxSize()){
             Text(
                 p.name,
                 color=ProtoText,
@@ -2286,34 +2286,36 @@ private fun ProtoProductCard(
                 fontSize=14.sp,
                 lineHeight=17.sp,
                 maxLines=2,
-                overflow=TextOverflow.Ellipsis,
-                modifier=Modifier.height(34.dp)
+                overflow=TextOverflow.Ellipsis
             )
-            Text("Артикул: "+p.sku,color=ProtoGoldSoft,fontSize=13.sp,fontWeight=FontWeight.Bold,maxLines=1,overflow=TextOverflow.Ellipsis)
-            Text(if(p.size.isBlank()||p.size=="—")" " else "Размер: "+p.size,color=ProtoMuted,fontSize=12.sp,maxLines=1,overflow=TextOverflow.Ellipsis)
-            Text(protoMoney(p.price),color=ProtoText,fontWeight=FontWeight.Bold,fontSize=20.sp)
-            OutlinedButton(
-                onClick=onOpen,
-                modifier=Modifier.fillMaxWidth().height(38.dp),
-                contentPadding=PaddingValues(horizontal=4.dp),
-                border=BorderStroke(1.dp,ProtoGold),
-                shape=RoundedCornerShape(10.dp)
-            ){
-                Text("ПОДРОБНЕЕ",color=ProtoGold,fontSize=12.sp,fontWeight=FontWeight.Bold,maxLines=1)
-            }
-            Row(Modifier.fillMaxWidth().height(34.dp),verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.SpaceBetween){
-                ProtoQtyButton(Icons.Outlined.Remove,{qty=(qty-1).coerceAtLeast(1)},34.dp)
-                Text(qty.toString(),color=ProtoText,fontSize=16.sp,fontWeight=FontWeight.Bold)
-                ProtoQtyButton(Icons.Outlined.Add,{qty+=1},34.dp)
-            }
-            Button(
-                onClick={onAddToCart(qty);qty=1},
-                modifier=Modifier.fillMaxWidth().height(38.dp),
-                contentPadding=PaddingValues(horizontal=4.dp),
-                colors=ButtonDefaults.buttonColors(containerColor=ProtoGold),
-                shape=RoundedCornerShape(10.dp)
-            ){
-                Text("В КОРЗИНУ",color=Color.Black,fontSize=12.sp,fontWeight=FontWeight.Bold,maxLines=1)
+            Text("Артикул: "+p.sku,color=ProtoGoldSoft,fontSize=13.sp,lineHeight=16.sp,fontWeight=FontWeight.Bold,maxLines=1,overflow=TextOverflow.Ellipsis,modifier=Modifier.padding(top=2.dp))
+            if(!(p.size.isBlank()||p.size=="—"))Text("Размер: "+p.size,color=ProtoMuted,fontSize=12.sp,lineHeight=15.sp,maxLines=1,overflow=TextOverflow.Ellipsis,modifier=Modifier.padding(top=1.dp))
+            Text(protoMoney(p.price),color=ProtoText,fontWeight=FontWeight.Bold,fontSize=20.sp,lineHeight=24.sp,modifier=Modifier.padding(top=2.dp))
+            Spacer(Modifier.weight(1f))
+            Column(verticalArrangement=Arrangement.spacedBy(8.dp)){
+                OutlinedButton(
+                    onClick=onOpen,
+                    modifier=Modifier.fillMaxWidth().height(40.dp),
+                    contentPadding=PaddingValues(horizontal=4.dp),
+                    border=BorderStroke(1.dp,ProtoGold),
+                    shape=RoundedCornerShape(10.dp)
+                ){
+                    Text("ПОДРОБНЕЕ",color=ProtoGold,fontSize=12.sp,fontWeight=FontWeight.Bold,maxLines=1)
+                }
+                Row(Modifier.fillMaxWidth().height(40.dp),verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.SpaceBetween){
+                    ProtoQtyButton(Icons.Outlined.Remove,{qty=(qty-1).coerceAtLeast(1)},40.dp)
+                    Text(qty.toString(),color=ProtoText,fontSize=16.sp,fontWeight=FontWeight.Bold)
+                    ProtoQtyButton(Icons.Outlined.Add,{qty+=1},40.dp)
+                }
+                Button(
+                    onClick={onAddToCart(qty);qty=1},
+                    modifier=Modifier.fillMaxWidth().height(40.dp),
+                    contentPadding=PaddingValues(horizontal=4.dp),
+                    colors=ButtonDefaults.buttonColors(containerColor=ProtoGold),
+                    shape=RoundedCornerShape(10.dp)
+                ){
+                    Text("В КОРЗИНУ",color=Color.Black,fontSize=12.sp,fontWeight=FontWeight.Bold,maxLines=1)
+                }
             }
         }
     }
