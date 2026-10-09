@@ -92,7 +92,8 @@ private enum class ProtoScreen {
     Home, Catalog, Filter, ProductList, ProductDetail, Cart, Checkout, OrderSent, OrderList, OrderDetail, Notifications, ClientChat, ClientReports, ClientSettings, AgentClients, AgentClientDetail, RetailHome, RetailCatalog, RetailFilter, RetailProductList, RetailProductDetail, RetailCart, RetailCheckout, RetailOrderSent, RetailOrderList, RetailOrderDetail, RetailNotifications, Profile, Suspended,
     AdminHome, AdminSearch, AdminClients, AdminClient, AdminOrders, AdminOrderDetail, AdminNotifications, AdminCatalog, AdminSettings, AdminSettingsDetail, AdminAttention, OnlineController, LowStockList, AdminChats, AdminChat, AdminProductionChat, AdminReports, AdminWorkshop, AdminAdmins, AdminAttendance,
     Production, ProductionCategory, ProductionCatalog, ProductionEntry, ProductionHistory, ProductionReport, ProductionPayments, ProductionProfile, ProductionWorkshop, ProductionAttendance, ProductionChat,
-    Server, StockList, ReserveList, NewClients, Export, AdminAssemblers
+    Server, StockList, ReserveList, NewClients, Export, AdminAssemblers,
+    SalesHome, SalesShipmentNew, SalesShipments, SalesClients, SalesClient, AdminPayments
 }
 
 private enum class ProtoClientType(val label: String) { AGENT("Агент"), TRADING("Торгующая организация") }
@@ -284,6 +285,7 @@ fun SansaraVisualPrototype() {
     val agentReminders = remember { mutableStateListOf<SansaraAgentReminder>() }
     val adminAccounts = remember { mutableStateListOf<SansaraAdminAccount>() }
     val workshopTasks = remember { mutableStateListOf<WorkshopTaskEntity>() }
+    val shipments = remember { mutableStateListOf<ShipmentEntity>() }
     val attendanceRows = remember { mutableStateListOf<AttendanceEntity>() }
     val presenceSessions = remember { mutableStateListOf<PresenceSessionEntity>() }
     val productionAudits = remember { mutableStateListOf<ProductionAuditEntity>() }
@@ -362,6 +364,7 @@ fun SansaraVisualPrototype() {
         SansaraRole.CLIENT -> ProtoScreen.Home
         SansaraRole.ADMIN -> ProtoScreen.AdminHome
         SansaraRole.PRODUCTION -> ProtoScreen.Production
+        SansaraRole.SALES -> ProtoScreen.SalesHome
     }
 
     fun persistAll() {
@@ -499,6 +502,10 @@ fun SansaraVisualPrototype() {
         }
     }
 
+    fun refreshShipments() {
+        scope.launch { shipments.clear(); shipments.addAll(repository.shipments()) }
+    }
+
     fun refreshOperationsData() {
         scope.launch {
             adminAccounts.clear(); adminAccounts.addAll(repository.adminAccounts())
@@ -614,6 +621,8 @@ fun SansaraVisualPrototype() {
 
     LaunchedEffect(Unit) {
         repository.seedDebugIfNeeded()
+        repository.ensureSalesAccount()
+        shipments.clear(); shipments.addAll(repository.shipments())
         applySnapshot(repository.snapshot())
         chatMessages.clear()
         chatMessages.addAll(repository.allChatMessages())
@@ -1078,7 +1087,9 @@ fun SansaraVisualPrototype() {
                 onWorkshop = { refreshOperationsData(); go(ProtoScreen.AdminWorkshop) },
                 onReports = { refreshOperationsData(); go(ProtoScreen.AdminReports) },
                 unreadCount = notifications.count { it.audienceRole == "ADMIN" && !it.read },
-                onNotifications = { go(ProtoScreen.AdminNotifications) }
+                onNotifications = { go(ProtoScreen.AdminNotifications) },
+                paymentsPending = shipments.count { it.moneyStatus == "REQUESTED" },
+                onPayments = { refreshShipments(); go(ProtoScreen.AdminPayments) }
             )
             ProtoScreen.AdminSearch -> ProtoAdminSearchScreen(clients, orders, products, stockOverrides, onBack = { back() }, onClient = { selectedClientId = it.id; go(ProtoScreen.AdminClient) }, onOrder = { selectedOrderId = it.id; go(ProtoScreen.AdminOrderDetail) }, onProduct = { selectedProduct = it; go(ProtoScreen.ProductDetail) })
             ProtoScreen.AdminClients -> ProtoAdminClientsScreen(clients, onBack = { back() }, onOpen = { selectedClientId = it.id; go(ProtoScreen.AdminClient) })
@@ -1303,6 +1314,65 @@ fun SansaraVisualPrototype() {
                         refreshOperationsData()
                     }
                 }
+            )
+            ProtoScreen.SalesHome -> ProtoSalesHomeScreen(
+                name = session?.firstName.orEmpty().ifBlank { "Продажи" },
+                shipments = shipments,
+                onNew = { go(ProtoScreen.SalesShipmentNew) },
+                onList = { refreshShipments(); go(ProtoScreen.SalesShipments) },
+                onClients = { go(ProtoScreen.SalesClients) },
+                onLogout = { authProvider.signOut(); session = null; history.clear(); screen = ProtoScreen.Welcome }
+            )
+            ProtoScreen.SalesShipmentNew -> ProtoSalesShipmentForm(
+                clients = clients, orders = orders, shipments = shipments, onBack = { back() },
+                onSave = { client, order, amount, type, due ->
+                    scope.launch {
+                        runCatching { repository.createShipment(order.id, client.id, client.name, amount, type, due, session?.userId ?: "U-SALES") }
+                            .onSuccess {
+                                refreshShipments()
+                                addNotification("ADMIN", "", if (type == "PAID") "Запрос на подтверждение оплаты" else "Новая отгрузка с отсрочкой",
+                                    client.name + " · " + order.id + " · " + protoMoney(amount) + if (type == "PAID") "" else " · оплата до " + due)
+                                toast("Отгрузка оформлена")
+                                back()
+                            }
+                            .onFailure { toast(it.message ?: "Ошибка") }
+                    }
+                }
+            )
+            ProtoScreen.SalesShipments -> ProtoShipmentsScreen(
+                items = shipments, adminMode = false, onBack = { back() },
+                onRequest = { sh ->
+                    scope.launch {
+                        runCatching { repository.requestMoneyConfirmation(sh.id) }
+                            .onSuccess { refreshShipments(); addNotification("ADMIN", "", "Запрос на подтверждение оплаты", sh.clientName + " · " + protoMoney(sh.amount)); toast("Запрос отправлен администратору") }
+                            .onFailure { toast(it.message ?: "Ошибка") }
+                    }
+                },
+                onConfirm = {}, onReject = {}
+            )
+            ProtoScreen.AdminPayments -> ProtoShipmentsScreen(
+                items = shipments, adminMode = true, onBack = { back() }, onRequest = {},
+                onConfirm = { sh ->
+                    scope.launch {
+                        runCatching { repository.confirmMoney(sh.id, session?.userId ?: "U-ADMIN") }
+                            .onSuccess { refreshShipments(); toast("Оплата подтверждена") }
+                            .onFailure { toast(it.message ?: "Ошибка") }
+                    }
+                },
+                onReject = { sh ->
+                    scope.launch {
+                        runCatching { repository.rejectMoney(sh.id) }
+                            .onSuccess { refreshShipments(); toast("Запрос отклонён") }
+                            .onFailure { toast(it.message ?: "Ошибка") }
+                    }
+                }
+            )
+            ProtoScreen.SalesClients -> ProtoSalesClientsScreen(
+                clients = clients, shipments = shipments, onBack = { back() },
+                onOpen = { selectedClientId = it.id; go(ProtoScreen.SalesClient) }
+            )
+            ProtoScreen.SalesClient -> ProtoSalesClientScreen(
+                client = clients.firstOrNull { it.id == selectedClientId }, shipments = shipments, orders = orders, onBack = { back() }
             )
             ProtoScreen.AdminReports -> ProtoAdminReportsScreen(
                 tasks=workshopTasks,
@@ -3808,7 +3878,9 @@ private fun ProtoAdminHomeScreen(
     onWorkshop:()->Unit,
     onReports:()->Unit,
     unreadCount:Int,
-    onNotifications:()->Unit
+    onNotifications:()->Unit,
+    paymentsPending:Int=0,
+    onPayments:()->Unit={}
 ){
     val today=currentDateShort()
     val ordersToday=orders.count{it.dateTime.startsWith(today)}
@@ -3833,6 +3905,7 @@ private fun ProtoAdminHomeScreen(
                 item{Row(horizontalArrangement=Arrangement.spacedBy(8.dp)){ProtoQuickButton("Клиенты",Icons.Outlined.Groups,Modifier.weight(1f),onClients);ProtoQuickButton("Заказы",Icons.Outlined.ReceiptLong,Modifier.weight(1f),onOrders);ProtoQuickButton("Чаты",Icons.Outlined.ChatBubbleOutline,Modifier.weight(1f),onChats)}}
                 item{Row(horizontalArrangement=Arrangement.spacedBy(8.dp)){ProtoQuickButton("Производство",Icons.Outlined.Factory,Modifier.weight(1f),onProduction);ProtoQuickButton("Каталог",Icons.Outlined.Inventory2,Modifier.weight(1f),onCatalog);ProtoQuickButton("Настройки",Icons.Outlined.Settings,Modifier.weight(1f),onSettings)}}
                 item{Row(horizontalArrangement=Arrangement.spacedBy(8.dp)){ProtoQuickButton("Задание в цех",Icons.Outlined.Assignment,Modifier.weight(1f),onWorkshop);ProtoQuickButton("Отчёты",Icons.Outlined.Assessment,Modifier.weight(1f),onReports);Spacer(Modifier.weight(1f))}}
+                item{Row(horizontalArrangement=Arrangement.spacedBy(8.dp)){ProtoQuickButton(if(paymentsPending>0)"Оплаты · "+paymentsPending else "Оплаты",Icons.Outlined.Payments,Modifier.weight(1f),onPayments)}}
                 item{ProtoSectionCard(Modifier.clickable{onAttention()}){ProtoInfoRow("Новые регистрации",registrationsTotal.toString());ProtoInfoRow("Заказы на сборке",orders.count{it.status=="Собирается"}.toString());ProtoInfoRow("Низкие остатки",lowCount.toString())}}
                 item{ProtoSectionCard(Modifier.clickable{onOnline()}){ProtoInfoRow("Онлайн сейчас",clients.count{it.online}.toString());ProtoInfoRow("Синхронизация","автоматическая")}}
             }
@@ -5211,3 +5284,340 @@ private fun protoExportCsv(
 private fun protoDialNumber(context:Context,phone:String){val normalized=phone.filter{it.isDigit()||it=='+'};context.startActivity(Intent(Intent.ACTION_DIAL,Uri.parse("tel:$normalized")))}
 private fun protoDial(context:Context){protoDialNumber(context,BuildConfig.ADMIN_PHONE)}
 private fun protoMessage(context:Context){context.startActivity(Intent(Intent.ACTION_SENDTO,Uri.parse("smsto:${BuildConfig.ADMIN_PHONE}")))}
+
+// ───────────── Продажи: отгрузки, оплаты, клиенты ─────────────
+
+private val ProtoRed = Color(0xFFE5534B)
+private val protoDateFmt: DateTimeFormatter = DateTimeFormatter.ofPattern("dd.MM.yyyy")
+
+private fun protoParseDate(value: String): LocalDate? = runCatching { LocalDate.parse(value.trim(), protoDateFmt) }.getOrNull()
+private fun protoDaysTo(due: String): Int? = protoParseDate(due)?.let { java.time.temporal.ChronoUnit.DAYS.between(LocalDate.now(), it).toInt() }
+private fun protoMonthKey(date: String): String = date.substringAfter('.', "")
+
+private fun protoMoneyColor(s: ShipmentEntity): Color = if (s.moneyStatus == "CONFIRMED") ProtoGreen else ProtoRed
+private fun protoMoneyLabel(s: ShipmentEntity): String = when (s.moneyStatus) {
+    "CONFIRMED" -> "Оплата подтверждена"
+    "REQUESTED" -> "Ждёт подтверждения админа"
+    else -> if (s.paymentType == "DEFERRED") "Отсрочка · деньги не получены" else "Деньги не подтверждены"
+}
+
+private fun protoDaysLabel(due: String): String {
+    val d = protoDaysTo(due) ?: return "—"
+    return when {
+        d > 0 -> "$d дн."
+        d == 0 -> "сегодня"
+        else -> "просрочено ${-d} дн."
+    }
+}
+
+@Composable
+private fun ProtoSalesHomeScreen(
+    name: String,
+    shipments: List<ShipmentEntity>,
+    onNew: () -> Unit,
+    onList: () -> Unit,
+    onClients: () -> Unit,
+    onLogout: () -> Unit
+) {
+    val today = currentDateShort()
+    val todayCount = shipments.count { it.shipDate == today }
+    val unconfirmed = shipments.filter { it.moneyStatus != "CONFIRMED" }.sumOf { it.amount }
+    val waiting = shipments.count { it.moneyStatus == "REQUESTED" }
+    val debt = shipments.filter { it.paymentType == "DEFERRED" && it.moneyStatus != "CONFIRMED" }.sumOf { it.amount }
+    ProtoScaffold("Здравствуйте, $name", "Продажи · отгрузка и оплаты", null) {
+        item {
+            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                ProtoMetricCard("Отгрузок сегодня", todayCount.toString(), "", Modifier.weight(1f), onList)
+                ProtoMetricCard("Ждут админа", waiting.toString(), "оплат", Modifier.weight(1f), onList)
+            }
+        }
+        item {
+            ProtoSectionCard {
+                Text("Деньги не подтверждены", color = ProtoRed, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                Text(protoMoney(unconfirmed), color = ProtoRed, fontWeight = FontWeight.Bold, fontSize = 26.sp)
+                ProtoInfoRow("В том числе по отсрочкам", protoMoney(debt))
+            }
+        }
+        item { Text("Быстрые действия", color = ProtoText, fontSize = 22.sp, fontWeight = FontWeight.Bold) }
+        item {
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                ProtoQuickButton("Новая отгрузка", Icons.Outlined.LocalShipping, Modifier.weight(1f), onNew)
+                ProtoQuickButton("Отгрузки и оплаты", Icons.Outlined.Payments, Modifier.weight(1f), onList)
+            }
+        }
+        item {
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                ProtoQuickButton("Клиенты", Icons.Outlined.Groups, Modifier.weight(1f), onClients)
+                ProtoQuickButton("Выйти", Icons.Outlined.Logout, Modifier.weight(1f), onLogout)
+            }
+        }
+    }
+}
+
+@Composable
+private fun ProtoSalesShipmentForm(
+    clients: List<ProtoClient>,
+    orders: List<ProtoOrder>,
+    shipments: List<ShipmentEntity>,
+    onBack: () -> Unit,
+    onSave: (ProtoClient, ProtoOrder, Int, String, String) -> Unit
+) {
+    var query by remember { mutableStateOf("") }
+    var client by remember { mutableStateOf<ProtoClient?>(null) }
+    var order by remember { mutableStateOf<ProtoOrder?>(null) }
+    var amountText by remember { mutableStateOf("") }
+    var paymentType by remember { mutableStateOf("PAID") }
+    var dueDate by remember { mutableStateOf("") }
+    var showCalendar by remember { mutableStateOf(false) }
+    val clientOrders = client?.let { c -> orders.filter { it.clientName == c.name && shipments.none { s -> s.orderId == it.id } } }.orEmpty()
+    val amount = amountText.toIntOrNull() ?: 0
+    val valid = client != null && order != null && amount > 0 && (paymentType == "PAID" || dueDate.isNotBlank())
+    ProtoScaffold("Новая отгрузка", "Клиент · заказ · сумма · оплата", onBack) {
+        if (client == null) {
+            item { ProtoField(query, { query = it }, "Поиск клиента") }
+            val found = clients.filter { query.isBlank() || it.name.contains(query, true) || it.contact.contains(query, true) || it.phone.contains(query, true) }
+            items(found.take(12), key = { it.id }) { c ->
+                ProtoSectionCard(Modifier.clickable { client = c; order = null; amountText = "" }) {
+                    Text(c.name, color = ProtoText, fontWeight = FontWeight.Bold)
+                    Text(c.contact + " · " + c.phone, color = ProtoMuted, fontSize = 12.sp)
+                }
+            }
+        } else {
+            item {
+                ProtoSectionCard {
+                    Text("Клиент", color = ProtoGoldSoft, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                    Text(client!!.name, color = ProtoText, fontWeight = FontWeight.Bold, fontSize = 18.sp)
+                    Text(client!!.contact + " · " + client!!.phone, color = ProtoMuted, fontSize = 12.sp)
+                    Spacer(Modifier.height(8.dp))
+                    ProtoSecondaryButton("Выбрать другого клиента", { client = null; order = null; amountText = "" })
+                }
+            }
+            item { Text("Заказ клиента из приложения", color = ProtoGoldSoft, fontSize = 17.sp, fontWeight = FontWeight.SemiBold) }
+            if (clientOrders.isEmpty()) item { ProtoSectionCard { Text("У клиента нет заказов без отгрузки", color = ProtoMuted) } }
+            items(clientOrders, key = { it.id }) { o ->
+                val active = order?.id == o.id
+                Card(
+                    colors = CardDefaults.cardColors(containerColor = ProtoPanel),
+                    border = BorderStroke(if (active) 2.dp else 1.dp, if (active) ProtoGold else ProtoBorder),
+                    shape = RoundedCornerShape(18.dp),
+                    modifier = Modifier.fillMaxWidth().clickable { order = o; amountText = o.total.toString() }
+                ) {
+                    Column(Modifier.padding(14.dp)) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text(o.id, color = ProtoGoldSoft, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
+                            ProtoPill(o.status, ProtoOrange)
+                        }
+                        Text(o.dateTime, color = ProtoMuted, fontSize = 12.sp)
+                        ProtoInfoRow(o.pieces.toString() + " шт.", protoMoney(o.total))
+                    }
+                }
+            }
+            if (order != null) {
+                item {
+                    ProtoSectionCard {
+                        ProtoField(amountText, { amountText = it.filter(Char::isDigit).take(9) }, "Сумма отгрузки, ₽", KeyboardType.Number)
+                        Text("Оплата", color = ProtoGoldSoft, fontSize = 17.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(top = 6.dp, bottom = 6.dp))
+                        Row(Modifier.fillMaxWidth().height(52.dp).border(1.dp, ProtoGold, RoundedCornerShape(26.dp))) {
+                            listOf("PAID" to "Оплатил", "DEFERRED" to "Отсрочка").forEach { (key, label) ->
+                                val active = paymentType == key
+                                Box(
+                                    Modifier.weight(1f).fillMaxHeight().clip(RoundedCornerShape(26.dp)).background(if (active) ProtoGold else Color.Transparent).clickable { paymentType = key },
+                                    contentAlignment = Alignment.Center
+                                ) { Text(label, color = if (active) Color.Black else ProtoText, fontWeight = FontWeight.SemiBold, fontSize = 15.sp) }
+                            }
+                        }
+                        if (paymentType == "DEFERRED") {
+                            Spacer(Modifier.height(10.dp))
+                            ProtoSecondaryButton(if (dueDate.isBlank()) "Выбрать дату оплаты" else "Оплата до: $dueDate", { showCalendar = true })
+                        }
+                        Text(
+                            "Деньги считаются подтверждёнными только после подтверждения администратором. До этого сумма отображается красным.",
+                            color = ProtoMuted, fontSize = 12.sp, modifier = Modifier.padding(top = 10.dp)
+                        )
+                        Spacer(Modifier.height(10.dp))
+                        ProtoPrimaryButton("Оформить отгрузку", { onSave(client!!, order!!, amount, paymentType, dueDate) }, enabled = valid)
+                    }
+                }
+            }
+        }
+    }
+    if (showCalendar) ProtoProductionCalendarDialog(
+        protoParseDate(dueDate) ?: LocalDate.now().plusDays(7),
+        onDismiss = { showCalendar = false },
+        onSelect = { dueDate = it.format(protoDateFmt); showCalendar = false }
+    )
+}
+
+@Composable
+private fun ProtoShipmentsScreen(
+    items: List<ShipmentEntity>,
+    adminMode: Boolean,
+    onBack: () -> Unit,
+    onRequest: (ShipmentEntity) -> Unit,
+    onConfirm: (ShipmentEntity) -> Unit,
+    onReject: (ShipmentEntity) -> Unit
+) {
+    var filter by remember { mutableStateOf(if (adminMode) "Ждут" else "Все") }
+    val filters = listOf("Все", "Ждут", "Красные", "Подтверждены")
+    val shown = items.filter {
+        when (filter) {
+            "Ждут" -> it.moneyStatus == "REQUESTED"
+            "Красные" -> it.moneyStatus != "CONFIRMED"
+            "Подтверждены" -> it.moneyStatus == "CONFIRMED"
+            else -> true
+        }
+    }
+    ProtoScaffold(
+        if (adminMode) "Подтверждение оплат" else "Отгрузки и оплаты",
+        if (adminMode) "Запросы от отдела продаж" else "Деньги считаются после подтверждения админом",
+        onBack
+    ) {
+        item {
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                filters.forEach { f ->
+                    val active = filter == f
+                    Surface(
+                        color = if (active) ProtoGold else ProtoPanel,
+                        border = BorderStroke(1.dp, if (active) ProtoGold else ProtoBorder),
+                        shape = RoundedCornerShape(24.dp),
+                        modifier = Modifier.weight(1f).height(40.dp).clickable { filter = f }
+                    ) { Box(contentAlignment = Alignment.Center) { Text(f, color = if (active) Color.Black else ProtoText, fontSize = 12.sp, fontWeight = FontWeight.SemiBold, maxLines = 1) } }
+                }
+            }
+        }
+        if (shown.isEmpty()) item { ProtoSectionCard { Text("Здесь пока ничего нет", color = ProtoMuted) } }
+        items(shown, key = { it.id }) { sh ->
+            val color = protoMoneyColor(sh)
+            Card(
+                colors = CardDefaults.cardColors(containerColor = ProtoPanel),
+                border = BorderStroke(1.dp, color.copy(alpha = .7f)),
+                shape = RoundedCornerShape(18.dp),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Column(Modifier.padding(14.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Column(Modifier.weight(1f)) {
+                            Text(sh.clientName, color = ProtoText, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            Text(sh.orderId + " · " + sh.shipDate, color = ProtoMuted, fontSize = 12.sp)
+                        }
+                        Text(protoMoney(sh.amount), color = color, fontWeight = FontWeight.Bold, fontSize = 20.sp)
+                    }
+                    Spacer(Modifier.height(6.dp))
+                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
+                        ProtoPill(if (sh.paymentType == "PAID") "Оплатил" else "Отсрочка до " + sh.dueDate, ProtoGoldSoft)
+                        ProtoPill(protoMoneyLabel(sh), color)
+                    }
+                    if (sh.paymentType == "DEFERRED" && sh.moneyStatus != "CONFIRMED") {
+                        val d = protoDaysTo(sh.dueDate)
+                        ProtoInfoRow("До оплаты", protoDaysLabel(sh.dueDate))
+                        if (d != null && d < 0) Text("Просрочка оплаты", color = ProtoRed, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                    }
+                    if (adminMode && sh.moneyStatus == "REQUESTED") {
+                        Spacer(Modifier.height(8.dp))
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Button(onClick = { onConfirm(sh) }, modifier = Modifier.weight(1f).height(44.dp), shape = RoundedCornerShape(22.dp), colors = ButtonDefaults.buttonColors(containerColor = ProtoGold)) {
+                                Text("Подтвердить", color = Color.Black, fontWeight = FontWeight.Bold)
+                            }
+                            OutlinedButton(onClick = { onReject(sh) }, modifier = Modifier.weight(1f).height(44.dp), shape = RoundedCornerShape(22.dp), border = BorderStroke(1.dp, ProtoRed)) {
+                                Text("Отклонить", color = ProtoRed, fontWeight = FontWeight.Bold)
+                            }
+                        }
+                    }
+                    if (!adminMode && sh.moneyStatus == "UNCONFIRMED") {
+                        Spacer(Modifier.height(8.dp))
+                        Button(onClick = { onRequest(sh) }, modifier = Modifier.fillMaxWidth().height(44.dp), shape = RoundedCornerShape(22.dp), colors = ButtonDefaults.buttonColors(containerColor = ProtoGold)) {
+                            Text("Деньги получены · на подтверждение", color = Color.Black, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun ProtoSalesClientsScreen(
+    clients: List<ProtoClient>,
+    shipments: List<ShipmentEntity>,
+    onBack: () -> Unit,
+    onOpen: (ProtoClient) -> Unit
+) {
+    var query by remember { mutableStateOf("") }
+    val shown = clients.filter { query.isBlank() || it.name.contains(query, true) || it.contact.contains(query, true) || it.phone.contains(query, true) }
+    ProtoScaffold("Клиенты", "Оборот, дебиторка, дни до оплаты", onBack) {
+        item { ProtoField(query, { query = it }, "Поиск клиента") }
+        items(shown, key = { it.id }) { c ->
+            val debt = shipments.filter { it.clientId == c.id && it.moneyStatus != "CONFIRMED" }.sumOf { it.amount }
+            ProtoSectionCard(Modifier.clickable { onOpen(c) }) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Column(Modifier.weight(1f)) {
+                        Text(c.name, color = ProtoText, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        Text(c.contact + " · " + c.phone, color = ProtoMuted, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    }
+                    if (debt > 0) Text(protoMoney(debt), color = ProtoRed, fontWeight = FontWeight.Bold)
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun ProtoClientFinanceBlock(clientId: String, shipments: List<ShipmentEntity>) {
+    val mine = shipments.filter { it.clientId == clientId }
+    val month = currentDateShort().substringAfter('.')
+    val turnover = mine.filter { protoMonthKey(it.shipDate) == month }.sumOf { it.amount }
+    val receivable = mine.filter { it.moneyStatus != "CONFIRMED" }.sumOf { it.amount }
+    val nearest = mine.filter { it.paymentType == "DEFERRED" && it.moneyStatus != "CONFIRMED" }
+        .mapNotNull { protoDaysTo(it.dueDate) }.minOrNull()
+    ProtoSectionCard {
+        Text("Финансы клиента", color = ProtoGoldSoft, fontWeight = FontWeight.Bold)
+        ProtoInfoRow("Оборот за месяц", protoMoney(turnover))
+        Row(Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
+            Text("Дебиторка", color = ProtoMuted); Spacer(Modifier.weight(1f))
+            Text(protoMoney(receivable), color = if (receivable > 0) ProtoRed else ProtoText, fontWeight = FontWeight.Bold)
+        }
+        Row(Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
+            Text("Дней до оплаты", color = ProtoMuted); Spacer(Modifier.weight(1f))
+            Text(
+                when { nearest == null -> "—"; nearest < 0 -> "просрочено ${-nearest} дн."; nearest == 0 -> "сегодня"; else -> "$nearest дн." },
+                color = if (nearest != null && nearest < 0) ProtoRed else ProtoText, fontWeight = FontWeight.Bold
+            )
+        }
+    }
+}
+
+@Composable
+private fun ProtoSalesClientScreen(
+    client: ProtoClient?,
+    shipments: List<ShipmentEntity>,
+    orders: List<ProtoOrder>,
+    onBack: () -> Unit
+) {
+    val c = client ?: return
+    ProtoScaffold(c.name, c.contact, onBack) {
+        item {
+            ProtoSectionCard {
+                ProtoInfoRow("Телефон", c.phone)
+                if (c.email.isNotBlank()) ProtoInfoRow("E-mail", c.email)
+                if (c.city.isNotBlank()) ProtoInfoRow("Город", c.city)
+                if (c.address.isNotBlank()) ProtoInfoRow("Адрес", c.address)
+                ProtoInfoRow("Тип", c.clientType)
+                ProtoInfoRow("Скидка", c.discount.toString() + "%")
+                ProtoInfoRow("Заказов в приложении", orders.count { it.clientName == c.name }.toString())
+            }
+        }
+        item { ProtoClientFinanceBlock(c.id, shipments) }
+        val mine = shipments.filter { it.clientId == c.id }
+        item { Text("Отгрузки", color = ProtoText, fontSize = 22.sp, fontWeight = FontWeight.Bold) }
+        if (mine.isEmpty()) item { ProtoSectionCard { Text("Отгрузок пока нет", color = ProtoMuted) } }
+        items(mine, key = { it.id }) { sh ->
+            ProtoSectionCard {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(sh.orderId + " · " + sh.shipDate, color = ProtoText, modifier = Modifier.weight(1f))
+                    Text(protoMoney(sh.amount), color = protoMoneyColor(sh), fontWeight = FontWeight.Bold)
+                }
+                Text(protoMoneyLabel(sh), color = protoMoneyColor(sh), fontSize = 12.sp)
+            }
+        }
+    }
+}

@@ -252,6 +252,24 @@ data class WorkshopTaskEntity(
     val updatedAt: Long = System.currentTimeMillis()
 )
 
+@Entity(tableName = "shipments")
+data class ShipmentEntity(
+    @PrimaryKey val id: String,
+    val orderId: String,
+    val clientId: String,
+    val clientName: String,
+    val amount: Int,
+    val shipDate: String,
+    val paymentType: String,
+    val dueDate: String,
+    val moneyStatus: String,
+    val createdBy: String,
+    val createdAt: Long,
+    val requestedAt: Long,
+    val confirmedBy: String,
+    val confirmedAt: Long
+)
+
 @Entity(tableName = "attendance", primaryKeys = ["date", "personId"])
 data class AttendanceEntity(
     val date: String,
@@ -440,6 +458,18 @@ interface SansaraDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun putWorkshopTasks(items: List<WorkshopTaskEntity>)
 
+    @Query("SELECT * FROM shipments ORDER BY createdAt DESC")
+    suspend fun shipments(): List<ShipmentEntity>
+
+    @Query("SELECT * FROM shipments WHERE id = :id LIMIT 1")
+    suspend fun shipmentById(id: String): ShipmentEntity?
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun putShipments(items: List<ShipmentEntity>)
+
+    @Query("SELECT COUNT(*) FROM accounts WHERE role = :role")
+    suspend fun accountCountByRole(role: String): Int
+
     @Query("SELECT * FROM attendance ORDER BY date DESC, personName")
     suspend fun allAttendance(): List<AttendanceEntity>
 
@@ -558,9 +588,10 @@ interface SansaraDao {
         AttendanceEntity::class,
         ProductionAuditEntity::class,
         PresenceSessionEntity::class,
-        AdminDailyStatusEntity::class
+        AdminDailyStatusEntity::class,
+        ShipmentEntity::class
     ],
-    version = 5,
+    version = 6,
     exportSchema = false
 )
 abstract class SansaraDatabase : RoomDatabase() {
@@ -611,6 +642,12 @@ abstract class SansaraDatabase : RoomDatabase() {
             }
         }
 
+        private val MIGRATION_5_6 = object : Migration(5, 6) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("CREATE TABLE IF NOT EXISTS shipments (id TEXT NOT NULL, orderId TEXT NOT NULL, clientId TEXT NOT NULL, clientName TEXT NOT NULL, amount INTEGER NOT NULL, shipDate TEXT NOT NULL, paymentType TEXT NOT NULL, dueDate TEXT NOT NULL, moneyStatus TEXT NOT NULL, createdBy TEXT NOT NULL, createdAt INTEGER NOT NULL, requestedAt INTEGER NOT NULL, confirmedBy TEXT NOT NULL, confirmedAt INTEGER NOT NULL, PRIMARY KEY(id))")
+            }
+        }
+
         fun get(context: Context): SansaraDatabase =
             instance ?: synchronized(this) {
                 instance ?: Room.databaseBuilder(
@@ -618,7 +655,7 @@ abstract class SansaraDatabase : RoomDatabase() {
                     SansaraDatabase::class.java,
                     "sansara.db"
                 )
-                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5)
+                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6)
                     .build()
                     .also { instance = it }
             }
@@ -1202,6 +1239,56 @@ class SansaraRepository private constructor(
         require(targetUserId!=actingUserId) { "Главный аккаунт нельзя отключить из самого приложения" }
         dao.setAccountEnabled(targetUserId,enabled)
         dao.adminControl(targetUserId)?.let { dao.putAdminControls(listOf(it.copy(enabled=enabled))) }
+    }
+
+    suspend fun ensureSalesAccount() {
+        if (dao.accountCountByRole(SansaraRole.SALES.name) > 0) return
+        val code = "9003"
+        if (dao.accountByAccessCodeHash(hashCode(code)) != null) return
+        dao.putAccounts(listOf(AccountEntity("U-SALES",null,SansaraRole.SALES.name,"Продажи","","","+7 900 000-00-03","",hashCode(code),vault.encrypt(code),true,0L)))
+    }
+
+    suspend fun shipments():List<ShipmentEntity> = dao.shipments()
+
+    suspend fun createShipment(orderId:String,clientId:String,clientName:String,amount:Int,paymentType:String,dueDate:String,createdBy:String):ShipmentEntity {
+        require(orderId.isNotBlank()) { "Выберите заказ клиента" }
+        require(clientId.isNotBlank()) { "Выберите клиента" }
+        require(amount > 0) { "Введите сумму" }
+        require(paymentType == "PAID" || (paymentType == "DEFERRED" && dueDate.isNotBlank())) { "Укажите дату оплаты при отсрочке" }
+        require(dao.shipments().none { it.orderId == orderId }) { "По этому заказу отгрузка уже оформлена" }
+        val now = System.currentTimeMillis()
+        val item = ShipmentEntity(
+            id = "SH-" + java.util.UUID.randomUUID().toString().replace("-","").take(8).uppercase(),
+            orderId = orderId, clientId = clientId, clientName = clientName, amount = amount,
+            shipDate = today(), paymentType = paymentType, dueDate = if (paymentType == "DEFERRED") dueDate else "",
+            moneyStatus = if (paymentType == "PAID") "REQUESTED" else "UNCONFIRMED",
+            createdBy = createdBy, createdAt = now, requestedAt = if (paymentType == "PAID") now else 0L,
+            confirmedBy = "", confirmedAt = 0L
+        )
+        dao.putShipments(listOf(item))
+        return item
+    }
+
+    suspend fun requestMoneyConfirmation(id:String):ShipmentEntity {
+        val item = dao.shipmentById(id) ?: error("Отгрузка не найдена")
+        require(item.moneyStatus == "UNCONFIRMED") { "Запрос уже отправлен" }
+        val updated = item.copy(moneyStatus = "REQUESTED", requestedAt = System.currentTimeMillis())
+        dao.putShipments(listOf(updated))
+        return updated
+    }
+
+    suspend fun confirmMoney(id:String,adminUserId:String):ShipmentEntity {
+        val item = dao.shipmentById(id) ?: error("Отгрузка не найдена")
+        val updated = item.copy(moneyStatus = "CONFIRMED", confirmedBy = adminUserId, confirmedAt = System.currentTimeMillis())
+        dao.putShipments(listOf(updated))
+        return updated
+    }
+
+    suspend fun rejectMoney(id:String):ShipmentEntity {
+        val item = dao.shipmentById(id) ?: error("Отгрузка не найдена")
+        val updated = item.copy(moneyStatus = "UNCONFIRMED", requestedAt = 0L)
+        dao.putShipments(listOf(updated))
+        return updated
     }
 
     suspend fun workshopTasks():List<WorkshopTaskEntity> = dao.workshopTasks()

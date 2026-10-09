@@ -12,7 +12,7 @@ import javax.crypto.KeyGenerator
 import javax.crypto.SecretKey
 import javax.crypto.spec.GCMParameterSpec
 
-enum class SansaraRole { CLIENT, ADMIN, PRODUCTION }
+enum class SansaraRole { CLIENT, ADMIN, PRODUCTION, SALES }
 
 data class SansaraSession(
     val userId: String,
