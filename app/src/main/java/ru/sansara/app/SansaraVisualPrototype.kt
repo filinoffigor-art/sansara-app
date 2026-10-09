@@ -778,7 +778,8 @@ fun SansaraVisualPrototype() {
                         toast("Добавлено в корзину: ${q} шт.")
                         persistAll()
                     }
-                }
+                },
+                onMenu = { showClientMenu = true }
             )
             ProtoScreen.Catalog -> ProtoCatalogHomeScreen(
                 cartCount = cart.size,
@@ -1750,22 +1751,6 @@ fun SansaraVisualPrototype() {
             )
         }
 
-        if (session?.role == SansaraRole.CLIENT && screen == ProtoScreen.Home) {
-            Box(
-                Modifier
-                    .align(Alignment.TopStart)
-                    .padding(start=16.dp,top=20.dp)
-                    .size(44.dp)
-                    .clip(CircleShape)
-                    .background(Color(0xCC11100E))
-                    .border(1.dp,ProtoBorder,CircleShape)
-                    .clickable { showClientMenu = true },
-                contentAlignment=Alignment.Center
-            ){
-                Icon(Icons.Outlined.Menu,contentDescription="Меню",tint=ProtoGold,modifier=Modifier.size(25.dp))
-            }
-        }
-
         if (showClientMenu) {
             ProtoClientMenuOverlay(
                 onDismiss = { showClientMenu = false },
@@ -1823,10 +1808,16 @@ private fun ProtoBrandHeader(
     showBell:Boolean=true,
     unreadCount:Int=0,
     onBell:(()->Unit)?=null,
+    onMenu:(()->Unit)?=null,
     modifier:Modifier=Modifier
 ) {
     Row(modifier.fillMaxWidth().padding(horizontal=16.dp,vertical=8.dp),verticalAlignment=Alignment.CenterVertically) {
-        Box(Modifier.width(48.dp),contentAlignment=Alignment.CenterStart){if(onBack!=null)ProtoCircleBack(onBack)}
+        Box(Modifier.width(48.dp),contentAlignment=Alignment.CenterStart){
+            if(onBack!=null)ProtoCircleBack(onBack)
+            else if(onMenu!=null)Box(Modifier.size(44.dp).clip(CircleShape).background(Color(0xCC11100E)).border(1.dp,ProtoBorder,CircleShape).clickable{onMenu()},contentAlignment=Alignment.Center){
+                Icon(Icons.Outlined.Menu,contentDescription="Меню",tint=ProtoGold,modifier=Modifier.size(25.dp))
+            }
+        }
         Image(painter=painterResource(R.drawable.sansara_wordmark_large),contentDescription="SANSARA",contentScale=ContentScale.Fit,modifier=Modifier.weight(1f).height(68.dp))
         Box(Modifier.width(48.dp),contentAlignment=Alignment.CenterEnd){
             if(showBell){
@@ -1940,7 +1931,8 @@ private fun ProtoClientHomeScreen(
     onSeeAll:()->Unit,
     retailMode:Boolean=false,
     onRetailExit:()->Unit={},
-    onAddToCart:(ProtoCatalogProduct,Int)->Unit={_,_->}
+    onAddToCart:(ProtoCatalogProduct,Int)->Unit={_,_->},
+    onMenu:(()->Unit)?=null
 ) {
     var searchOpen by remember{mutableStateOf(false)}
     var mode by remember{mutableStateOf("Все")}
@@ -1957,7 +1949,7 @@ private fun ProtoClientHomeScreen(
             }
         ){pad->
             Column(Modifier.fillMaxSize().padding(pad)){
-                ProtoBrandHeader(unreadCount=unreadCount,onBell=onNotifications)
+                ProtoBrandHeader(unreadCount=unreadCount,onBell=onNotifications,onMenu=onMenu)
                 Column(Modifier.padding(horizontal=18.dp)){
                     Text("Здравствуйте, "+client.firstName,color=ProtoText,fontSize=26.sp,fontWeight=FontWeight.Bold)
                     if(retailMode)Text("Режим клиента · закупочные цены скрыты",color=ProtoGoldSoft,fontSize=13.sp)
@@ -1990,15 +1982,18 @@ private fun ProtoClientHomeScreen(
                                         Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha=.28f)))
                                         Text(group.title,color=ProtoText,fontSize=14.sp,fontWeight=FontWeight.Bold,modifier=Modifier.align(Alignment.BottomStart).padding(10.dp))
                                         if(!group.enabled){
-                                            Text(
-                                                "В разработке",
-                                                color=ProtoText,
-                                                fontSize=13.sp,
-                                                fontWeight=FontWeight.ExtraBold,
-                                                maxLines=1,
-                                                softWrap=false,
-                                                modifier=Modifier.align(Alignment.CenterEnd).rotate(-90f).offset(x=36.dp)
-                                            )
+                                            Box(Modifier.align(Alignment.CenterEnd).fillMaxHeight().width(30.dp),contentAlignment=Alignment.Center){
+                                                Text(
+                                                    "В разработке",
+                                                    color=ProtoText,
+                                                    fontSize=13.sp,
+                                                    fontWeight=FontWeight.ExtraBold,
+                                                    maxLines=1,
+                                                    softWrap=false,
+                                                    textAlign=androidx.compose.ui.text.style.TextAlign.Center,
+                                                    modifier=Modifier.requiredWidth(140.dp).rotate(-90f)
+                                                )
+                                            }
                                         }
                                     }
                                 }
