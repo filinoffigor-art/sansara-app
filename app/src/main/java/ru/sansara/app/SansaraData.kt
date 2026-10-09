@@ -912,9 +912,9 @@ class SansaraRepository private constructor(
                 sh("SH-DEMO4","S-002360","C-1029","ООО Вечная память",22000,-6,"DEFERRED",-3,"UNCONFIRMED")
             ))
             dao.putExpenses(listOf(
-                ExpenseEntity("EX-DEMO1",dayDemo(-3),"Сырьё",35000,"Ткань, каркасы",now,now),
-                ExpenseEntity("EX-DEMO2",dayDemo(-1),"Зарплата",60000,"Сборщицы, аванс",now,now),
-                ExpenseEntity("EX-DEMO3",dayDemo(0),"Доставка",4800,"",now,now)
+                ExpenseEntity("EX-DEMO1",dayDemo(-3),"Сырьё",35000,"Ткань, каркасы","U-ADMIN",now),
+                ExpenseEntity("EX-DEMO2",dayDemo(-1),"Зарплата",60000,"Сборщицы, аванс","U-ADMIN",now),
+                ExpenseEntity("EX-DEMO3",dayDemo(0),"Доставка",4800,"","U-ADMIN",now)
             ))
             dao.putAssemblers(
                 listOf(
