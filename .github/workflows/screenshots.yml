@@ -63,7 +63,9 @@ jobs:
               grep -c '<failure' "$f" | sed 's/^/провалов: /'
               grep -o '<failure[^>]*message="[^"]*' "$f" | sed 's/<failure[^>]*message="/  причина: /' | cut -c1-500
             done
-            echo "---- хвост журнала ----"; tail -80 uitests.log 2>/dev/null || echo "журнала нет"
+            echo "---- XML ----"; for f in $(find app/build/outputs/androidTest-results app/build/outputs/connected_android_test_additional_output -name '*.xml' 2>/dev/null); do echo "== $f"; head -c 6000 "$f"; echo; done
+            echo "---- строки о тестах ----"; grep -iE "test(s)? |failed|exception|crash|instrumentation|Starting|finished" uitests.log 2>/dev/null | grep -v Transforming | tail -60
+            echo "---- хвост журнала ----"; tail -25 uitests.log 2>/dev/null || echo "журнала нет"
           } > shots/00_tests.txt
           cat shots/00_tests.txt | head -120
       - name: Screenshots on emulator
