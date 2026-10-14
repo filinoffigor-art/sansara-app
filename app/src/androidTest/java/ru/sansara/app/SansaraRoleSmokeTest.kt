@@ -18,7 +18,10 @@ import org.junit.runner.RunWith
  */
 @RunWith(AndroidJUnit4::class)
 class SansaraRoleSmokeTest {
-    @get:Rule
+    @get:Rule(order = 0)
+    val notifications: androidx.test.rule.GrantPermissionRule = androidx.test.rule.GrantPermissionRule.grant(android.Manifest.permission.POST_NOTIFICATIONS)
+
+    @get:Rule(order = 1)
     val compose = createAndroidComposeRule<MainActivity>()
 
     private fun waitText(text: String, timeout: Long = 25_000) {
