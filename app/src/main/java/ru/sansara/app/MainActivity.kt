@@ -6,6 +6,7 @@ import android.os.Build
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.activity.SystemBarStyle
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.content.ContextCompat
@@ -21,7 +22,10 @@ class MainActivity : ComponentActivity() {
         SansaraAdminOpsReminderScheduler.scheduleAll(this)
         // Системные панели больше не скрываются: часы, заряд и жест «назад» остаются на месте,
         // а содержимое отступает от них через safeDrawingPadding() в корне интерфейса.
-        enableEdgeToEdge()
+        enableEdgeToEdge(
+            statusBarStyle = SystemBarStyle.dark(android.graphics.Color.TRANSPARENT),
+            navigationBarStyle = SystemBarStyle.dark(android.graphics.Color.parseColor("#0B0A09"))
+        )
         setContent { SansaraVisualPrototype() }
     }
 

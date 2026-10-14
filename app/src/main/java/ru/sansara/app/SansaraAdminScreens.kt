@@ -350,7 +350,7 @@ internal fun ProtoAdminClientScreen(
         }
         item { ProtoSectionTitle("Пользователи и коды входа", "Вход: телефон пользователя + код") }
         if (users.isEmpty()) item { ProtoSectionCard { Text("Пользователей пока нет", color = ProtoMuted) } }
-        items(users, key = { it.first.id }) { (u, code) ->
+        items(users, key = { it.first.userId }) { (u, code) ->
             ProtoSectionCard {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Column(Modifier.weight(1f)) {

@@ -428,6 +428,12 @@ fun SansaraVisualPrototype() {
         persistNotifications()
     }
     fun go(target: ProtoScreen) { if (target != screen) { history.add(screen); screen = target } }
+    fun openTab(home: ProtoScreen, target: ProtoScreen) {
+        history.clear()
+        if (target != home) history.add(home)
+        screen = target
+    }
+
     fun back() {
         val active = session
         when {
@@ -537,7 +543,7 @@ fun SansaraVisualPrototype() {
         selectedClientId = clientId
         adminClientHistory.clear(); adminCompanyUsers.clear()
         loadClientDetails(clientId)
-        refreshShipments()
+        scope.launch { shipments.clear(); shipments.addAll(repository.shipments()) }
         go(ProtoScreen.AdminClient)
     }
     fun updateClient(clientId: String, historyText: String, transform: (ProtoClient) -> ProtoClient) {
@@ -2165,12 +2171,6 @@ fun SansaraVisualPrototype() {
         }
     }
 
-    fun openTab(home: ProtoScreen, target: ProtoScreen) {
-        history.clear()
-        if (target != home) history.add(home)
-        screen = target
-    }
-
     /** Нижняя навигация для экранов первого уровня сотрудников: тот же набор вкладок, что на главном экране роли. */
     @Composable fun roleBottomBar() {
         val role = session?.role
@@ -2464,18 +2464,12 @@ internal fun ProtoOrderListScreen(
             }
         ) { pad ->
             Column(Modifier.fillMaxSize().padding(pad)) {
-                ProtoBrandHeader(onBack = onBack)
-                Row(
-                    Modifier.fillMaxWidth().padding(horizontal=16.dp),
-                    verticalAlignment=Alignment.CenterVertically
-                ){
-                    Text("Мои заказы", color = ProtoText, fontSize = 30.sp, fontWeight = FontWeight.Bold,modifier=Modifier.weight(1f))
-                    if(tab=="История"){
-                        IconButton(onClick={historyFilterOpen=true}){
-                            Icon(Icons.Outlined.Tune,contentDescription="Фильтр истории",tint=ProtoGold)
-                        }
-                    }
-                }
+                ProtoTopBar(
+                    title = if (retailMode) "Заказы клиента" else "Мои заказы",
+                    subtitle = "Текущих: " + currentOrders.size + " · в истории: " + allHistory.size,
+                    onBack = onBack,
+                    action = if (tab == "История") { { IconButton(onClick = { historyFilterOpen = true }) { Icon(Icons.Outlined.Tune, contentDescription = "Фильтр истории", tint = ProtoGold) } } } else null
+                )
                 LazyColumn(
                     modifier = Modifier.weight(1f),
                     contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
