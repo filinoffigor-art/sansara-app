@@ -91,7 +91,11 @@ data class RegistrationEntity(
     val phone2: String,
     val email2: String,
     val createdAt: String,
-    val status: String
+    val status: String,
+    val lastName: String = "",
+    val firstName: String = "",
+    val middleName: String = "",
+    val rejectReason: String = ""
 )
 
 @Entity(tableName = "orders")
@@ -268,7 +272,8 @@ data class ShipmentEntity(
     val createdAt: Long,
     val requestedAt: Long,
     val confirmedBy: String,
-    val confirmedAt: Long
+    val confirmedAt: Long,
+    val rejectReason: String = ""
 )
 
 @Entity(tableName = "expenses")
@@ -314,6 +319,15 @@ data class PresenceSessionEntity(
     val startedAt: Long,
     val lastSeenAt: Long,
     val durationMs: Long
+)
+
+@Entity(tableName = "client_history")
+data class ClientHistoryEntity(
+    @PrimaryKey val id: String,
+    val clientId: String,
+    val text: String,
+    val actor: String,
+    val createdAt: Long = System.currentTimeMillis()
 )
 
 @Entity(tableName = "admin_daily_status")
@@ -583,6 +597,15 @@ interface SansaraDao {
 
     @Query("UPDATE accounts SET lastSeenEpochMs = :epoch WHERE userId = :userId")
     suspend fun updateLastSeen(userId: String, epoch: Long)
+
+    @Query("SELECT * FROM client_history WHERE clientId = :clientId ORDER BY createdAt DESC")
+    suspend fun clientHistory(clientId: String): List<ClientHistoryEntity>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun putClientHistory(items: List<ClientHistoryEntity>)
+
+    @Query("SELECT * FROM accounts WHERE clientId = :clientId ORDER BY firstName, lastName")
+    suspend fun allAccountsForClient(clientId: String): List<AccountEntity>
 }
 
 @Database(
@@ -611,9 +634,10 @@ interface SansaraDao {
         PresenceSessionEntity::class,
         AdminDailyStatusEntity::class,
         ShipmentEntity::class,
-        ExpenseEntity::class
+        ExpenseEntity::class,
+        ClientHistoryEntity::class
     ],
-    version = 8,
+    version = 9,
     exportSchema = false
 )
 abstract class SansaraDatabase : RoomDatabase() {
@@ -682,6 +706,17 @@ abstract class SansaraDatabase : RoomDatabase() {
             }
         }
 
+        private val MIGRATION_8_9 = object : Migration(8, 9) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE registrations ADD COLUMN lastName TEXT NOT NULL DEFAULT ''")
+                db.execSQL("ALTER TABLE registrations ADD COLUMN firstName TEXT NOT NULL DEFAULT ''")
+                db.execSQL("ALTER TABLE registrations ADD COLUMN middleName TEXT NOT NULL DEFAULT ''")
+                db.execSQL("ALTER TABLE registrations ADD COLUMN rejectReason TEXT NOT NULL DEFAULT ''")
+                db.execSQL("ALTER TABLE shipments ADD COLUMN rejectReason TEXT NOT NULL DEFAULT ''")
+                db.execSQL("CREATE TABLE IF NOT EXISTS client_history (id TEXT NOT NULL, clientId TEXT NOT NULL, text TEXT NOT NULL, actor TEXT NOT NULL, createdAt INTEGER NOT NULL, PRIMARY KEY(id))")
+            }
+        }
+
         fun get(context: Context): SansaraDatabase =
             instance ?: synchronized(this) {
                 instance ?: Room.databaseBuilder(
@@ -689,7 +724,7 @@ abstract class SansaraDatabase : RoomDatabase() {
                     SansaraDatabase::class.java,
                     "sansara.db"
                 )
-                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8)
+                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9)
                     .build()
                     .also { instance = it }
             }
@@ -957,7 +992,7 @@ class SansaraRepository private constructor(
             stockOverrides=productEntities.mapNotNull { e -> e.physicalOverride?.let { e.sku to it } }.toMap(),
             clients=clients,
             registrations=dao.registrations().map { it.toProto() },
-            orders=dao.orders().map { it.toProto() },
+            orders=dao.orders().map { it.toProto() }.sortedByDescending { orderEpoch(it.dateTime) },
             productionOps=dao.productionOps().map { op ->
                 val meta = receiptLinesByOp[op.opId]
                 op.toProto(
@@ -1235,8 +1270,9 @@ class SansaraRepository private constructor(
         }
     }
 
-    suspend fun authenticate(code: String): SansaraSession? {
+    suspend fun authenticate(code: String, phone: String? = null): SansaraSession? {
         val account = dao.accountByAccessCodeHash(hashCode(code.trim())) ?: return null
+        if (phone != null && account.phone.isNotBlank() && phoneKey(phone) != phoneKey(account.phone)) return null
         return SansaraSession(
             userId=account.userId,
             clientId=account.clientId,
@@ -1269,19 +1305,22 @@ class SansaraRepository private constructor(
         }.sortedWith(compareByDescending<SansaraAdminAccount>{it.isMain}.thenBy{it.displayName})
     }
 
-    suspend fun addAdmin(displayName:String,sourceAdminUserId:String):SansaraAdminAccount {
+    suspend fun addAdmin(displayName:String,phone:String,sourceAdminUserId:String):Pair<SansaraAdminAccount,String> {
         val actor=dao.adminControl(sourceAdminUserId)
         require(actor?.isMain==true) { "Добавлять администраторов может только главный аккаунт" }
-        val source=dao.accountByUserId(sourceAdminUserId) ?: error("Главный администратор не найден")
+        dao.accountByUserId(sourceAdminUserId) ?: error("Главный администратор не найден")
         val name=displayName.trim()
         require(name.isNotBlank()) { "Введите имя администратора" }
+        require(phoneKey(phone).length==10) { "Введите телефон администратора" }
         val id="U-ADM-"+java.util.UUID.randomUUID().toString().replace("-","").take(8).uppercase()
-        val account=AccountEntity(id,null,SansaraRole.ADMIN.name,name,"","",BuildConfig.ADMIN_PHONE,"",source.accessCodeHash,source.accessCodeEncrypted,true,0L)
+        // У каждого администратора свой код: так видно, кто что сделал, и отключение работает.
+        val code=nextUniqueCode()
+        val account=AccountEntity(id,null,SansaraRole.ADMIN.name,name,"","",phone.trim(),"",hashCode(code),vault.encrypt(code),true,0L)
         db.withTransaction {
             dao.putAccounts(listOf(account))
             dao.putAdminControls(listOf(AdminControlEntity(id,name,false,true)))
         }
-        return SansaraAdminAccount(id,name,false,true)
+        return SansaraAdminAccount(id,name,false,true) to code
     }
 
     suspend fun setAdminEnabled(targetUserId:String,enabled:Boolean,actingUserId:String) {
@@ -1325,7 +1364,7 @@ class SansaraRepository private constructor(
     suspend fun requestMoneyConfirmation(id:String):ShipmentEntity {
         val item = dao.shipmentById(id) ?: error("Отгрузка не найдена")
         require(item.moneyStatus == "UNCONFIRMED") { "Запрос уже отправлен" }
-        val updated = item.copy(moneyStatus = "REQUESTED", requestedAt = System.currentTimeMillis())
+        val updated = item.copy(moneyStatus = "REQUESTED", requestedAt = System.currentTimeMillis(), rejectReason = "")
         dao.putShipments(listOf(updated))
         return updated
     }
@@ -1337,9 +1376,9 @@ class SansaraRepository private constructor(
         return updated
     }
 
-    suspend fun rejectMoney(id:String):ShipmentEntity {
+    suspend fun rejectMoney(id:String, reason:String = ""):ShipmentEntity {
         val item = dao.shipmentById(id) ?: error("Отгрузка не найдена")
-        val updated = item.copy(moneyStatus = "UNCONFIRMED", requestedAt = 0L)
+        val updated = item.copy(moneyStatus = "UNCONFIRMED", requestedAt = 0L, rejectReason = reason.trim())
         dao.putShipments(listOf(updated))
         return updated
     }
@@ -1428,21 +1467,21 @@ class SansaraRepository private constructor(
         dao.putAdminDailyStatus(listOf(AdminDailyStatusEntity(date,dayOff,reason.trim())))
     }
 
-    suspend fun approve(reg: ProtoRegistration): ApprovalResult {
+    suspend fun approve(reg: ProtoRegistration, status: String = "Активный", discount: Int = 0, actor: String = "Администратор"): ApprovalResult {
         val primaryCode = nextUniqueCode()
         val secondaryCode = reg.phone2.takeIf { it.isNotBlank() }?.let { nextUniqueCode(exclude=setOf(primaryCode)) }
         val clientId = "C-" + java.util.UUID.randomUUID().toString().replace("-","").take(8).uppercase()
-        val firstName = firstName(reg.contact1)
+        val firstName = reg.firstName.ifBlank { firstName(reg.contact1) }
         val client = ProtoClient(
-            id=clientId,name=reg.organization,contact=reg.contact1,phone=reg.phone1,status="Активный",
-            discount=0,monthTurnover=0,orderCount=0,accessCode=primaryCode,online=false,lastSeen="ещё не входил",
+            id=clientId,name=reg.organization,contact=reg.contact1,phone=reg.phone1,status=status,
+            discount=discount.coerceIn(0,50),monthTurnover=0,orderCount=0,accessCode=primaryCode,online=false,lastSeen="ещё не входил",
             email=reg.email,clientType=reg.type,registeredAt=today(),orderingEnabled=true,city=reg.city,address=reg.address,
             firstName=firstName
         )
         val accounts = mutableListOf(
             AccountEntity(
                 userId="U-"+java.util.UUID.randomUUID().toString().take(8).uppercase(),
-                clientId=clientId,role=SansaraRole.CLIENT.name,firstName=firstName,lastName="",middleName="",
+                clientId=clientId,role=SansaraRole.CLIENT.name,firstName=firstName,lastName=reg.lastName,middleName=reg.middleName,
                 phone=reg.phone1,email=reg.email,accessCodeHash=hashCode(primaryCode),accessCodeEncrypted=vault.encrypt(primaryCode)
             )
         )
@@ -1457,6 +1496,7 @@ class SansaraRepository private constructor(
             dao.putClients(listOf(client.toEntity()))
             dao.putAccounts(accounts)
             dao.deleteRegistration(reg.id)
+            dao.putClientHistory(listOf(historyEntry(clientId,"Заявка одобрена: статус «"+status+"», скидка "+discount+"%",actor)))
         }
         return ApprovalResult(client,primaryCode,secondaryCode)
     }
@@ -1470,9 +1510,28 @@ class SansaraRepository private constructor(
         return code
     }
 
-    suspend fun reject(registrationId:String) {
-        dao.deleteRegistration(registrationId)
+    /** Отклонённая заявка не удаляется: хранится со статусом и причиной. */
+    suspend fun reject(reg: ProtoRegistration, reason: String) {
+        dao.putRegistrations(listOf(reg.copy(status = "Отклонена", rejectReason = reason.trim()).toEntity()))
     }
+
+    suspend fun clientHistory(clientId:String):List<ClientHistoryEntity> = dao.clientHistory(clientId)
+
+    suspend fun addClientHistory(clientId:String,text:String,actor:String) {
+        dao.putClientHistory(listOf(historyEntry(clientId,text,actor)))
+    }
+
+    /** Все пользователи компании клиента с кодами входа (для карточки клиента). */
+    suspend fun companyUsers(clientId:String):List<Pair<SansaraCompanyContact,String>> =
+        dao.allAccountsForClient(clientId).map { a ->
+            val name = listOf(a.lastName, a.firstName, a.middleName).filter { it.isNotBlank() }.joinToString(" ").ifBlank { a.firstName.ifBlank { "Пользователь" } }
+            SansaraCompanyContact(a.userId, name, a.phone, a.email) to (if (a.enabled) vault.decrypt(a.accessCodeEncrypted) else "")
+        }
+
+    private fun historyEntry(clientId:String,text:String,actor:String)=ClientHistoryEntity(
+        id="CH-"+java.util.UUID.randomUUID().toString().replace("-","").take(12).uppercase(),
+        clientId=clientId,text=text,actor=actor
+    )
 
     private suspend fun nextUniqueCode(exclude:Set<String> = emptySet()): String {
         repeat(1000) {
@@ -1484,6 +1543,12 @@ class SansaraRepository private constructor(
 
     private fun hashCode(value:String):String =
         MessageDigest.getInstance("SHA-256").digest(value.toByteArray()).joinToString("") { "%02x".format(it) }
+
+    private fun phoneKey(value:String):String = value.filter(Char::isDigit).takeLast(10)
+
+    private fun orderEpoch(value:String):Long = runCatching {
+        java.time.LocalDateTime.parse(value, DateTimeFormatter.ofPattern("dd.MM.yyyy HH:mm")).atZone(ZoneId.systemDefault()).toInstant().toEpochMilli()
+    }.getOrDefault(0L)
 
     private fun firstName(value:String):String = value.trim().split(Regex("\\s+")).firstOrNull().orEmpty().ifBlank { "Партнёр" }
     private fun today():String = LocalDate.now().format(DateTimeFormatter.ofPattern("dd.MM.yyyy"))
@@ -1528,10 +1593,12 @@ private fun ProtoClient.toEntity()=ClientEntity(
 )
 
 private fun ProtoRegistration.toEntity()=RegistrationEntity(
-    id,organization,fio,inn,contact1,phone1,email,city,address,type,contact2,phone2,email2,createdAt,status
+    id,organization,fio,inn,contact1,phone1,email,city,address,type,contact2,phone2,email2,createdAt,status,
+    lastName=lastName,firstName=firstName,middleName=middleName,rejectReason=rejectReason
 )
 private fun RegistrationEntity.toProto()=ProtoRegistration(
-    organization,fio,inn,contact1,phone1,email,city,address,type,contact2,phone2,email2,id,createdAt,status
+    organization,fio,inn,contact1,phone1,email,city,address,type,contact2,phone2,email2,id,createdAt,status,
+    lastName=lastName,firstName=firstName,middleName=middleName,rejectReason=rejectReason
 )
 
 private fun ProtoOrder.toEntity():OrderEntity {
@@ -1543,6 +1610,7 @@ private fun ProtoOrder.toEntity():OrderEntity {
                 put("qty",line.qty)
                 put("price",line.price)
                 put("discountPct",line.discountPct)
+                put("retailPrice",line.retailPrice)
             })
         }
     }
@@ -1552,6 +1620,9 @@ private fun ProtoOrder.toEntity():OrderEntity {
         put("contactPhone",this@toEntity.contactPhone)
         put("deliveryDate",this@toEntity.deliveryDate)
         put("deliveryTime",this@toEntity.deliveryTime)
+        put("clientId",this@toEntity.clientId)
+        put("retailCustomerId",this@toEntity.retailCustomerId)
+        put("retailCustomerName",this@toEntity.retailCustomerName)
     }
     val events=JSONArray().apply {
         this@toEntity.history.forEach { event ->
@@ -1576,7 +1647,8 @@ private fun OrderEntity.toProto():ProtoOrder {
                 name=it.getString("name"),
                 qty=it.getInt("qty"),
                 price=it.getInt("price"),
-                discountPct=it.optInt("discountPct",0)
+                discountPct=it.optInt("discountPct",0),
+                retailPrice=it.optInt("retailPrice",0)
             )
         }
     }
@@ -1599,7 +1671,10 @@ private fun OrderEntity.toProto():ProtoOrder {
         recipient=payload?.optString("recipient").orEmpty(),
         contactPhone=payload?.optString("contactPhone").orEmpty(),
         deliveryDate=payload?.optString("deliveryDate").orEmpty(),
-        deliveryTime=payload?.optString("deliveryTime").orEmpty()
+        deliveryTime=payload?.optString("deliveryTime").orEmpty(),
+        clientId=payload?.optString("clientId").orEmpty(),
+        retailCustomerId=payload?.optString("retailCustomerId").orEmpty(),
+        retailCustomerName=payload?.optString("retailCustomerName").orEmpty()
     )
 }
 

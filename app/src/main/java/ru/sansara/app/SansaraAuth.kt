@@ -30,6 +30,8 @@ data class SansaraAuthResult(
 
 interface AuthProvider {
     suspend fun signInWithAccessCode(code:String):SansaraAuthResult
+    /** Вход по телефону и коду. Телефон должен совпасть с телефоном пользователя, которому выдан код. */
+    suspend fun signIn(phone:String,code:String):SansaraAuthResult
     fun currentSession():SansaraSession?
     fun signOut()
 }
@@ -41,6 +43,13 @@ class LocalAuthProvider(
     override suspend fun signInWithAccessCode(code:String):SansaraAuthResult {
         val session=repository.authenticate(code)
             ?: return SansaraAuthResult(null,"Код доступа не найден или отозван")
+        sessionStore.save(session)
+        return SansaraAuthResult(session,"Вход выполнен")
+    }
+
+    override suspend fun signIn(phone:String,code:String):SansaraAuthResult {
+        val session=repository.authenticate(code,phone)
+            ?: return SansaraAuthResult(null,"Телефон и код не совпадают")
         sessionStore.save(session)
         return SansaraAuthResult(session,"Вход выполнен")
     }

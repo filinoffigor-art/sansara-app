@@ -75,19 +75,19 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 
-private val ProtoBg = Bg
-private val ProtoPanel = Panel
-private val ProtoPanel2 = Panel2
-private val ProtoGold = Gold
-private val ProtoGoldSoft = GoldSoft
-private val ProtoText = Text
-private val ProtoMuted = Muted
-private val ProtoGreen = Green
-private val ProtoRed = Red
-private val ProtoBorder = Border
-private val ProtoOrange = Warning
+internal val ProtoBg = Bg
+internal val ProtoPanel = Panel
+internal val ProtoPanel2 = Panel2
+internal val ProtoGold = Gold
+internal val ProtoGoldSoft = GoldSoft
+internal val ProtoText = Text
+internal val ProtoMuted = Muted
+internal val ProtoGreen = Green
+internal val ProtoRed = Red
+internal val ProtoBorder = Border
+internal val ProtoOrange = Warning
 
-private enum class ProtoScreen {
+internal enum class ProtoScreen {
     Welcome, Login, Registration, RegistrationSent,
     Home, Catalog, Filter, ProductList, ProductDetail, Cart, Checkout, OrderSent, OrderList, OrderDetail, Notifications, ClientChat, ClientReports, ClientSettings, AgentClients, AgentClientDetail, RetailHome, RetailCatalog, RetailFilter, RetailProductList, RetailProductDetail, RetailCart, RetailCheckout, RetailOrderSent, RetailOrderList, RetailOrderDetail, RetailNotifications, Profile, Suspended,
     AdminHome, AdminSearch, AdminClients, AdminClient, AdminOrders, AdminOrderDetail, AdminNotifications, AdminCatalog, AdminSettings, AdminSettingsDetail, AdminAttention, OnlineController, LowStockList, AdminChats, AdminChat, AdminProductionChat, AdminReports, AdminWorkshop, AdminAdmins, AdminAttendance,
@@ -96,7 +96,7 @@ private enum class ProtoScreen {
     SalesHome, SalesShipmentNew, SalesShipments, SalesClients, SalesClient, AdminPayments, AdminDashboard
 }
 
-private enum class ProtoClientType(val label: String) { AGENT("Агент"), TRADING("Торгующая организация") }
+internal enum class ProtoClientType(val label: String) { AGENT("Агент"), TRADING("Торгующая организация") }
 
 data class ProtoCatalogProduct(
     val sku: String,
@@ -128,7 +128,7 @@ data class ProtoProductionOp(
     val opId: String = ""
 )
 
-private data class ProtoProductionDraft(
+internal data class ProtoProductionDraft(
     val product: ProtoCatalogProduct,
     val qty: Int,
     val assembler: String,
@@ -162,10 +162,15 @@ data class ProtoOrderLine(
     val name: String,
     val qty: Int,
     val price: Int,
-    val discountPct: Int = 0
+    val discountPct: Int = 0,
+    /** Цена для частного клиента агента (режим «Для клиентов»); 0 — обычный заказ. */
+    val retailPrice: Int = 0
 ) {
-    val lineTotal: Int get() = qty * price * (100 - discountPct) / 100
+    val lineTotal: Int get() = protoLineTotal(price, qty, discountPct)
 }
+
+/** Единая формула суммы строки: цена × количество − скидка, округление вниз по строке. Ею считают карточка, корзина, оформление, заказ и отчёты. */
+fun protoLineTotal(price: Int, qty: Int, discountPct: Int): Int = qty * price * (100 - discountPct) / 100
 data class ProtoOrderEvent(val status: String, val dateTime: String, val actor: String)
 
 data class ProtoOrder(
@@ -181,7 +186,10 @@ data class ProtoOrder(
     val recipient: String = "",
     val contactPhone: String = "",
     val deliveryDate: String = "",
-    val deliveryTime: String = ""
+    val deliveryTime: String = "",
+    val clientId: String = "",
+    val retailCustomerId: String = "",
+    val retailCustomerName: String = ""
 ) {
     val pieces: Int get() = lines.sumOf { it.qty }
     val baseTotal: Int get() = lines.sumOf { it.qty * it.price }
@@ -196,10 +204,11 @@ data class ProtoNotification(
     val title: String,
     val message: String,
     val dateTime: String,
-    val read: Boolean = false
+    val read: Boolean = false,
+    val orderId: String = ""
 )
 
-private data class ProtoProductGroup(
+internal data class ProtoProductGroup(
     val key: String,
     val title: String,
     val imageType: String,
@@ -207,12 +216,13 @@ private data class ProtoProductGroup(
 )
 
 /** Группы, которые сейчас продаются под плиткой «Венки». */
-private val protoWreathGroups = setOf("Венки","Корзины","Флоретки","Полянки")
+internal val protoWreathGroups = setOf("Венки","Корзины","Флоретки","Полянки")
+internal val protoWreathGroupsOrdered = listOf("Венки","Корзины","Флоретки","Полянки")
 
 /** Статус товара, снятого с публикации в Tilda: скрыт из каталога, но остаётся в старых заказах и на складе. */
 const val PRODUCT_UNPUBLISHED = "Снят с публикации"
 
-private val protoProductGroups = listOf(
+internal val protoProductGroups = listOf(
     ProtoProductGroup("wreaths", "Венки", "Венки", true),
     ProtoProductGroup("coffins", "Гробы", "Гробы", false),
     ProtoProductGroup("crosses", "Кресты", "Кресты", false),
@@ -237,21 +247,25 @@ data class ProtoRegistration(
     val email2: String = "",
     val id: String = "R-${System.currentTimeMillis()}",
     val createdAt: String = LocalDateTime.now().format(DateTimeFormatter.ofPattern("dd.MM.yyyy HH:mm")),
-    val status: String = "Новая"
+    val status: String = "Новая",
+    val lastName: String = "",
+    val firstName: String = "",
+    val middleName: String = "",
+    val rejectReason: String = ""
 )
 
-private val ruLocale = Locale("ru", "RU")
-private fun currentDateLong(): String = LocalDate.now().format(DateTimeFormatter.ofPattern("d MMMM yyyy", ruLocale))
-private fun currentDateShort(): String = LocalDate.now().format(DateTimeFormatter.ofPattern("dd.MM.yyyy"))
-private fun currentTimeShort(): String = LocalDateTime.now().format(DateTimeFormatter.ofPattern("HH:mm"))
-private fun nextWorkingDay(from: LocalDate): LocalDate {
+internal val ruLocale = Locale("ru", "RU")
+internal fun currentDateLong(): String = LocalDate.now().format(DateTimeFormatter.ofPattern("d MMMM yyyy", ruLocale))
+internal fun currentDateShort(): String = LocalDate.now().format(DateTimeFormatter.ofPattern("dd.MM.yyyy"))
+internal fun currentTimeShort(): String = LocalDateTime.now().format(DateTimeFormatter.ofPattern("HH:mm"))
+internal fun nextWorkingDay(from: LocalDate): LocalDate {
     var day = from.plusDays(1)
     while (day.dayOfWeek == java.time.DayOfWeek.SATURDAY || day.dayOfWeek == java.time.DayOfWeek.SUNDAY) {
         day = day.plusDays(1)
     }
     return day
 }
-private fun currentMonthLabel(): String = LocalDate.now().format(DateTimeFormatter.ofPattern("LLLL yyyy", ruLocale)).replaceFirstChar { if (it.isLowerCase()) it.titlecase(ruLocale) else it.toString() }
+internal fun currentMonthLabel(): String = LocalDate.now().format(DateTimeFormatter.ofPattern("LLLL yyyy", ruLocale)).replaceFirstChar { if (it.isLowerCase()) it.titlecase(ruLocale) else it.toString() }
 
 @Composable
 fun SansaraVisualPrototype() {
@@ -282,6 +296,10 @@ fun SansaraVisualPrototype() {
     var cartEditingSku by remember { mutableStateOf<String?>(null) }
     var productListIndex by remember { mutableIntStateOf(0) }
     var productListOffset by remember { mutableIntStateOf(0) }
+    var listSort by remember { mutableStateOf(protoSortOptions.first()) }
+    var focusSearch by remember { mutableStateOf(false) }
+    var orderSendState by remember { mutableStateOf("ok") }
+    var loginLockedUntil by remember { mutableLongStateOf(0L) }
     var selectedOrderId by remember { mutableStateOf("S-002384") }
     var selectedClientId by remember { mutableStateOf("C-1024") }
     var selectedChatClientId by remember { mutableStateOf("C-1024") }
@@ -392,7 +410,7 @@ fun SansaraVisualPrototype() {
 
     fun toast(message: String) = Toast.makeText(context, message, Toast.LENGTH_SHORT).show()
     fun persistNotifications() = protoSaveNotifications(prefs, notifications)
-    fun addNotification(audienceRole:String,audienceKey:String,title:String,message:String) {
+    fun addNotification(audienceRole:String,audienceKey:String,title:String,message:String,orderId:String="") {
         notifications.add(
             0,
             ProtoNotification(
@@ -401,7 +419,8 @@ fun SansaraVisualPrototype() {
                 audienceKey = audienceKey,
                 title = title,
                 message = message,
-                dateTime = LocalDateTime.now().format(DateTimeFormatter.ofPattern("dd.MM.yyyy HH:mm"))
+                dateTime = LocalDateTime.now().format(DateTimeFormatter.ofPattern("dd.MM.yyyy HH:mm")),
+                orderId = orderId
             )
         )
         persistNotifications()
@@ -418,7 +437,10 @@ fun SansaraVisualPrototype() {
             else -> screen = ProtoScreen.Welcome
         }
     }
-    fun onSignedIn() { SansaraAdminOpsReminderScheduler.scheduleAll(context) }
+    fun onSignedIn() {
+        SansaraAdminOpsReminderScheduler.scheduleAll(context)
+        if (session?.role == SansaraRole.ADMIN) (context as? MainActivity)?.requestNotificationPermission()
+    }
     fun signOut() {
         authProvider.signOut()
         session = null
@@ -448,6 +470,57 @@ fun SansaraVisualPrototype() {
         ?: clients.firstOrNull()
         ?: ProtoClient("C-OFFLINE","SANSARA","Партнёр","", "Активный",0,0,0,"",false,"ещё не входил",firstName="Партнёр")
     fun discountedPrice(p: ProtoCatalogProduct): Int = p.price * (100 - currentClient().discount) / 100
+    fun nowStamp(): String = LocalDateTime.now().format(DateTimeFormatter.ofPattern("dd.MM.yyyy HH:mm"))
+    fun orderingBlocked(): Boolean { val c = currentClient(); return c.status == "Приостановлен" || !c.orderingEnabled }
+    fun setCartQty(p: ProtoCatalogProduct, q: Int) {
+        if (orderingBlocked()) { toast("Оформление заказов временно приостановлено"); go(ProtoScreen.Suspended); return }
+        if (q <= 0) cart.remove(p.sku) else cart[p.sku] = q
+        persistAll()
+    }
+    fun currentFilter() = ProtoCatalogFilter(searchQuery, selectedTypes, selectedQualities, selectedSizes, selectedAvailability, minPriceFilter, maxPriceFilter)
+    fun applyFilter(f: ProtoCatalogFilter) {
+        searchQuery = f.query; selectedTypes = f.types; selectedQualities = f.qualities; selectedSizes = f.sizes
+        selectedAvailability = f.availability; minPriceFilter = f.minPrice; maxPriceFilter = f.maxPrice
+    }
+    fun activeFilterChips(): List<Pair<String, () -> Unit>> {
+        val chips = mutableListOf<Pair<String, () -> Unit>>()
+        if (selectedTypes.isNotEmpty() && selectedTypes != protoWreathGroups) selectedTypes.forEach { t -> chips.add(Pair(t) { selectedTypes = selectedTypes - t }) }
+        selectedAvailability.forEach { a -> chips.add(Pair(a) { selectedAvailability = selectedAvailability - a }) }
+        selectedQualities.forEach { q -> chips.add(Pair(q) { selectedQualities = selectedQualities - q }) }
+        selectedSizes.forEach { z -> chips.add(Pair(z) { selectedSizes = selectedSizes - z }) }
+        minPriceFilter?.let { v -> chips.add(Pair("от " + protoMoney(v)) { minPriceFilter = null }) }
+        maxPriceFilter?.let { v -> chips.add(Pair("до " + protoMoney(v)) { maxPriceFilter = null }) }
+        return chips
+    }
+    fun openProductList(query: String = "", type: String? = null, availability: String? = null, focus: Boolean = false, target: ProtoScreen = ProtoScreen.ProductList) {
+        resetFilters(type = type, availability = availability)
+        searchQuery = query
+        focusSearch = focus
+        listSort = protoSortOptions.first()
+        productListIndex = 0; productListOffset = 0
+        go(target)
+    }
+    fun popularity(): Map<String, Int> = orders.filter { it.status != "Отменён" }
+        .flatMap { it.lines }.groupBy { it.sku }.mapValues { (_, l) -> l.sumOf { it.qty } }
+    fun ordersOf(c: ProtoClient): List<ProtoOrder> =
+        orders.filter { (it.clientId == c.id || (it.clientId.isBlank() && it.clientName == c.name)) && it.retailCustomerId.isBlank() }
+    fun isClientNotification(n: ProtoNotification, c: ProtoClient): Boolean =
+        n.audienceRole == "CLIENT" && (n.audienceKey == c.id || n.audienceKey == c.name)
+    /** Ближайшая дата получения: всё в наличии — следующий рабочий день; иначе — самый долгий срок изготовления, только рабочие дни. */
+    fun earliestDeliveryDate(shortItems: List<ProtoCatalogProduct>): LocalDate =
+        protoAddWorkdays(LocalDate.now(), (shortItems.maxOfOrNull { it.productionDays } ?: 1).coerceAtLeast(1))
+    fun pickupPoints(): List<String> = prefs.getString("pickup_points", "").orEmpty().lines().map { it.trim() }.filter { it.isNotBlank() }
+    fun repeatOrder(order: ProtoOrder, edit: Boolean) {
+        if (orderingBlocked()) { go(ProtoScreen.Suspended); return }
+        cart.clear()
+        var missing = 0
+        order.lines.forEach { line ->
+            if (catalogProducts.any { it.sku == line.sku }) cart[line.sku] = line.qty else missing += 1
+        }
+        persistAll()
+        if (missing > 0) toast("Не добавлено позиций: $missing — сняты с продажи") else toast(if (edit) "Можно изменить состав и количество" else "Заказ " + order.id + " перенесён в корзину")
+        go(if (edit || cart.isEmpty()) ProtoScreen.Cart else ProtoScreen.Checkout)
+    }
     fun postDrafts(date: String) {
         val selectedDrafts = productionDrafts.filter { it.date == date }
         if (selectedDrafts.isEmpty()) {
@@ -569,7 +642,7 @@ fun SansaraVisualPrototype() {
     }
 
     fun ownerAgentSettings(ownerId:String):SansaraAgentSettings =
-        agentSettings.firstOrNull { it.ownerClientId==ownerId } ?: SansaraAgentSettings(ownerId,true,30)
+        agentSettings.firstOrNull { it.ownerClientId==ownerId } ?: SansaraAgentSettings(ownerId,false,0)
 
     fun markupForProduct(ownerId:String,customerId:String,product:ProtoCatalogProduct):Int {
         val category=protoProductCategoryKey(product.type)
@@ -636,6 +709,7 @@ fun SansaraVisualPrototype() {
     }
 
     fun sendOrderEvent(order: ProtoOrder) {
+        orderSendState = if (backendApiUrl.isBlank()) "offline" else "sending"
         if (backendApiUrl.isBlank()) {
             telegramLastLog = "Заказ "+order.id+": серверный прокси не настроен"
             prefs.edit().putString("telegram_last_log",telegramLastLog).apply()
@@ -663,6 +737,7 @@ fun SansaraVisualPrototype() {
                 if (result.ok) break
                 if (attempt < attempts) delay(1200)
             }
+            orderSendState = if (result.ok) "ok" else "failed"
             backendStatus = if (result.ok) "Заказ передан backend"+if(telegramEnabled)" / Telegram" else "" else result.message
             telegramLastLog = LocalDateTime.now().format(DateTimeFormatter.ofPattern("dd.MM.yyyy HH:mm"))+" · "+order.id+" · "+
                 if(result.ok)"успешно · попыток: "+usedAttempts else result.message+" · попыток: "+usedAttempts
@@ -772,244 +847,216 @@ fun SansaraVisualPrototype() {
         }
     }
 
+    LaunchedEffect(Unit) { loginLockedUntil = prefs.getLong("login_locked_until", 0L) }
+    LaunchedEffect(loginLockedUntil) {
+        val wait = loginLockedUntil - System.currentTimeMillis()
+        if (wait > 0) { delay(wait); loginLockedUntil = 0L }
+    }
+
     if (!dataReady) {
         SansaraTheme { ProtoLoadingState() }
         return
     }
 
     @Composable fun protoGroupA() {
+        val client = currentClient()
+        val goHome: () -> Unit = { history.clear(); screen = ProtoScreen.Home }
+        val goCatalog: () -> Unit = { go(ProtoScreen.Catalog) }
+        val goCart: () -> Unit = { go(ProtoScreen.Cart) }
+        val goOrders: () -> Unit = { go(ProtoScreen.OrderList) }
+        val goChat: () -> Unit = { go(ProtoScreen.ClientChat) }
+        val myOrders = ordersOf(client)
         when (screen) {
             ProtoScreen.Home -> ProtoClientHomeScreen(
-                client = clients.firstOrNull { it.id == selectedClientId } ?: clients.first(),
+                client = client,
                 products = catalogProducts,
-                stockOverrides = stockOverrides,
+                popularity = popularity(),
                 availableStock = { availableStock(it) },
-                cartCount = cart.size,
-                query = searchQuery,
-                onQuery = { searchQuery = it },
-                onSearch = {
-                    resetFilters();
-                    go(ProtoScreen.ProductList)
-                },
-                unreadCount = notifications.count { it.audienceRole == "CLIENT" && it.audienceKey == currentClient().name && !it.read },
+                cart = cart,
+                lastOrder = myOrders.filter { it.status != "Отменён" }.maxByOrNull { protoOrderEpoch(it.dateTime) },
+                unreadCount = notifications.count { isClientNotification(it, client) && !it.read },
                 onNotifications = { go(ProtoScreen.Notifications) },
-                onAvailability = { status -> if (status == "Все") resetFilters() else resetFilters(availability = status); go(ProtoScreen.ProductList) },
-                onCategory = { type ->
-                    if (type != "Венки") toast("Раздел «$type» в разработке")
-                    else { resetFilters(type = type); go(ProtoScreen.Filter) }
-                },
+                onSearch = { openProductList(focus = true) },
+                onGroup = { g -> openProductList(type = g) },
                 onOpenProduct = { openProduct(it) },
-                onCart = { go(ProtoScreen.Cart) },
-                onOrders = { go(ProtoScreen.OrderList) },
-                onProfile = { go(ProtoScreen.ClientChat) },
-                onCatalog = { go(ProtoScreen.Catalog) },
-                onSeeAll = { searchQuery = ""; resetFilters(); go(ProtoScreen.ProductList) },
-                onAddToCart = { p, q ->
-                    if (currentClient().status == "Приостановлен" || !currentClient().orderingEnabled) {
-                        toast("Оформление заказов временно приостановлено")
-                        go(ProtoScreen.Suspended)
-                    } else {
-                        cart[p.sku] = (cart[p.sku] ?: 0) + q
-                        toast("Добавлено в корзину: ${q} шт.")
-                        persistAll()
-                    }
-                },
+                onSetQty = { p, q -> setCartQty(p, q) },
+                onSeeAll = { mode -> openProductList(availability = mode.takeIf { it != "Все" }) },
+                onOpenOrder = { selectedOrderId = it.id; go(ProtoScreen.OrderDetail) },
+                onHome = goHome, onCatalog = goCatalog, onCart = goCart, onOrders = goOrders, onProfile = goChat,
                 onMenu = { showClientMenu = true }
             )
             ProtoScreen.Catalog -> ProtoCatalogHomeScreen(
                 cartCount = cart.size,
-                wreathCount = catalogProducts.count { it.type in protoWreathGroups },
+                groupCounts = protoWreathGroupsOrdered.associateWith { g -> catalogProducts.count { it.type == g } }.filterValues { it > 0 },
                 onBack = { back() },
-                onSearch = { value -> searchQuery = value; resetFilters(); go(ProtoScreen.ProductList) },
-                onCategory = { type ->
-                    if (type != "Венки") toast("Раздел «$type» в разработке")
-                    else { resetFilters(type = "Венки"); go(ProtoScreen.Filter) }
-                },
-                onAvailability = { status -> searchQuery = ""; if (status == "Все") resetFilters() else resetFilters(availability = status); go(ProtoScreen.ProductList) },
-                onHome = { history.clear(); screen = ProtoScreen.Home }, onCart = { go(ProtoScreen.Cart) }, onOrders = { go(ProtoScreen.OrderList) }, onProfile = { go(ProtoScreen.ClientChat) }
+                onSearch = { value -> openProductList(query = value, focus = value.isBlank()) },
+                onGroup = { g -> openProductList(type = g) },
+                onAvailability = { st -> openProductList(availability = st.takeIf { it != "Все" }) },
+                onHome = goHome, onCart = goCart, onOrders = goOrders, onProfile = goChat
             )
             ProtoScreen.Filter -> ProtoFilterScreen(
                 products = catalogProducts.filter { it.type in protoWreathGroups },
-                selectedTypes = selectedTypes,
-                selectedQualities = selectedQualities,
-                selectedSizes = selectedSizes,
-                selectedAvailability = selectedAvailability,
-                minPrice = minPriceFilter,
-                maxPrice = maxPriceFilter,
+                filter = currentFilter(),
                 availableStock = { availableStock(it) },
-                onApply = { types, qualities, sizes, availability, minPrice, maxPrice ->
-                    selectedTypes = types
-                    selectedQualities = qualities
-                    selectedSizes = sizes
-                    selectedAvailability = availability
-                    minPriceFilter = minPrice
-                    maxPriceFilter = maxPrice
-                    searchQuery = ""
-                    go(ProtoScreen.ProductList)
+                onApply = { f ->
+                    applyFilter(f)
+                    productListIndex = 0; productListOffset = 0
+                    if (history.lastOrNull() == ProtoScreen.ProductList) back() else go(ProtoScreen.ProductList)
                 },
                 onBack = { back() }
             )
             ProtoScreen.ProductList -> {
-                val filtered = catalogProducts.filter { p ->
-                    (searchQuery.isBlank() || p.sku.contains(searchQuery, true) || p.name.contains(searchQuery, true)) &&
-                    (selectedTypes.isEmpty() || p.type in selectedTypes) &&
-                    (selectedQualities.isEmpty() || p.quality == "—" || p.quality in selectedQualities) &&
-                    (selectedSizes.isEmpty() || p.size in selectedSizes) &&
-                    (selectedAvailability.isEmpty() || (if (availableStock(p) > 0) "В наличии" else "Под заказ") in selectedAvailability) &&
-                    (minPriceFilter == null || p.price >= minPriceFilter!!) &&
-                    (maxPriceFilter == null || p.price <= maxPriceFilter!!)
-                }
+                val f = currentFilter()
                 ProtoProductListScreen(
-                    products = filtered,
+                    products = catalogProducts.filter { protoMatches(it, f, availableStock(it)) },
                     cart = cart,
-                    stockOverrides = stockOverrides,
                     availableStock = { availableStock(it) },
-                    discount = currentClient().discount,
+                    query = searchQuery,
+                    onQuery = { searchQuery = it; productListIndex = 0; productListOffset = 0 },
+                    activeChips = activeFilterChips(),
+                    sort = listSort,
+                    onSort = { listSort = it; productListIndex = 0; productListOffset = 0 },
                     initialIndex = productListIndex,
                     initialOffset = productListOffset,
-                    onBack = { back() },
-                    onOpenFilter = { go(ProtoScreen.Filter) },
+                    focusSearch = focusSearch,
+                    onBack = { focusSearch = false; back() },
+                    onOpenFilter = { focusSearch = false; go(ProtoScreen.Filter) },
                     onOpenProduct = { product, index, offset ->
                         productListIndex = index
                         productListOffset = offset
+                        focusSearch = false
                         openProduct(product)
                     },
-                    onHome = { history.clear(); screen = ProtoScreen.Home },
-                    onCatalog = { history.clear(); screen = ProtoScreen.Catalog },
-                    onCart = { go(ProtoScreen.Cart) },
-                    onOrders = { go(ProtoScreen.OrderList) },
-                    onProfile = { go(ProtoScreen.ClientChat) },
-                onAddToCart = { p, q ->
-                    if (currentClient().status == "Приостановлен" || !currentClient().orderingEnabled) {
-                        toast("Оформление заказов временно приостановлено")
-                        go(ProtoScreen.Suspended)
-                    } else {
-                        cart[p.sku] = (cart[p.sku] ?: 0) + q
-                        toast("Добавлено в корзину: ${q} шт.")
-                        persistAll()
-                    }
-                }
+                    onSetQty = { p, q -> setCartQty(p, q) },
+                    onHome = goHome,
+                    onCatalog = { history.clear(); history.add(ProtoScreen.Home); screen = ProtoScreen.Catalog },
+                    onCart = goCart, onOrders = goOrders, onProfile = goChat
                 )
             }
-            ProtoScreen.ProductDetail -> ProtoProductDetailScreen(
-                product = selectedProduct,
-                currentStock = selectedProduct?.let { availableStock(it) } ?: 0,
-                qty = detailQty,
-                discount = currentClient().discount,
-                cartCount = cart.size,
-                editingCart = cartEditingSku == selectedProduct?.sku,
-                onBack = { cartEditingSku = null; back() },
-                onMinus = { detailQty = (detailQty - 1).coerceAtLeast(1) },
-                onPlus = { detailQty += 1 },
-                onAdd = {
-                    if (currentClient().status == "Приостановлен" || !currentClient().orderingEnabled) {
-                        toast("Оформление заказов временно приостановлено")
-                        go(ProtoScreen.Suspended)
-                    } else {
-                        selectedProduct?.let { p ->
-                            if (cartEditingSku == p.sku) {
-                                cart[p.sku] = detailQty
-                                toast("Количество в корзине обновлено: ${detailQty} шт.")
+            ProtoScreen.ProductDetail -> {
+                val p = selectedProduct
+                ProtoProductDetailScreen(
+                    product = p,
+                    currentStock = p?.let { availableStock(it) } ?: 0,
+                    qty = detailQty,
+                    discount = client.discount,
+                    inCartQty = p?.let { cart[it.sku] } ?: 0,
+                    editingCart = p != null && cartEditingSku == p.sku,
+                    onBack = { cartEditingSku = null; back() },
+                    onMinus = { detailQty = (detailQty - 1).coerceAtLeast(1) },
+                    onPlus = { detailQty += 1 },
+                    onAdd = {
+                        if (orderingBlocked()) {
+                            toast("Оформление заказов временно приостановлено")
+                            go(ProtoScreen.Suspended)
+                        } else p?.let { prod ->
+                            if (cartEditingSku == prod.sku) {
+                                cart[prod.sku] = detailQty
+                                persistAll()
+                                toast("Количество в корзине: ${detailQty} шт.")
+                                cartEditingSku = null
+                                back()
                             } else {
-                                cart[p.sku] = (cart[p.sku] ?: 0) + detailQty
+                                cart[prod.sku] = (cart[prod.sku] ?: 0) + detailQty
+                                persistAll()
                                 toast("Добавлено в корзину: ${detailQty} шт.")
+                                detailQty = 1
                             }
-                            persistAll()
                         }
-                        cartEditingSku = null
-                        back()
-                    }
-                },
-                onHome = { history.clear(); screen = ProtoScreen.Home }, onCatalog = { go(ProtoScreen.Catalog) }, onCart = { go(ProtoScreen.Cart) }, onOrders = { go(ProtoScreen.OrderList) }, onProfile = { go(ProtoScreen.ClientChat) }
+                    },
+                    onGoCart = { cartEditingSku = null; go(ProtoScreen.Cart) },
+                    onHome = goHome, onCatalog = goCatalog, onCart = goCart, onOrders = goOrders, onProfile = goChat
+                )
+            }
+            ProtoScreen.Cart -> ProtoCartScreen(
+                products = products,
+                cart = cart,
+                discount = client.discount,
+                availableStock = { availableStock(it) },
+                onBack = { back() },
+                onPlus = { p -> cart[p.sku] = (cart[p.sku] ?: 0) + 1; persistAll() },
+                onMinus = { p -> val n = (cart[p.sku] ?: 1) - 1; if (n <= 0) cart.remove(p.sku) else cart[p.sku] = n; persistAll() },
+                onDelete = { cart.remove(it.sku); persistAll() },
+                onRestore = { p, q -> cart[p.sku] = q; persistAll() },
+                onOpenProduct = { openProduct(it, fromCart = true) },
+                onCheckout = { if (orderingBlocked()) go(ProtoScreen.Suspended) else go(ProtoScreen.Checkout) },
+                onHome = goHome, onCatalog = goCatalog, onOrders = goOrders, onProfile = goChat
             )
-            ProtoScreen.Cart -> ProtoCartScreen(products, cart, discount = currentClient().discount, availableStock = { availableStock(it) }, onBack = { back() }, onPlus = { p -> cart[p.sku] = (cart[p.sku] ?: 0) + 1; persistAll() }, onMinus = { p -> val n = (cart[p.sku] ?: 1) - 1; if (n <= 0) cart.remove(p.sku) else cart[p.sku] = n; persistAll() }, onDelete = { cart.remove(it.sku); persistAll() }, onOpenProduct = { openProduct(it, fromCart = true) }, onCheckout = {
-                if (currentClient().status == "Приостановлен" || !currentClient().orderingEnabled) go(ProtoScreen.Suspended) else go(ProtoScreen.Checkout)
-            }, onHome = { history.clear(); screen = ProtoScreen.Home }, onCatalog = { go(ProtoScreen.Catalog) }, onOrders = { go(ProtoScreen.OrderList) }, onProfile = { go(ProtoScreen.ClientChat) })
             ProtoScreen.Checkout -> {
-                val baseTotal = cart.entries.sumOf { (sku, q) -> products.firstOrNull { it.sku == sku }?.let { it.price * q } ?: 0 }
-                val finalTotal = baseTotal * (100 - currentClient().discount) / 100
-                val totalPieces = cart.values.sum()
-                val shortages = cart.mapNotNull { (sku, qty) ->
-                    products.firstOrNull { it.sku == sku }?.let { product ->
-                        val available = availableStock(product)
-                        if (qty > available) product to (qty - available) else null
-                    }
-                }
-                val productionDays = shortages.maxOfOrNull { it.first.productionDays } ?: 0
-                val earliestDate = if (productionDays > 0) LocalDate.now().plusDays(productionDays.toLong()) else nextWorkingDay(LocalDate.now())
+                val cartLines = cart.mapNotNull { (sku, q) -> products.firstOrNull { it.sku == sku }?.let { it to q } }
+                val baseTotal = cartLines.sumOf { (p, q) -> p.price * q }
+                val finalTotal = cartLines.sumOf { (p, q) -> protoLineTotal(p.price, q, client.discount) }
+                val shortages = cartLines.mapNotNull { (p, q) -> val a = availableStock(p); if (q > a) p to (q - a) else null }
                 ProtoCheckoutScreen(
-                    cartPositions = cart.size,
-                    totalPieces = totalPieces,
+                    cartPositions = cartLines.size,
+                    totalPieces = cartLines.sumOf { it.second },
                     baseTotal = baseTotal,
                     finalTotal = finalTotal,
-                    discount = currentClient().discount,
-                    defaultAddress = currentClient().address,
+                    discount = client.discount,
+                    defaultAddress = client.address,
                     contacts = companyContacts.ifEmpty {
-                        listOf(SansaraCompanyContact("fallback", currentClient().contact, currentClient().phone, currentClient().email))
+                        listOf(SansaraCompanyContact("fallback", client.contact, client.phone, client.email))
                     },
-                    clientStatus = currentClient().status,
-                    earliestDate = earliestDate,
-                    shortages = shortages.map { pair -> pair.first.name + ": " + pair.second + " шт. под заказ" },
+                    clientStatus = client.status,
+                    earliestDate = earliestDeliveryDate(shortages.map { it.first }),
+                    shortages = shortages.map { (p, n) -> protoTitle(p) + ": " + n + " шт. под заказ · " + protoReadyLabel(p.productionDays) },
+                    pickupPoints = pickupPoints(),
                     onBack = { back() },
                     onSubmit = { method, address, comment, recipient, contactPhone, deliveryDate, deliveryTime ->
-                        if (currentClient().status == "Приостановлен" || !currentClient().orderingEnabled) {
+                        if (orderingBlocked()) {
                             go(ProtoScreen.Suspended)
                         } else {
                             scope.launch {
-                                val lines = cart.mapNotNull { (sku,q) ->
-                                    products.firstOrNull { it.sku == sku }?.let {
-                                        ProtoOrderLine(it.sku,it.name,q,it.price,currentClient().discount)
-                                    }
-                                }
+                                val lines = cartLines.map { (p, q) -> ProtoOrderLine(p.sku, p.name, q, p.price, client.discount) }
                                 val id = repository.nextOrderId()
-                                val now = LocalDateTime.now().format(DateTimeFormatter.ofPattern("dd.MM.yyyy HH:mm"))
+                                val now = nowStamp()
                                 val newOrder = ProtoOrder(
-                                    id=id,
-                                    clientName=currentClient().name,
-                                    dateTime=now,
-                                    lines=lines,
-                                    status="Получен",
-                                    history=listOf(ProtoOrderEvent("Получен",now,currentClient().contact)),
-                                    deliveryMethod=method,
-                                    deliveryAddress=address,
-                                    comment=comment,
-                                    recipient=recipient,
-                                    contactPhone=contactPhone,
-                                    deliveryDate=deliveryDate,
-                                    deliveryTime=deliveryTime
+                                    id = id,
+                                    clientName = client.name,
+                                    dateTime = now,
+                                    lines = lines,
+                                    status = "Получен",
+                                    history = listOf(ProtoOrderEvent("Получен", now, client.contact)),
+                                    deliveryMethod = method,
+                                    deliveryAddress = address,
+                                    comment = comment,
+                                    recipient = recipient,
+                                    contactPhone = contactPhone,
+                                    deliveryDate = deliveryDate,
+                                    deliveryTime = deliveryTime,
+                                    clientId = client.id
                                 )
-                                orders.add(0,newOrder)
-                                selectedOrderId=id
+                                orders.add(0, newOrder)
+                                selectedOrderId = id
                                 cart.clear()
-                                addNotification(
-                                    audienceRole = "ADMIN",
-                                    audienceKey = "ADMIN",
-                                    title = "Новый заказ " + id,
-                                    message = currentClient().name + " · " + protoMoney(newOrder.total)
-                                )
+                                addNotification("ADMIN", "ADMIN", "Новый заказ " + id, client.name + " · " + protoMoney(newOrder.total) + " · " + deliveryDate, orderId = id)
                                 persistAll()
                                 sendOrderEvent(newOrder)
-                                go(ProtoScreen.OrderSent)
+                                (context as? MainActivity)?.requestNotificationPermission()
+                                history.clear(); history.add(ProtoScreen.Home)
+                                screen = ProtoScreen.OrderSent
                             }
                         }
                     },
-                    onHome = { history.clear(); screen = ProtoScreen.Home },
-                    onCatalog = { go(ProtoScreen.Catalog) },
-                    onCart = { go(ProtoScreen.Cart) },
-                    onOrders = { go(ProtoScreen.OrderList) },
-                    onProfile = { go(ProtoScreen.ClientChat) }
+                    onHome = goHome, onCatalog = goCatalog, onCart = goCart, onOrders = goOrders, onProfile = goChat
                 )
             }
-            ProtoScreen.OrderSent -> ProtoOrderSentScreen(orders.firstOrNull { it.id == selectedOrderId }, onView = { go(ProtoScreen.OrderDetail) }, onCatalog = { history.clear(); screen = ProtoScreen.Catalog }, onHome = { history.clear(); screen = ProtoScreen.Home }, onCart = { go(ProtoScreen.Cart) }, onOrders = { go(ProtoScreen.OrderList) }, onProfile = { go(ProtoScreen.ClientChat) })
+            ProtoScreen.OrderSent -> ProtoOrderSentScreen(
+                order = orders.firstOrNull { it.id == selectedOrderId },
+                sendState = orderSendState,
+                onView = { go(ProtoScreen.OrderDetail) },
+                onCall = { protoDial(context) },
+                onHome = goHome,
+                onCatalog = { history.clear(); history.add(ProtoScreen.Home); screen = ProtoScreen.Catalog },
+                onCart = goCart, onOrders = goOrders, onProfile = goChat
+            )
             ProtoScreen.OrderList -> ProtoOrderListScreen(
-                orders = orders.filter { it.clientName == (clients.firstOrNull { c -> c.id == selectedClientId }?.name ?: "") },
+                orders = myOrders.sortedByDescending { protoOrderEpoch(it.dateTime) },
                 products = products,
                 onBack = { back() },
                 onOpen = { selectedOrderId = it.id; go(ProtoScreen.OrderDetail) },
-                onHome = { history.clear(); screen = ProtoScreen.Home },
-                onCatalog = { go(ProtoScreen.Catalog) },
-                onCart = { go(ProtoScreen.Cart) },
-                onProfile = { go(ProtoScreen.ClientChat) }
+                onHome = goHome, onCatalog = goCatalog, onCart = goCart, onProfile = goChat,
+                cartCount = cart.size
             )
             ProtoScreen.OrderDetail -> ProtoOrderDetailScreen(
                 order = orders.firstOrNull { it.id == selectedOrderId },
@@ -1017,37 +1064,20 @@ fun SansaraVisualPrototype() {
                 isAdmin = false,
                 onBack = { back() },
                 onStatus = {},
-                onRepeat = {
-                    orders.firstOrNull { it.id == selectedOrderId }?.let { order ->
-                        cart.clear()
-                        order.lines.forEach { line -> cart[line.sku] = line.qty }
-                        persistAll()
-                        toast("Заказ " + order.id + " подготовлен к повтору")
-                        go(ProtoScreen.Checkout)
-                    }
-                },
-                onEditRepeat = {
-                    orders.firstOrNull { it.id == selectedOrderId }?.let { order ->
-                        cart.clear()
-                        order.lines.forEach { line -> cart[line.sku] = line.qty }
-                        persistAll()
-                        toast("Можно изменить состав и количество")
-                        go(ProtoScreen.Cart)
-                    }
-                },
+                onRepeat = { orders.firstOrNull { it.id == selectedOrderId }?.let { repeatOrder(it, edit = false) } },
+                onEditRepeat = { orders.firstOrNull { it.id == selectedOrderId }?.let { repeatOrder(it, edit = true) } },
                 onCancel = {
                     val idx = orders.indexOfFirst { it.id == selectedOrderId }
                     if (idx >= 0 && orders[idx].status == "Получен") {
                         val old = orders[idx]
-                        val now = LocalDateTime.now().format(DateTimeFormatter.ofPattern("dd.MM.yyyy HH:mm"))
-                        orders[idx] = old.copy(
-                            status = "Отменён",
-                            history = old.history + ProtoOrderEvent("Отменён", now, currentClient().contact)
-                        )
+                        orders[idx] = old.copy(status = "Отменён", history = old.history + ProtoOrderEvent("Отменён", nowStamp(), client.contact))
+                        addNotification("ADMIN", "ADMIN", "Заказ " + old.id + " отменён клиентом", client.name + " · " + protoMoney(old.total), orderId = old.id)
                         persistAll()
                         toast("Заказ " + old.id + " отменён")
                     }
-                }
+                },
+                cartCount = cart.size,
+                onChat = goChat
             )
             else -> Unit
         }
@@ -1056,44 +1086,51 @@ fun SansaraVisualPrototype() {
     @Composable fun protoGroupB() {
         when (screen) {
             ProtoScreen.Notifications -> {
-                val clientName = currentClient().name
+                val c = currentClient()
                 ProtoNotificationsScreen(
-                    notifications = notifications.filter { it.audienceRole == "CLIENT" && it.audienceKey == clientName },
+                    notifications = notifications.filter { isClientNotification(it, c) },
                     onBack = { back() },
                     onReadAll = {
                         var changed = false
                         notifications.indices.forEach { index ->
                             val n = notifications[index]
-                            if (n.audienceRole == "CLIENT" && n.audienceKey == clientName && !n.read) {
-                                notifications[index] = n.copy(read = true)
-                                changed = true
-                            }
+                            if (isClientNotification(n, c) && !n.read) { notifications[index] = n.copy(read = true); changed = true }
                         }
                         if (changed) persistNotifications()
                     },
-                    onDelete = { id ->
-                        notifications.removeAll { it.id == id }
-                        persistNotifications()
+                    onDelete = { id -> notifications.removeAll { it.id == id }; persistNotifications() },
+                    onOpen = { n ->
+                        val i = notifications.indexOfFirst { it.id == n.id }
+                        if (i >= 0 && !n.read) { notifications[i] = n.copy(read = true); persistNotifications() }
+                        if (n.orderId.isNotBlank() && orders.any { it.id == n.orderId }) { selectedOrderId = n.orderId; go(ProtoScreen.OrderDetail) }
                     }
                 )
             }
             ProtoScreen.ClientChat -> {
-                val cid = currentClient().id
-                val conversationId = clientConversationId(cid)
+                val c = currentClient()
+                val conversationId = clientConversationId(c.id)
                 ProtoChatScreen(
                     title = "Чат с менеджером",
-                    subtitle = currentClient().name,
+                    subtitle = c.name,
                     messages = chatMessages.filter { it.conversationId == conversationId },
                     currentRole = "CLIENT",
                     onBack = { back() },
                     onRead = { markChatRead(conversationId,"CLIENT") },
                     onSend = { body, uri, name, mime ->
-                        sendChat(conversationId,"CLIENT",session?.userId ?: cid,body,uri,name,mime)
+                        sendChat(conversationId,"CLIENT",session?.userId ?: c.id,body,uri,name,mime)
+                    },
+                    banner = "Менеджер отвечает в рабочие дни с 9:00 до 18:00. Срочно — позвоните.",
+                    onCall = { protoDial(context) },
+                    bottomBar = {
+                        ProtoClientBottomBar(ProtoScreen.ClientChat, cart.size,
+                            onHome = { history.clear(); screen = ProtoScreen.Home },
+                            onCatalog = { go(ProtoScreen.Catalog) }, onCart = { go(ProtoScreen.Cart) },
+                            onOrders = { go(ProtoScreen.OrderList) }, onProfile = {})
                     }
                 )
             }
             ProtoScreen.ClientReports -> ProtoClientReportsScreen(
-                orders = orders.filter { it.clientName == currentClient().name },
+                orders = ordersOf(currentClient()),
                 shipments = shipments.filter { it.clientId == currentClient().id },
                 typeOf = { sku -> products.firstOrNull { it.sku == sku }?.type ?: "Прочее" },
                 onBack = { back() }
@@ -1135,7 +1172,7 @@ fun SansaraVisualPrototype() {
                 retailCustomers = agentCustomers.filter { it.ownerClientId == selectedClientId },
                 retailMarkups = agentMarkups.filter { it.ownerClientId == selectedClientId },
                 shipments = shipments.toList(),
-                clientOrders = orders.filter { o -> o.clientName == clients.firstOrNull { it.id == selectedClientId }?.name },
+                clientOrders = clients.firstOrNull { it.id == selectedClientId }?.let { c -> orders.filter { o -> o.clientId == c.id || (o.clientId.isBlank() && o.clientName.substringBefore(" / ") == c.name) } }.orEmpty(),
                 typeOf = { sku -> products.firstOrNull { it.sku == sku }?.type ?: "Прочее" },
                 onBack = { back() },
                 onStatus = { status -> val i=clients.indexOfFirst{it.id==selectedClientId};if(i>=0){val c=clients[i];clients[i]=c.copy(status=status,orderingEnabled=when{status=="Приостановлен"->false;c.status=="Приостановлен"->true;else->c.orderingEnabled});persistAll()} },
@@ -1175,9 +1212,10 @@ fun SansaraVisualPrototype() {
                         orders[idx] = oldOrder.copy(status = st, history = oldOrder.history + ProtoOrderEvent(st, now, "Администратор"))
                         addNotification(
                             audienceRole = "CLIENT",
-                            audienceKey = oldOrder.clientName,
+                            audienceKey = oldOrder.clientId.ifBlank { oldOrder.clientName },
                             title = "Заказ " + oldOrder.id,
-                            message = "Статус изменён: " + st
+                            message = "Статус изменён: " + st,
+                            orderId = oldOrder.id
                         )
                         persistAll()
                     } else toast("Статус заказа нельзя переводить назад")
@@ -1197,12 +1235,17 @@ fun SansaraVisualPrototype() {
                         }
                         val now = LocalDateTime.now().format(DateTimeFormatter.ofPattern("dd.MM.yyyy HH:mm"))
                         orders[idx] = oldOrder.copy(status = "Отменён", history = oldOrder.history + ProtoOrderEvent("Отменён", now, "Администратор"))
-                        addNotification(audienceRole = "CLIENT", audienceKey = oldOrder.clientName, title = "Заказ " + oldOrder.id, message = "Заказ отменён администратором")
+                        addNotification(audienceRole = "CLIENT", audienceKey = oldOrder.clientId.ifBlank { oldOrder.clientName }, title = "Заказ " + oldOrder.id, message = "Заказ отменён администратором", orderId = oldOrder.id)
                         persistAll()
                         toast("Заказ " + oldOrder.id + " отменён")
                     }
                 }
-            })
+            }, onCallClient = {
+                orders.firstOrNull { it.id == selectedOrderId }?.let { o ->
+                    val phone = o.contactPhone.ifBlank { clients.firstOrNull { c -> c.id == o.clientId || c.name == o.clientName }?.phone.orEmpty() }
+                    if (phone.isNotBlank()) protoDialNumber(context, phone) else toast("Телефон клиента не указан")
+                }
+            }, onToWorkshop = { refreshOperationsData(); go(ProtoScreen.AdminWorkshop) })
             ProtoScreen.AdminChats -> ProtoAdminChatsScreen(
                 clients = clients,
                 messages = chatMessages,
@@ -1257,6 +1300,15 @@ fun SansaraVisualPrototype() {
                 onDelete = { id ->
                     notifications.removeAll { it.id == id }
                     persistNotifications()
+                },
+                onOpen = { n ->
+                    val i = notifications.indexOfFirst { it.id == n.id }
+                    if (i >= 0 && !n.read) { notifications[i] = n.copy(read = true); persistNotifications() }
+                    when {
+                        n.orderId.isNotBlank() && orders.any { it.id == n.orderId } -> { selectedOrderId = n.orderId; go(ProtoScreen.AdminOrderDetail) }
+                        n.title.contains("заявк", true) -> go(ProtoScreen.AdminAttention)
+                        n.title.contains("оплат", true) || n.title.contains("отгрузк", true) -> { refreshShipments(); go(ProtoScreen.AdminPayments) }
+                    }
                 }
             )
             ProtoScreen.AdminCatalog -> ProtoAdminCatalogScreen(products, stockOverrides, syncStatus = catalogSyncStatus, lastSync = lastCatalogSync, onSync = { syncTildaCatalog() }, onBack = { back() })
@@ -1297,7 +1349,7 @@ fun SansaraVisualPrototype() {
                 }
             )
             ProtoScreen.AdminAttention -> ProtoAttentionScreen(
-                regs = registrations, blocked = clients.filter { it.status == "Приостановлен" }, picking = orders.filter { it.status == "Собирается" },
+                regs = registrations.filter { it.status != "Отклонена" }, blocked = clients.filter { it.status == "Приостановлен" }, picking = orders.filter { it.status == "Собирается" },
                 lowStock = products.filter { availableStock(it) <= lowStockThreshold }, stockValue = { availableStock(it) },
                 onBack = { back() }, onClient = { selectedClientId = it.id; go(ProtoScreen.AdminClient) }, onOrder = { selectedOrderId = it.id; go(ProtoScreen.AdminOrderDetail) },
                 onApprove = { reg ->
@@ -1312,9 +1364,8 @@ fun SansaraVisualPrototype() {
                 },
                 onClose = { reg ->
                     scope.launch {
-                        repository.reject(reg.id)
-                        registrations.remove(reg)
-                        persistAll()
+                        repository.reject(reg, "")
+                        applySnapshot(repository.snapshot())
                     }
                 }, onLowStock = { go(ProtoScreen.LowStockList) }
             )
@@ -1344,8 +1395,8 @@ fun SansaraVisualPrototype() {
                 onBack={back()},
                 onAdd={name->
                     scope.launch {
-                        runCatching{repository.addAdmin(name,session?.userId?:"")}
-                            .onSuccess{refreshOperationsData();toast("Администратор добавлен под общим паролем")}
+                        runCatching{repository.addAdmin(name,"",session?.userId?:"")}
+                            .onSuccess{(_,code)->refreshOperationsData();toast("Администратор добавлен. Личный код входа: "+code)}
                             .onFailure{toast(it.message?:"Ошибка")}
                     }
                 },
@@ -1740,191 +1791,243 @@ fun SansaraVisualPrototype() {
     }
 
     @Composable fun protoGroupF() {
+        // Режим «Для клиентов»: агент показывает каталог своему покупателю по ценам с наценкой,
+        // а в базу заказ уходит по закупочной цене агента (его скидка), с пометкой конечного покупателя.
+        val owner = currentClient()
+        val customer = agentCustomers.firstOrNull { it.id == selectedAgentCustomerId }
+        val customerName = customer?.fullName ?: "Частный клиент"
+        val retail = retailProducts(owner.id, customer?.id.orEmpty())
+        val baseOf: (ProtoCatalogProduct) -> ProtoCatalogProduct? = { rp -> products.firstOrNull { it.sku == rp.sku } }
+        val retailStock: (ProtoCatalogProduct) -> Int = { rp -> baseOf(rp)?.let { availableStock(it) } ?: 0 }
+        val retailOrders = orders.filter { it.retailCustomerId.isNotBlank() && it.retailCustomerId == customer?.id }
+        val exitRetail: () -> Unit = { history.clear(); screen = ProtoScreen.AgentClientDetail }
+        val rHome: () -> Unit = { history.clear(); screen = ProtoScreen.RetailHome }
+        val rCatalog: () -> Unit = { go(ProtoScreen.RetailCatalog) }
+        val rCart: () -> Unit = { go(ProtoScreen.RetailCart) }
+        val rOrders: () -> Unit = { go(ProtoScreen.RetailOrderList) }
+        fun setRetailQty(p: ProtoCatalogProduct, q: Int) { if (q <= 0) retailCart.remove(p.sku) else retailCart[p.sku] = q }
+        fun asRetailView(o: ProtoOrder): ProtoOrder =
+            o.copy(lines = o.lines.map { l -> if (l.retailPrice > 0) l.copy(price = l.retailPrice, discountPct = 0) else l })
         when (screen) {
             ProtoScreen.RetailHome -> {
-                val ownerId=currentClient().id
-                val customer=agentCustomers.firstOrNull{it.id==selectedAgentCustomerId}
-                val retail=retailProducts(ownerId,customer?.id.orEmpty())
-                val retailClient=ProtoClient(customer?.id?:"RETAIL",customer?.fullName?:"Частный клиент",customer?.fullName.orEmpty(),customer?.phone.orEmpty(),"Активный",0,0,0,"",false,"сейчас",email=customer?.email.orEmpty(),city=customer?.city.orEmpty(),address=customer?.address.orEmpty(),firstName=customer?.fullName?.substringBefore(" ").orEmpty().ifBlank{"Клиент"})
-                val retailAudienceKey=currentClient().name+" / "+(customer?.fullName?:"Частный клиент")
+                val retailClient = ProtoClient(customer?.id ?: "RETAIL", customerName, customer?.fullName.orEmpty(), customer?.phone.orEmpty(), "Активный", 0, 0, 0, "", false, "сейчас",
+                    email = customer?.email.orEmpty(), city = customer?.city.orEmpty(), address = customer?.address.orEmpty(),
+                    firstName = customer?.fullName?.substringBefore(" ").orEmpty().ifBlank { "Клиент" })
                 ProtoClientHomeScreen(
-                    client=retailClient,products=retail,stockOverrides=stockOverrides,
-                    availableStock={rp->products.firstOrNull{it.sku==rp.sku}?.let{availableStock(it)}?:0},
-                    cartCount=retailCart.size,query=searchQuery,onQuery={searchQuery=it},onSearch={resetFilters();go(ProtoScreen.RetailProductList)},
-                    unreadCount=notifications.count{it.audienceRole=="CLIENT"&&it.audienceKey==retailAudienceKey&&!it.read},onNotifications={go(ProtoScreen.RetailNotifications)},onAvailability={st->if(st=="Все")resetFilters() else resetFilters(availability=st);go(ProtoScreen.RetailProductList)},
-                    onCategory={type->if(type!="Венки")toast("Раздел «$type» в разработке") else{resetFilters(type="Венки");go(ProtoScreen.RetailFilter)}},
-                    onOpenProduct={p->retailSelectedProduct=p;retailDetailQty=1;go(ProtoScreen.RetailProductDetail)},
-                    onCart={go(ProtoScreen.RetailCart)},onOrders={go(ProtoScreen.RetailOrderList)},onProfile={},onCatalog={go(ProtoScreen.RetailCatalog)},
-                    onSeeAll={searchQuery="";resetFilters();go(ProtoScreen.RetailProductList)},onAddToCart={p,q->retailCart[p.sku]=(retailCart[p.sku]?:0)+q;toast("Добавлено в корзину: ${q} шт.")},retailMode=true,onRetailExit={history.clear();screen=ProtoScreen.AgentClientDetail}
+                    client = retailClient,
+                    products = retail,
+                    popularity = popularity(),
+                    availableStock = retailStock,
+                    cart = retailCart,
+                    lastOrder = retailOrders.maxByOrNull { protoOrderEpoch(it.dateTime) }?.let { asRetailView(it) },
+                    unreadCount = 0,
+                    onNotifications = { go(ProtoScreen.RetailNotifications) },
+                    onSearch = { openProductList(focus = true, target = ProtoScreen.RetailProductList) },
+                    onGroup = { g -> openProductList(type = g, target = ProtoScreen.RetailProductList) },
+                    onOpenProduct = { p -> retailSelectedProduct = p; retailDetailQty = 1; go(ProtoScreen.RetailProductDetail) },
+                    onSetQty = { p, q -> setRetailQty(p, q) },
+                    onSeeAll = { mode -> openProductList(availability = mode.takeIf { it != "Все" }, target = ProtoScreen.RetailProductList) },
+                    onOpenOrder = { selectedOrderId = it.id; go(ProtoScreen.RetailOrderDetail) },
+                    onHome = rHome, onCatalog = rCatalog, onCart = rCart, onOrders = rOrders, onProfile = {},
+                    retailMode = true, onRetailExit = exitRetail
                 )
             }
             ProtoScreen.RetailCatalog -> ProtoCatalogHomeScreen(
-                cartCount=retailCart.size,
-                wreathCount=catalogProducts.count{it.type in protoWreathGroups},onBack={back()},onSearch={q->searchQuery=q;resetFilters();go(ProtoScreen.RetailProductList)},
-                onCategory={type->if(type!="Венки")toast("Раздел «$type» в разработке") else{resetFilters(type="Венки");go(ProtoScreen.RetailFilter)}},
-                onAvailability={st->searchQuery="";if(st=="Все")resetFilters() else resetFilters(availability=st);go(ProtoScreen.RetailProductList)},
-                onHome={history.clear();screen=ProtoScreen.RetailHome},onCart={go(ProtoScreen.RetailCart)},onOrders={go(ProtoScreen.RetailOrderList)},onProfile={},
-                retailMode=true,onRetailExit={history.clear();screen=ProtoScreen.AgentClientDetail}
+                cartCount = retailCart.size,
+                groupCounts = protoWreathGroupsOrdered.associateWith { g -> retail.count { it.type == g } }.filterValues { it > 0 },
+                onBack = { back() },
+                onSearch = { q -> openProductList(query = q, focus = q.isBlank(), target = ProtoScreen.RetailProductList) },
+                onGroup = { g -> openProductList(type = g, target = ProtoScreen.RetailProductList) },
+                onAvailability = { st -> openProductList(availability = st.takeIf { it != "Все" }, target = ProtoScreen.RetailProductList) },
+                onHome = rHome, onCart = rCart, onOrders = rOrders, onProfile = {},
+                retailMode = true, onRetailExit = exitRetail
             )
-            ProtoScreen.RetailFilter -> {
-                val ownerId=currentClient().id
-                val customerId=selectedAgentCustomerId.orEmpty()
-                val retail=retailProducts(ownerId,customerId)
-                ProtoFilterScreen(
-                    products=retail.filter{it.type in protoWreathGroups},selectedTypes=selectedTypes,selectedQualities=selectedQualities,selectedSizes=selectedSizes,
-                    selectedAvailability=selectedAvailability,minPrice=minPriceFilter,maxPrice=maxPriceFilter,
-                    availableStock={rp->products.firstOrNull{it.sku==rp.sku}?.let{availableStock(it)}?:0},
-                    onApply={types,qualities,sizes,availability,minPrice,maxPrice->selectedTypes=types;selectedQualities=qualities;selectedSizes=sizes;selectedAvailability=availability;minPriceFilter=minPrice;maxPriceFilter=maxPrice;searchQuery="";go(ProtoScreen.RetailProductList)},
-                    onBack={back()}
-                )
-            }
+            ProtoScreen.RetailFilter -> ProtoFilterScreen(
+                products = retail.filter { it.type in protoWreathGroups },
+                filter = currentFilter(),
+                availableStock = retailStock,
+                onApply = { f ->
+                    applyFilter(f)
+                    productListIndex = 0; productListOffset = 0
+                    if (history.lastOrNull() == ProtoScreen.RetailProductList) back() else go(ProtoScreen.RetailProductList)
+                },
+                onBack = { back() }
+            )
             ProtoScreen.RetailProductList -> {
-                val ownerId=currentClient().id
-                val customerId=selectedAgentCustomerId.orEmpty()
-                val retail=retailProducts(ownerId,customerId)
-                val filtered=retail.filter{p->
-                    (searchQuery.isBlank()||p.sku.contains(searchQuery,true)||p.name.contains(searchQuery,true)) &&
-                    (selectedTypes.isEmpty()||p.type in selectedTypes) &&
-                    (selectedQualities.isEmpty()||p.quality=="—"||p.quality in selectedQualities) &&
-                    (selectedSizes.isEmpty()||p.size in selectedSizes) &&
-                    (selectedAvailability.isEmpty()||(if((products.firstOrNull{it.sku==p.sku}?.let{availableStock(it)}?:0)>0)"В наличии" else "Под заказ") in selectedAvailability) &&
-                    (minPriceFilter==null||p.price>=minPriceFilter!!) && (maxPriceFilter==null||p.price<=maxPriceFilter!!)
-                }
+                val f = currentFilter()
                 ProtoProductListScreen(
-                    products=filtered,cart=retailCart,stockOverrides=stockOverrides,
-                    availableStock={rp->products.firstOrNull{it.sku==rp.sku}?.let{availableStock(it)}?:0},discount=0,
-                    initialIndex=productListIndex,initialOffset=productListOffset,onBack={back()},onOpenFilter={go(ProtoScreen.RetailFilter)},
-                    onOpenProduct={p,index,offset->productListIndex=index;productListOffset=offset;retailSelectedProduct=p;retailDetailQty=retailCart[p.sku]?:1;go(ProtoScreen.RetailProductDetail)},
-                    onHome={history.clear();screen=ProtoScreen.RetailHome},onCatalog={go(ProtoScreen.RetailCatalog)},onCart={go(ProtoScreen.RetailCart)},onOrders={go(ProtoScreen.RetailOrderList)},onProfile={},
-                    onAddToCart={p,q->retailCart[p.sku]=(retailCart[p.sku]?:0)+q;toast("Добавлено в корзину: ${q} шт.")},retailMode=true,onRetailExit={history.clear();screen=ProtoScreen.AgentClientDetail}
+                    products = retail.filter { protoMatches(it, f, retailStock(it)) },
+                    cart = retailCart,
+                    availableStock = retailStock,
+                    query = searchQuery,
+                    onQuery = { searchQuery = it; productListIndex = 0; productListOffset = 0 },
+                    activeChips = activeFilterChips(),
+                    sort = listSort,
+                    onSort = { listSort = it },
+                    initialIndex = productListIndex,
+                    initialOffset = productListOffset,
+                    focusSearch = focusSearch,
+                    onBack = { focusSearch = false; back() },
+                    onOpenFilter = { focusSearch = false; go(ProtoScreen.RetailFilter) },
+                    onOpenProduct = { p, index, offset ->
+                        productListIndex = index; productListOffset = offset; focusSearch = false
+                        retailSelectedProduct = p; retailDetailQty = 1
+                        go(ProtoScreen.RetailProductDetail)
+                    },
+                    onSetQty = { p, q -> setRetailQty(p, q) },
+                    onHome = rHome, onCatalog = rCatalog, onCart = rCart, onOrders = rOrders, onProfile = {},
+                    retailMode = true, onRetailExit = exitRetail
                 )
             }
             ProtoScreen.RetailProductDetail -> {
-                val p=retailSelectedProduct
+                val p = retailSelectedProduct?.let { sel -> retail.firstOrNull { it.sku == sel.sku } ?: sel }
                 ProtoProductDetailScreen(
-                    product=p,currentStock=p?.let{rp->products.firstOrNull{it.sku==rp.sku}?.let{availableStock(it)}?:0}?:0,qty=retailDetailQty,discount=0,cartCount=retailCart.size,editingCart=p?.sku?.let{retailCart.containsKey(it)}==true,
-                    onBack={back()},onMinus={retailDetailQty=(retailDetailQty-1).coerceAtLeast(1)},onPlus={retailDetailQty+=1},
-                    onAdd={p?.let{retailCart[it.sku]=retailDetailQty};back()},onHome={history.clear();screen=ProtoScreen.RetailHome},onCatalog={go(ProtoScreen.RetailCatalog)},onCart={go(ProtoScreen.RetailCart)},onOrders={go(ProtoScreen.RetailOrderList)},onProfile={},
-                    retailMode=true,onRetailExit={history.clear();screen=ProtoScreen.AgentClientDetail}
+                    product = p,
+                    currentStock = p?.let { retailStock(it) } ?: 0,
+                    qty = retailDetailQty,
+                    discount = 0,
+                    inCartQty = p?.let { retailCart[it.sku] } ?: 0,
+                    editingCart = false,
+                    onBack = { back() },
+                    onMinus = { retailDetailQty = (retailDetailQty - 1).coerceAtLeast(1) },
+                    onPlus = { retailDetailQty += 1 },
+                    onAdd = { p?.let { retailCart[it.sku] = (retailCart[it.sku] ?: 0) + retailDetailQty; toast("Добавлено в корзину: ${retailDetailQty} шт."); retailDetailQty = 1 } },
+                    onGoCart = rCart,
+                    onHome = rHome, onCatalog = rCatalog, onCart = rCart, onOrders = rOrders, onProfile = {},
+                    retailMode = true, onRetailExit = exitRetail
                 )
             }
-            ProtoScreen.RetailCart -> {
-                val ownerId=currentClient().id
-                val customerId=selectedAgentCustomerId.orEmpty()
-                val retail=retailProducts(ownerId,customerId)
-                ProtoCartScreen(
-                    products=retail,cart=retailCart,discount=0,availableStock={rp->products.firstOrNull{it.sku==rp.sku}?.let{availableStock(it)}?:0},
-                    onBack={back()},onPlus={p->retailCart[p.sku]=(retailCart[p.sku]?:0)+1},onMinus={p->val n=(retailCart[p.sku]?:1)-1;if(n<=0)retailCart.remove(p.sku)else retailCart[p.sku]=n},
-                    onDelete={retailCart.remove(it.sku)},onOpenProduct={p->retailSelectedProduct=p;retailDetailQty=retailCart[p.sku]?:1;go(ProtoScreen.RetailProductDetail)},onCheckout={go(ProtoScreen.RetailCheckout)},
-                    onHome={history.clear();screen=ProtoScreen.RetailHome},onCatalog={go(ProtoScreen.RetailCatalog)},onOrders={go(ProtoScreen.RetailOrderList)},onProfile={},retailMode=true,onRetailExit={history.clear();screen=ProtoScreen.AgentClientDetail}
-                )
-            }
+            ProtoScreen.RetailCart -> ProtoCartScreen(
+                products = retail,
+                cart = retailCart,
+                discount = 0,
+                availableStock = retailStock,
+                onBack = { back() },
+                onPlus = { p -> retailCart[p.sku] = (retailCart[p.sku] ?: 0) + 1 },
+                onMinus = { p -> val n = (retailCart[p.sku] ?: 1) - 1; if (n <= 0) retailCart.remove(p.sku) else retailCart[p.sku] = n },
+                onDelete = { retailCart.remove(it.sku) },
+                onRestore = { p, q -> retailCart[p.sku] = q },
+                onOpenProduct = { p -> retailSelectedProduct = p; retailDetailQty = 1; go(ProtoScreen.RetailProductDetail) },
+                onCheckout = { if (orderingBlocked()) go(ProtoScreen.Suspended) else go(ProtoScreen.RetailCheckout) },
+                onHome = rHome, onCatalog = rCatalog, onOrders = rOrders, onProfile = {},
+                retailMode = true, onRetailExit = exitRetail
+            )
             ProtoScreen.RetailCheckout -> {
-                val ownerId=currentClient().id
-                val customer=agentCustomers.firstOrNull{it.id==selectedAgentCustomerId}
-                val retail=retailProducts(ownerId,customer?.id.orEmpty())
-                val baseTotal=retailCart.entries.sumOf{(sku,q)->retail.firstOrNull{it.sku==sku}?.price?.times(q)?:0}
-                val totalPieces=retailCart.values.sum()
-                val shortages=retailCart.mapNotNull{(sku,qty)->retail.firstOrNull{it.sku==sku}?.let{rp->val available=products.firstOrNull{it.sku==sku}?.let{availableStock(it)}?:0;if(qty>available)"${rp.sku}: ${qty-available} шт." else null}}
-                val maxDays=retailCart.keys.mapNotNull{sku->retail.firstOrNull{it.sku==sku}?.productionDays}.maxOrNull()?:0
-                val contact=SansaraCompanyContact(customer?.id?:"RETAIL",customer?.fullName?:"Частный клиент",customer?.phone.orEmpty(),customer?.email.orEmpty())
+                val cartLines = retailCart.mapNotNull { (sku, q) -> retail.firstOrNull { it.sku == sku }?.let { it to q } }
+                val retailTotal = cartLines.sumOf { (rp, q) -> rp.price * q }
+                val shortItems = cartLines.mapNotNull { (rp, q) -> if (q > retailStock(rp)) rp else null }
+                val contact = SansaraCompanyContact(customer?.id ?: "RETAIL", customerName, customer?.phone.orEmpty(), customer?.email.orEmpty())
                 ProtoCheckoutScreen(
-                    cartPositions=retailCart.size,totalPieces=totalPieces,baseTotal=baseTotal,finalTotal=baseTotal,discount=0,defaultAddress=customer?.address.orEmpty(),contacts=listOf(contact),
-                    clientStatus="Режим «Для клиентов»",earliestDate=LocalDate.now().plusDays(maxDays.toLong()),shortages=shortages,onBack={back()},
-                    onSubmit={method,address,comment,recipient,phone,date,time->
-                        scope.launch {
-                            val id=repository.nextOrderId()
-                            val lines=retailCart.mapNotNull{(sku,q)->retail.firstOrNull{it.sku==sku}?.let{ProtoOrderLine(it.sku,it.name,q,it.price,0)}}
-                            val order=ProtoOrder(id,currentClient().name+" / "+(customer?.fullName?:"Частный клиент"),LocalDateTime.now().format(DateTimeFormatter.ofPattern("dd.MM.yyyy HH:mm")),lines,"Получен",deliveryMethod=method,deliveryAddress=address,comment=comment,recipient=recipient,contactPhone=phone,deliveryDate=date,deliveryTime=time)
-                            orders.add(0,order);retailLastTotal=order.total;retailCart.clear();persistAll();sendOrderEvent(order)
-                            addNotification("ADMIN","", "Новый заказ "+order.id, order.clientName+" · "+protoMoney(order.total))
-                            history.clear();screen=ProtoScreen.RetailOrderSent
-                        }
-                    },
-                    onHome={history.clear();screen=ProtoScreen.RetailHome},onCatalog={go(ProtoScreen.RetailCatalog)},onCart={go(ProtoScreen.RetailCart)},onOrders={go(ProtoScreen.RetailOrderList)},onProfile={},retailMode=true,onRetailExit={history.clear();screen=ProtoScreen.AgentClientDetail}
-                )
-            }
-            ProtoScreen.RetailOrderList -> {
-                val ownerId=currentClient().id
-                val customer=agentCustomers.firstOrNull{it.id==selectedAgentCustomerId}
-                val retail=retailProducts(ownerId,customer?.id.orEmpty())
-                val audienceKey=currentClient().name+" / "+(customer?.fullName?:"Частный клиент")
-                ProtoOrderListScreen(
-                    orders=orders.filter{it.clientName==audienceKey},
-                    products=retail,
-                    onBack={back()},
-                    onOpen={selectedOrderId=it.id;go(ProtoScreen.RetailOrderDetail)},
-                    onHome={history.clear();screen=ProtoScreen.RetailHome},
-                    onCatalog={go(ProtoScreen.RetailCatalog)},
-                    onCart={go(ProtoScreen.RetailCart)},
-                    onProfile={},
-                    retailMode=true,
-                    onRetailExit={history.clear();screen=ProtoScreen.AgentClientDetail},
-                    cartCount=retailCart.size
-                )
-            }
-            ProtoScreen.RetailOrderDetail -> {
-                val ownerId=currentClient().id
-                val customer=agentCustomers.firstOrNull{it.id==selectedAgentCustomerId}
-                val retail=retailProducts(ownerId,customer?.id.orEmpty())
-                ProtoOrderDetailScreen(
-                    order=orders.firstOrNull{it.id==selectedOrderId},
-                    products=retail,
-                    isAdmin=false,
-                    onBack={back()},
-                    onStatus={},
-                    onRepeat={
-                        orders.firstOrNull{it.id==selectedOrderId}?.let{order->
+                    cartPositions = cartLines.size,
+                    totalPieces = cartLines.sumOf { it.second },
+                    baseTotal = retailTotal,
+                    finalTotal = retailTotal,
+                    discount = 0,
+                    defaultAddress = customer?.address.orEmpty(),
+                    contacts = listOf(contact),
+                    clientStatus = "Заказ для клиента: $customerName",
+                    earliestDate = earliestDeliveryDate(shortItems),
+                    shortages = shortItems.map { rp -> protoTitle(rp) + ": под заказ · " + protoReadyLabel(rp.productionDays) },
+                    pickupPoints = pickupPoints(),
+                    onBack = { back() },
+                    onSubmit = { method, address, comment, recipient, phone, date, time ->
+                        if (orderingBlocked()) go(ProtoScreen.Suspended) else scope.launch {
+                            val id = repository.nextOrderId()
+                            val now = nowStamp()
+                            // В заказ — закупочная цена агента (базовая цена со скидкой агента), розничная цена — справочно.
+                            val lines = cartLines.mapNotNull { (rp, q) -> baseOf(rp)?.let { base -> ProtoOrderLine(base.sku, base.name, q, base.price, owner.discount, retailPrice = rp.price) } }
+                            val order = ProtoOrder(
+                                id = id,
+                                clientName = owner.name + " / " + customerName,
+                                dateTime = now,
+                                lines = lines,
+                                status = "Получен",
+                                history = listOf(ProtoOrderEvent("Получен", now, owner.contact)),
+                                deliveryMethod = method, deliveryAddress = address, comment = comment,
+                                recipient = recipient, contactPhone = phone, deliveryDate = date, deliveryTime = time,
+                                clientId = owner.id,
+                                retailCustomerId = customer?.id.orEmpty(),
+                                retailCustomerName = customerName
+                            )
+                            orders.add(0, order)
+                            selectedOrderId = id
+                            retailLastTotal = lines.sumOf { it.retailPrice * it.qty }
                             retailCart.clear()
-                            order.lines.forEach{line->retailCart[line.sku]=line.qty}
-                            toast("Заказ "+order.id+" подготовлен к повтору")
-                            go(ProtoScreen.RetailCheckout)
-                        }
-                    },
-                    onEditRepeat={
-                        orders.firstOrNull{it.id==selectedOrderId}?.let{order->
-                            retailCart.clear()
-                            order.lines.forEach{line->retailCart[line.sku]=line.qty}
-                            toast("Можно изменить состав и количество")
-                            go(ProtoScreen.RetailCart)
-                        }
-                    },
-                    onCancel={
-                        val idx=orders.indexOfFirst{it.id==selectedOrderId}
-                        if(idx>=0&&orders[idx].status=="Получен"){
-                            val old=orders[idx]
-                            val now=LocalDateTime.now().format(DateTimeFormatter.ofPattern("dd.MM.yyyy HH:mm"))
-                            orders[idx]=old.copy(status="Отменён",history=old.history+ProtoOrderEvent("Отменён",now,currentClient().contact))
                             persistAll()
-                            back()
+                            sendOrderEvent(order)
+                            addNotification("ADMIN", "ADMIN", "Новый заказ " + id, order.clientName + " · " + protoMoney(order.total), orderId = id)
+                            history.clear(); history.add(ProtoScreen.RetailHome)
+                            screen = ProtoScreen.RetailOrderSent
                         }
-                    }
+                    },
+                    onHome = rHome, onCatalog = rCatalog, onCart = rCart, onOrders = rOrders, onProfile = {},
+                    retailMode = true, onRetailExit = exitRetail
                 )
             }
+            ProtoScreen.RetailOrderList -> ProtoOrderListScreen(
+                orders = retailOrders.sortedByDescending { protoOrderEpoch(it.dateTime) }.map { asRetailView(it) },
+                products = retail,
+                onBack = { back() },
+                onOpen = { selectedOrderId = it.id; go(ProtoScreen.RetailOrderDetail) },
+                onHome = rHome, onCatalog = rCatalog, onCart = rCart, onProfile = {},
+                retailMode = true, onRetailExit = exitRetail,
+                cartCount = retailCart.size
+            )
+            ProtoScreen.RetailOrderDetail -> ProtoOrderDetailScreen(
+                order = orders.firstOrNull { it.id == selectedOrderId }?.let { asRetailView(it) },
+                products = retail,
+                isAdmin = false,
+                onBack = { back() },
+                onStatus = {},
+                onRepeat = {
+                    orders.firstOrNull { it.id == selectedOrderId }?.let { order ->
+                        retailCart.clear()
+                        order.lines.forEach { line -> if (retail.any { it.sku == line.sku }) retailCart[line.sku] = line.qty }
+                        go(ProtoScreen.RetailCheckout)
+                    }
+                },
+                onEditRepeat = {
+                    orders.firstOrNull { it.id == selectedOrderId }?.let { order ->
+                        retailCart.clear()
+                        order.lines.forEach { line -> if (retail.any { it.sku == line.sku }) retailCart[line.sku] = line.qty }
+                        go(ProtoScreen.RetailCart)
+                    }
+                },
+                onCancel = {
+                    val idx = orders.indexOfFirst { it.id == selectedOrderId }
+                    if (idx >= 0 && orders[idx].status == "Получен") {
+                        val old = orders[idx]
+                        orders[idx] = old.copy(status = "Отменён", history = old.history + ProtoOrderEvent("Отменён", nowStamp(), owner.contact))
+                        addNotification("ADMIN", "ADMIN", "Заказ " + old.id + " отменён клиентом", old.clientName, orderId = old.id)
+                        persistAll()
+                        toast("Заказ " + old.id + " отменён")
+                    }
+                },
+                cartCount = retailCart.size
+            )
             ProtoScreen.RetailNotifications -> {
-                val customer=agentCustomers.firstOrNull{it.id==selectedAgentCustomerId}
-                val audienceKey=currentClient().name+" / "+(customer?.fullName?:"Частный клиент")
+                val ids = retailOrders.map { it.id }.toSet()
+                val legacyKey = owner.name + " / " + customerName
+                val mine: (ProtoNotification) -> Boolean = { n -> n.audienceRole == "CLIENT" && (n.audienceKey == legacyKey || (n.orderId.isNotBlank() && n.orderId in ids)) }
                 ProtoNotificationsScreen(
-                    notifications=notifications.filter{it.audienceRole=="CLIENT"&&it.audienceKey==audienceKey},
-                    onBack={back()},
-                    onReadAll={
-                        var changed=false
-                        notifications.indices.forEach{index->
-                            val n=notifications[index]
-                            if(n.audienceRole=="CLIENT"&&n.audienceKey==audienceKey&&!n.read){
-                                notifications[index]=n.copy(read=true)
-                                changed=true
-                            }
+                    notifications = notifications.filter(mine),
+                    onBack = { back() },
+                    onReadAll = {
+                        var changed = false
+                        notifications.indices.forEach { index ->
+                            val n = notifications[index]
+                            if (mine(n) && !n.read) { notifications[index] = n.copy(read = true); changed = true }
                         }
-                        if(changed)persistNotifications()
+                        if (changed) persistNotifications()
                     },
-                    onDelete={id->notifications.removeAll{it.id==id};persistNotifications()}
+                    onDelete = { id -> notifications.removeAll { it.id == id }; persistNotifications() },
+                    onOpen = { n -> if (n.orderId in ids) { selectedOrderId = n.orderId; go(ProtoScreen.RetailOrderDetail) } }
                 )
             }
             ProtoScreen.RetailOrderSent -> ProtoSimpleMessageScreen(
                 "Заказ отправлен",
-                "Заказ на "+protoMoney(retailLastTotal)+" передан администратору. Закупочные цены клиенту не показываются.",
-                onBack={history.clear();screen=ProtoScreen.AgentClientDetail}
+                "Заказ для клиента «$customerName» на " + protoMoney(retailLastTotal) + " передан администратору. Закупочные цены клиенту не показываются.",
+                onBack = exitRetail
             )
             else -> Unit
         }
@@ -1933,38 +2036,57 @@ fun SansaraVisualPrototype() {
     BackHandler(enabled = screen != ProtoScreen.Welcome) { back() }
 
     SansaraTheme {
-        Box(Modifier.fillMaxSize()) {
+        Box(Modifier.fillMaxSize().background(ProtoBg).safeDrawingPadding()) {
         when (screen) {
             ProtoScreen.Welcome -> ProtoWelcomeScreen(
                 onLogin = { go(ProtoScreen.Login) },
                 onRegister = { go(ProtoScreen.Registration) },
                 onRole = { if (BuildConfig.DEBUG) showRolePicker = true }
             )
-            ProtoScreen.Login -> ProtoLoginScreen(onBack = { back() }, onLogin = { code ->
-                scope.launch {
-                    val result = authProvider.signInWithAccessCode(code)
-                    if (result.ok) {
-                        session = result.session
-                        result.session?.clientId?.let { clientId ->
-                            selectedClientId = clientId
-                            companyContacts.clear()
-                            companyContacts.addAll(repository.contactsForClient(clientId))
+            ProtoScreen.Login -> {
+                val lockedMessage = if (loginLockedUntil > System.currentTimeMillis())
+                    "Слишком много неверных попыток. Повторите через " + ((loginLockedUntil - System.currentTimeMillis()) / 60_000 + 1) + " мин или позвоните менеджеру."
+                else null
+                ProtoLoginScreen(onBack = { back() }, lockedMessage = lockedMessage, onLogin = { phone, code ->
+                    scope.launch {
+                        val result = authProvider.signIn(phone, code)
+                        if (result.ok) {
+                            prefs.edit().putInt("login_fails", 0).putLong("login_locked_until", 0L).apply()
+                            session = result.session
+                            result.session?.clientId?.let { clientId ->
+                                selectedClientId = clientId
+                                companyContacts.clear()
+                                companyContacts.addAll(repository.contactsForClient(clientId))
+                            }
+                            history.clear()
+                            screen = startScreenForRole(result.session!!.role)
+                            onSignedIn()
+                        } else {
+                            val fails = prefs.getInt("login_fails", 0) + 1
+                            if (fails >= 5) {
+                                loginLockedUntil = System.currentTimeMillis() + 15 * 60_000L
+                                prefs.edit().putInt("login_fails", 0).putLong("login_locked_until", loginLockedUntil).apply()
+                            } else {
+                                prefs.edit().putInt("login_fails", fails).apply()
+                                toast(result.message + " · осталось попыток: " + (5 - fails))
+                            }
                         }
-                        history.clear()
-                        screen = startScreenForRole(result.session!!.role)
-                        onSignedIn()
-                    } else toast(result.message)
-                }
-            })
+                    }
+                })
+            }
             ProtoScreen.Registration -> ProtoRegistrationScreen(onBack = { back() }, onSubmit = { reg ->
                 registrations.add(0, reg)
                 lastRegistration = reg
                 registrationsTotalThisMonth += 1
                 persistAll()
                 sendRegistrationEvent(reg)
-                go(ProtoScreen.RegistrationSent)
+                addNotification("ADMIN", "ADMIN", "Новая заявка на регистрацию", reg.organization + " · " + reg.city)
+                history.clear(); history.add(ProtoScreen.Welcome)
+                screen = ProtoScreen.RegistrationSent
             })
-            ProtoScreen.RegistrationSent -> ProtoRegistrationSentScreen(lastRegistration, onBack = { history.clear(); screen = ProtoScreen.Welcome })
+            ProtoScreen.RegistrationSent -> ProtoRegistrationSentScreen(lastRegistration,
+                onBack = { history.clear(); screen = ProtoScreen.Welcome },
+                onHaveCode = { history.clear(); history.add(ProtoScreen.Welcome); screen = ProtoScreen.Login })
 
             ProtoScreen.Home, ProtoScreen.Catalog, ProtoScreen.Filter, ProtoScreen.ProductList, ProtoScreen.ProductDetail, ProtoScreen.Cart, ProtoScreen.Checkout, ProtoScreen.OrderSent, ProtoScreen.OrderList, ProtoScreen.OrderDetail -> protoGroupA()
             ProtoScreen.Notifications, ProtoScreen.ClientChat, ProtoScreen.ClientReports, ProtoScreen.ClientSettings, ProtoScreen.Profile, ProtoScreen.Suspended -> protoGroupB()
@@ -2007,7 +2129,7 @@ fun SansaraVisualPrototype() {
 }
 
 @Composable
-private fun ProtoLoadingState() {
+internal fun ProtoLoadingState() {
     Box(Modifier.fillMaxSize().background(ProtoBg),contentAlignment=Alignment.Center){
         Column(horizontalAlignment=Alignment.CenterHorizontally){
             CircularProgressIndicator(color=ProtoGold,strokeWidth=2.dp,modifier=Modifier.size(34.dp))
@@ -2018,7 +2140,7 @@ private fun ProtoLoadingState() {
 }
 
 @Composable
-private fun ProtoLiveBackground() {
+internal fun ProtoLiveBackground() {
     Box(Modifier.fillMaxSize().background(ProtoBg)) {
         Image(painter=painterResource(R.drawable.mock_flowers),contentDescription=null,alpha=.045f,contentScale=ContentScale.Crop,modifier=Modifier.align(Alignment.BottomStart).fillMaxWidth().height(230.dp))
         Image(painter=painterResource(R.drawable.mock_wreath),contentDescription=null,alpha=.025f,contentScale=ContentScale.Crop,modifier=Modifier.align(Alignment.TopEnd).size(180.dp))
@@ -2026,7 +2148,7 @@ private fun ProtoLiveBackground() {
 }
 
 @Composable
-private fun ProtoBrandHeader(
+internal fun ProtoBrandHeader(
     onBack:(()->Unit)?=null,
     showBell:Boolean=true,
     unreadCount:Int=0,
@@ -2064,7 +2186,7 @@ private fun ProtoBrandHeader(
     }
 }
 @Composable
-private fun ProtoSearchBar(text:String,onClick:()->Unit,placeholder:String="Поиск по артикулу, названию") {
+internal fun ProtoSearchBar(text:String,onClick:()->Unit,placeholder:String="Поиск по артикулу, названию") {
     Surface(color=ProtoPanel,border=BorderStroke(1.dp,ProtoBorder),shape=RoundedCornerShape(28.dp),modifier=Modifier.fillMaxWidth().height(48.dp).clickable{onClick()}){
         Row(Modifier.fillMaxSize().padding(horizontal=18.dp),verticalAlignment=Alignment.CenterVertically){
             Icon(Icons.Outlined.Search,null,tint=ProtoGold,modifier=Modifier.size(25.dp));Spacer(Modifier.width(11.dp))
@@ -2074,7 +2196,7 @@ private fun ProtoSearchBar(text:String,onClick:()->Unit,placeholder:String="По
 }
 
 @Composable
-private fun ProtoAvailabilityChips(selected:String,onSelect:(String)->Unit){
+internal fun ProtoAvailabilityChips(selected:String,onSelect:(String)->Unit){
     Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.spacedBy(10.dp)){
         listOf("Все","В наличии","Под заказ").forEach{label->
             val active=label==selected
@@ -2086,17 +2208,17 @@ private fun ProtoAvailabilityChips(selected:String,onSelect:(String)->Unit){
 }
 
 @Composable
-private fun ProtoPrimaryButton(text:String,onClick:()->Unit,enabled:Boolean=true,modifier:Modifier=Modifier){
+internal fun ProtoPrimaryButton(text:String,onClick:()->Unit,enabled:Boolean=true,modifier:Modifier=Modifier){
     Button(onClick=onClick,enabled=enabled,modifier=modifier.fillMaxWidth().height(56.dp),shape=RoundedCornerShape(28.dp),colors=ButtonDefaults.buttonColors(containerColor=ProtoGold,contentColor=Color.Black,disabledContainerColor=ProtoPanel2,disabledContentColor=ProtoMuted)){Text(text,fontWeight=FontWeight.Bold,fontSize=15.sp)}
 }
 
 @Composable
-private fun ProtoSecondaryButton(text:String,onClick:()->Unit,modifier:Modifier=Modifier){
+internal fun ProtoSecondaryButton(text:String,onClick:()->Unit,modifier:Modifier=Modifier){
     OutlinedButton(onClick=onClick,modifier=modifier.fillMaxWidth().height(54.dp),shape=RoundedCornerShape(27.dp),border=BorderStroke(1.dp,ProtoGold)){Text(text,color=ProtoGold,fontWeight=FontWeight.SemiBold)}
 }
 
 @Composable
-private fun ProtoWelcomeScreen(onLogin:()->Unit,onRegister:()->Unit,onRole:()->Unit) {
+internal fun ProtoWelcomeScreen(onLogin:()->Unit,onRegister:()->Unit,onRole:()->Unit) {
     val context=LocalContext.current
     Box(Modifier.fillMaxSize()){ProtoLiveBackground();Column(Modifier.fillMaxSize().padding(horizontal=18.dp)){
         Spacer(Modifier.height(18.dp));Image(painterResource(R.drawable.sansara_wordmark_large),"SANSARA",Modifier.fillMaxWidth().height(96.dp).padding(horizontal=6.dp).clickable{onRole()},contentScale=ContentScale.Fit);Spacer(Modifier.height(14.dp))
@@ -2109,806 +2231,7 @@ private fun ProtoWelcomeScreen(onLogin:()->Unit,onRegister:()->Unit,onRole:()->U
 }
 
 @Composable
-private fun ProtoLoginScreen(onBack:()->Unit,onLogin:(String)->Unit) {
-    var code by remember { mutableStateOf("") }
-    ProtoScaffold(title="Вход", subtitle="Код доступа выдаёт администратор после подтверждения регистрации", onBack=onBack) {
-        item { Spacer(Modifier.height(18.dp)); ProtoSectionCard { Text("Введите код доступа",color=ProtoText,fontSize=21.sp,fontWeight=FontWeight.Bold); Spacer(Modifier.height(10.dp)); ProtoField(code,{code=it},"Код доступа",keyboardType=KeyboardType.Number); if (BuildConfig.DEBUG) Text("Тест: клиент 1024 · админ 9001 · производство 9002",color=ProtoMuted,fontSize=11.sp,modifier=Modifier.padding(top=8.dp)); Spacer(Modifier.height(14.dp)); Button(onClick={onLogin(code.trim())},enabled=code.isNotBlank(),modifier=Modifier.fillMaxWidth().height(54.dp),colors=ButtonDefaults.buttonColors(containerColor=ProtoGold)){Text("Войти",color=Color.Black,fontWeight=FontWeight.Bold)} } }
-    }
-}
-
-@Composable
-private fun ProtoRegistrationScreen(onBack:()->Unit,onSubmit:(ProtoRegistration)->Unit) {
-    var organization by remember{mutableStateOf("")};var inn by remember{mutableStateOf("")};var contact1 by remember{mutableStateOf("")};var phone1 by remember{mutableStateOf("")};var email by remember{mutableStateOf("")};var city by remember{mutableStateOf("")};var address by remember{mutableStateOf("")};var type by remember{mutableStateOf(ProtoClientType.AGENT.label)};var consent by remember{mutableStateOf(false)};var showSecond by remember{mutableStateOf(false)};var contact2 by remember{mutableStateOf("")};var phone2 by remember{mutableStateOf("")}
-    val valid=organization.isNotBlank()&&inn.isNotBlank()&&contact1.isNotBlank()&&phone1.isNotBlank()&&email.isNotBlank()&&city.isNotBlank()&&consent
-    Box(Modifier.fillMaxSize()){ProtoLiveBackground();Column(Modifier.fillMaxSize()){ProtoBrandHeader(onBack=onBack,showBell=false);LazyColumn(Modifier.weight(1f),contentPadding=PaddingValues(horizontal=18.dp,vertical=8.dp),verticalArrangement=Arrangement.spacedBy(10.dp)){
-        item{Text("Регистрация партнёра",color=ProtoText,fontSize=30.sp,fontWeight=FontWeight.Bold);Text("Заполните данные для доступа к каталогу и заказам",color=ProtoMuted,fontSize=13.sp,modifier=Modifier.padding(top=4.dp))}
-        item{ProtoField(organization,{organization=it},"Название организации / ФИО")};item{ProtoField(inn,{inn=it},"ИНН",KeyboardType.Number)}
-        item{Box{ProtoField(contact1,{contact1=it},"Контактное лицо");IconButton(onClick={showSecond=true},modifier=Modifier.align(Alignment.CenterEnd).padding(end=6.dp).size(42.dp).background(ProtoGold,CircleShape)){Icon(Icons.Outlined.Add,null,tint=Color.Black)}}}
-        if(showSecond)item{ProtoSectionCard{Row(verticalAlignment=Alignment.CenterVertically){Text("Дополнительное контактное лицо",color=ProtoGoldSoft,fontWeight=FontWeight.SemiBold,modifier=Modifier.weight(1f));IconButton(onClick={showSecond=false}){Icon(Icons.Outlined.Close,null,tint=ProtoMuted)}};ProtoField(contact2,{contact2=it},"ФИО");Spacer(Modifier.height(8.dp));ProtoField(phone2,{phone2=it},"Телефон",KeyboardType.Phone)}}
-        item{ProtoField(phone1,{phone1=it},"Телефон",KeyboardType.Phone)};item{ProtoField(email,{email=it},"E-mail",KeyboardType.Email)};item{ProtoField(city,{city=it},"Город")};item{ProtoField(address,{address=it},"Адрес доставки")}
-        item{Text("Тип клиента",color=ProtoText,fontWeight=FontWeight.SemiBold,modifier=Modifier.padding(bottom=7.dp));Row(Modifier.fillMaxWidth().height(52.dp).border(1.dp,ProtoGold,RoundedCornerShape(26.dp))){listOf(ProtoClientType.AGENT.label,ProtoClientType.TRADING.label).forEach{option->val active=type==option;Box(Modifier.weight(1f).fillMaxHeight().clip(RoundedCornerShape(26.dp)).background(if(active)ProtoGold else Color.Transparent).clickable{type=option},contentAlignment=Alignment.Center){Text(option,color=if(active)Color.Black else ProtoText,fontWeight=FontWeight.SemiBold,fontSize=12.sp,maxLines=1)}}}}
-        item{Row(Modifier.fillMaxWidth().clickable{consent=!consent},verticalAlignment=Alignment.CenterVertically){Box(Modifier.size(28.dp).clip(RoundedCornerShape(8.dp)).background(if(consent)ProtoGold else ProtoPanel).border(1.dp,if(consent)ProtoGold else ProtoBorder,RoundedCornerShape(8.dp)),contentAlignment=Alignment.Center){if(consent)Icon(Icons.Outlined.Check,null,tint=Color.Black,modifier=Modifier.size(18.dp))};Spacer(Modifier.width(10.dp));Text("Согласен с условиями обработки данных",color=ProtoText,fontSize=12.sp)}}
-        item{ProtoPrimaryButton("Отправить заявку",{if(valid)onSubmit(ProtoRegistration(organization,organization,inn,contact1,phone1,email,city,address,type,contact2,phone2,""))},valid)}
-        item{Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.Center,verticalAlignment=Alignment.CenterVertically){Text("Уже есть аккаунт?",color=ProtoMuted);TextButton(onClick=onBack){Text("Войти",color=ProtoGold)}}}
-    }}}
-}
-
-@Composable
-private fun ProtoClientHomeScreen(
-    client:ProtoClient,
-    products:List<ProtoCatalogProduct>,
-    stockOverrides:SnapshotStateMap<String,Int>,
-    availableStock:(ProtoCatalogProduct)->Int,
-    cartCount:Int,
-    query:String,
-    onQuery:(String)->Unit,
-    onSearch:()->Unit,
-    unreadCount:Int,
-    onNotifications:()->Unit,
-    onAvailability:(String)->Unit,
-    onCategory:(String)->Unit,
-    onOpenProduct:(ProtoCatalogProduct)->Unit,
-    onCart:()->Unit,
-    onOrders:()->Unit,
-    onProfile:()->Unit,
-    onCatalog:()->Unit,
-    onSeeAll:()->Unit,
-    retailMode:Boolean=false,
-    onRetailExit:()->Unit={},
-    onAddToCart:(ProtoCatalogProduct,Int)->Unit={_,_->},
-    onMenu:(()->Unit)?=null
-) {
-    var searchOpen by remember{mutableStateOf(false)}
-    var mode by remember{mutableStateOf("Все")}
-    var previewProduct by remember{mutableStateOf<ProtoCatalogProduct?>(null)}
-    val popular=products.filter{availableStock(it)>0}.take(8)
-
-    Box(Modifier.fillMaxSize()){
-        ProtoLiveBackground()
-        Scaffold(
-            containerColor=Color.Transparent,
-            bottomBar={
-                if(retailMode)ProtoRetailBottomBar(ProtoScreen.RetailHome,cartCount,onHome={},onCatalog=onCatalog,onCart=onCart,onExit=onRetailExit,onOrders=onOrders)
-                else ProtoClientBottomBar(ProtoScreen.Home,cartCount,onHome={},onCatalog=onCatalog,onCart=onCart,onOrders=onOrders,onProfile=onProfile)
-            }
-        ){pad->
-            Column(Modifier.fillMaxSize().padding(pad)){
-                ProtoBrandHeader(unreadCount=unreadCount,onBell=onNotifications,onMenu=onMenu)
-                Column(Modifier.padding(horizontal=18.dp)){
-                    Text("Здравствуйте, "+client.firstName,color=ProtoText,fontSize=26.sp,fontWeight=FontWeight.Bold)
-                    if(retailMode)Text("Режим клиента · закупочные цены скрыты",color=ProtoGoldSoft,fontSize=13.sp)
-                    else Text("Статус: "+client.status+"  ·  Скидка "+client.discount+"%",color=ProtoGoldSoft,fontSize=14.sp)
-                    Spacer(Modifier.height(12.dp))
-                    ProtoSearchBar(query,{searchOpen=true})
-                    Spacer(Modifier.height(10.dp))
-                    ProtoAvailabilityChips(mode){selected->
-                        mode=selected
-                        onAvailability(selected)
-                    }
-                    Spacer(Modifier.height(5.dp))
-                }
-                LazyColumn(
-                    Modifier.weight(1f),
-                    contentPadding=PaddingValues(horizontal=18.dp,vertical=14.dp),
-                    verticalArrangement=Arrangement.spacedBy(14.dp)
-                ){
-                    item{
-                        LazyRow(horizontalArrangement=Arrangement.spacedBy(10.dp)){
-                            items(protoProductGroups,key={it.key}){group->
-                                Card(
-                                    colors=CardDefaults.cardColors(containerColor=ProtoPanel),
-                                    border=BorderStroke(1.dp,ProtoBorder),
-                                    shape=RoundedCornerShape(20.dp),
-                                    modifier=Modifier.width(120.dp).height(150.dp).clickable{onCategory(group.title)}
-                                ){
-                                    Box(Modifier.fillMaxSize()){
-                                        Image(painterResource(protoPlaceholderForType(group.imageType)),null,Modifier.fillMaxSize(),contentScale=ContentScale.Crop)
-                                        Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha=.28f)))
-                                        Text(group.title,color=ProtoText,fontSize=14.sp,fontWeight=FontWeight.Bold,modifier=Modifier.align(Alignment.BottomStart).padding(10.dp))
-                                        if(!group.enabled){
-                                            Box(Modifier.align(Alignment.CenterEnd).fillMaxHeight().width(30.dp),contentAlignment=Alignment.Center){
-                                                Text(
-                                                    "В разработке",
-                                                    color=ProtoText,
-                                                    fontSize=13.sp,
-                                                    fontWeight=FontWeight.ExtraBold,
-                                                    maxLines=1,
-                                                    softWrap=false,
-                                                    textAlign=androidx.compose.ui.text.style.TextAlign.Center,
-                                                    modifier=Modifier.requiredWidth(140.dp).rotate(-90f)
-                                                )
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                    item{
-                        Column{
-                            Text("Популярные товары",color=ProtoText,fontSize=24.sp,fontWeight=FontWeight.Bold,maxLines=1,softWrap=false)
-                            TextButton(onClick=onSeeAll,contentPadding=PaddingValues(0.dp),modifier=Modifier.height(32.dp)){Text("Смотреть все →",color=ProtoGold)}
-                        }
-                    }
-                    if(popular.isEmpty()){
-                        item{ProtoSectionCard{Text("Популярные товары появятся после прихода на склад",color=ProtoMuted)}}
-                    }else{
-                        items(popular.chunked(2)){row->
-                            Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.spacedBy(10.dp)){
-                                row.forEach{p->
-                                    ProtoProductCard(
-                                        p=p,
-                                        currentStock=availableStock(p),
-                                        discount=client.discount,
-                                        modifier=Modifier.weight(1f),
-                                        onImage={previewProduct=p},
-                                        onOpen={onOpenProduct(p)},
-                                        onAddToCart={q->onAddToCart(p,q)}
-                                    )
-                                }
-                                if(row.size==1)Spacer(Modifier.weight(1f))
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
-    if(searchOpen)AlertDialog(
-        onDismissRequest={searchOpen=false},
-        containerColor=ProtoPanel,
-        title={Text("Поиск по каталогу",color=ProtoText)},
-        text={ProtoField(query,onQuery,"Артикул или название")},
-        confirmButton={TextButton(onClick={searchOpen=false;onSearch()}){Text("Найти",color=ProtoGold)}},
-        dismissButton={TextButton(onClick={searchOpen=false}){Text("Отмена",color=ProtoMuted)}}
-    )
-    previewProduct?.let{product->ProtoProductImagePreview(product){previewProduct=null}}
-}
-@Composable
-private fun ProtoCatalogHomeScreen(cartCount:Int,wreathCount:Int=0,onBack:()->Unit,onSearch:(String)->Unit,onCategory:(String)->Unit,onAvailability:(String)->Unit,onHome:()->Unit,onCart:()->Unit,onOrders:()->Unit,onProfile:()->Unit,retailMode:Boolean=false,onRetailExit:()->Unit={}){
-    var searchOpen by remember{mutableStateOf(false)};var searchText by remember{mutableStateOf("")};var mode by remember{mutableStateOf("Все")};val cats=listOf("Венки","Гробы","Одежда","Ленты","Цветы","Услуги")
-    Box(Modifier.fillMaxSize()){ProtoLiveBackground();Scaffold(containerColor=Color.Transparent,bottomBar={if(retailMode)ProtoRetailBottomBar(ProtoScreen.RetailCatalog,cartCount,onHome,onCatalog={},onCart,onRetailExit,onOrders) else ProtoClientBottomBar(ProtoScreen.Catalog,cartCount,onHome,onCatalog={},onCart,onOrders,onProfile)}){pad->Column(Modifier.fillMaxSize().padding(pad).padding(horizontal=18.dp)){
-        ProtoBrandHeader(onBack=onBack,edge=0.dp);Text("Каталог",color=ProtoText,fontSize=32.sp,fontWeight=FontWeight.Bold,modifier=Modifier.padding(vertical=10.dp));ProtoSearchBar(searchText,{searchOpen=true},"Поиск по категориям");Spacer(Modifier.height(12.dp));ProtoAvailabilityChips(mode){mode=it;onAvailability(it)};Spacer(Modifier.height(14.dp))
-        LazyVerticalGrid(columns=GridCells.Fixed(2),modifier=Modifier.weight(1f),horizontalArrangement=Arrangement.spacedBy(10.dp),verticalArrangement=Arrangement.spacedBy(10.dp),contentPadding=PaddingValues(bottom=12.dp)){items(cats){cat->val enabled=cat=="Венки";Card(colors=CardDefaults.cardColors(containerColor=ProtoPanel),border=BorderStroke(1.dp,ProtoBorder),shape=RoundedCornerShape(20.dp),modifier=Modifier.height(205.dp).clickable(enabled=enabled){onCategory(cat)}){Box(Modifier.fillMaxSize()){Image(painterResource(protoPlaceholderForType(cat)),null,Modifier.fillMaxSize(),contentScale=ContentScale.Crop);Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha=.28f)));Column(Modifier.align(Alignment.BottomStart).padding(12.dp)){Text(cat,color=ProtoText,fontSize=18.sp,fontWeight=FontWeight.Bold);Text(if(cat=="Венки")protoPlural(wreathCount,"позиция","позиции","позиций") else "",color=ProtoMuted,fontSize=13.sp)};Icon(Icons.Outlined.ArrowForward,null,tint=ProtoGold,modifier=Modifier.align(Alignment.BottomEnd).padding(10.dp));if(!enabled)Box(Modifier.align(Alignment.CenterEnd).fillMaxHeight().width(34.dp),contentAlignment=Alignment.Center){Text("В разработке",color=ProtoText,fontSize=15.sp,fontWeight=FontWeight.ExtraBold,maxLines=1,softWrap=false,textAlign=androidx.compose.ui.text.style.TextAlign.Center,modifier=Modifier.requiredWidth(160.dp).rotate(-90f))}}}}}
-    }}}
-    if(searchOpen)AlertDialog(onDismissRequest={searchOpen=false},containerColor=ProtoPanel,title={Text("Поиск по каталогу",color=ProtoText)},text={ProtoField(searchText,{searchText=it},"Артикул или название")},confirmButton={TextButton(onClick={if(searchText.isNotBlank()){searchOpen=false;onSearch(searchText.trim())}}){Text("Найти",color=ProtoGold)}},dismissButton={TextButton(onClick={searchOpen=false}){Text("Отмена",color=ProtoMuted)}})
-}
-
-@Composable
-private fun ProtoFilterScreen(
-    products:List<ProtoCatalogProduct>,
-    selectedTypes:Set<String>,
-    selectedQualities:Set<String>,
-    selectedSizes:Set<String>,
-    selectedAvailability:Set<String>,
-    minPrice:Int?,
-    maxPrice:Int?,
-    availableStock:(ProtoCatalogProduct)->Int,
-    onApply:(Set<String>,Set<String>,Set<String>,Set<String>,Int?,Int?)->Unit,
-    onBack:()->Unit
-) {
-    var draftTypes by remember { mutableStateOf(selectedTypes) }
-    var draftQualities by remember { mutableStateOf(selectedQualities) }
-    var draftSizes by remember { mutableStateOf(selectedSizes) }
-    var draftAvailability by remember { mutableStateOf(selectedAvailability) }
-    var draftMin by remember { mutableStateOf(minPrice?.toString().orEmpty()) }
-    var draftMax by remember { mutableStateOf(maxPrice?.toString().orEmpty()) }
-
-    val groupTypes=listOf("Венки","Корзины","Флоретки","Полянки")
-    val scope=products.filter{it.type in groupTypes && (draftTypes.isEmpty() || it.type in draftTypes)}
-    val qualities=scope.map{it.quality}.filter{it.isNotBlank()&&it!="—"}.distinct().sorted()
-    val sizes=scope.map{it.size}.filter{it.isNotBlank()}.distinct().sortedBy{it.filter(Char::isDigit).toIntOrNull()?:9999}
-    LaunchedEffect(draftTypes){
-        draftQualities=draftQualities.filter{it in qualities}.toSet()
-        draftSizes=draftSizes.filter{it in sizes}.toSet()
-    }
-    val catalogMin=scope.minOfOrNull{it.price} ?: 0
-    val catalogMax=scope.maxOfOrNull{it.price} ?: 0
-    val minValue=draftMin.toIntOrNull()
-    val maxValue=draftMax.toIntOrNull()
-    val matchedCount=scope.count { p ->
-        (draftQualities.isEmpty() || p.quality in draftQualities) &&
-        (draftSizes.isEmpty() || p.size in draftSizes) &&
-        (draftAvailability.isEmpty() || (if(availableStock(p)>0)"В наличии" else "Под заказ") in draftAvailability) &&
-        (minValue==null || p.price>=minValue) &&
-        (maxValue==null || p.price<=maxValue)
-    }
-
-    Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha=.78f)),contentAlignment=Alignment.Center){
-        Surface(
-            color=ProtoBg,
-            border=BorderStroke(1.dp,ProtoBorder),
-            shape=RoundedCornerShape(24.dp),
-            modifier=Modifier.fillMaxWidth().fillMaxHeight(.93f).padding(horizontal=12.dp)
-        ){
-            Column(Modifier.fillMaxSize().padding(16.dp)){
-                Row(verticalAlignment=Alignment.CenterVertically){
-                    IconButton(onClick=onBack,modifier=Modifier.size(42.dp).border(1.dp,ProtoBorder,CircleShape)){
-                        Icon(Icons.Outlined.Close,contentDescription="Закрыть",tint=ProtoGold)
-                    }
-                    Spacer(Modifier.width(10.dp))
-                    Column(Modifier.weight(1f)){
-                        Text("Фильтр",color=ProtoText,fontSize=28.sp,fontWeight=FontWeight.Bold)
-                        Text("Все параметры на одном экране",color=ProtoMuted,fontSize=11.sp)
-                    }
-                    TextButton(onClick={
-                        draftTypes=emptySet();draftQualities=emptySet();draftSizes=emptySet();draftAvailability=emptySet();draftMin="";draftMax=""
-                    }){Text("Сбросить",color=ProtoGold)}
-                }
-                LazyColumn(
-                    Modifier.weight(1f),
-                    contentPadding=PaddingValues(vertical=8.dp),
-                    verticalArrangement=Arrangement.spacedBy(8.dp)
-                ){
-                    item{
-                        ProtoCompactGrid(
-                            title="Продукция",
-                            options=groupTypes,
-                            selected=draftTypes,
-                            toggle={draftTypes=protoToggle(draftTypes,it)}
-                        )
-                    }
-                    item{
-                        if(qualities.isNotEmpty())ProtoCompactGrid("Качество",qualities,draftQualities,{draftQualities=protoToggle(draftQualities,it)})
-                    }
-                    item{
-                        if(sizes.isEmpty())Text("Размеры будут подгружены из каталога",color=ProtoMuted)
-                        else ProtoCompactGrid("Размер",sizes,draftSizes,{draftSizes=protoToggle(draftSizes,it)})
-                    }
-                    item{
-                        ProtoCompactGrid("Наличие",listOf("В наличии","Под заказ"),draftAvailability,{draftAvailability=protoToggle(draftAvailability,it)})
-                    }
-                    item{
-                        Text("Цена",color=ProtoGoldSoft,fontSize=17.sp,fontWeight=FontWeight.SemiBold,modifier=Modifier.padding(top=7.dp,bottom=6.dp))
-                        Row(horizontalArrangement=Arrangement.spacedBy(10.dp)){
-                            OutlinedTextField(
-                                value=draftMin,
-                                onValueChange={draftMin=it.filter(Char::isDigit)},
-                                label={Text("от "+catalogMin+" ₽")},
-                                modifier=Modifier.weight(1f),
-                                singleLine=true,
-                                keyboardOptions=KeyboardOptions(keyboardType=KeyboardType.Number),
-                                colors=protoFieldColors()
-                            )
-                            OutlinedTextField(
-                                value=draftMax,
-                                onValueChange={draftMax=it.filter(Char::isDigit)},
-                                label={Text("до "+catalogMax+" ₽")},
-                                modifier=Modifier.weight(1f),
-                                singleLine=true,
-                                keyboardOptions=KeyboardOptions(keyboardType=KeyboardType.Number),
-                                colors=protoFieldColors()
-                            )
-                        }
-                    }
-                }
-                Spacer(Modifier.height(10.dp))
-                ProtoPrimaryButton("Показать "+matchedCount+" позиций",{
-                    onApply(if(draftTypes.isEmpty())groupTypes.toSet() else draftTypes,draftQualities,draftSizes,draftAvailability,minValue,maxValue)
-                })
-            }
-        }
-    }
-}
-@Composable
-private fun ProtoProductListScreen(
-    products:List<ProtoCatalogProduct>,
-    cart:SnapshotStateMap<String,Int>,
-    stockOverrides:SnapshotStateMap<String,Int>,
-    availableStock:(ProtoCatalogProduct)->Int,
-    discount:Int,
-    initialIndex:Int,
-    initialOffset:Int,
-    onBack:()->Unit,
-    onOpenFilter:()->Unit,
-    onOpenProduct:(ProtoCatalogProduct,Int,Int)->Unit,
-    onHome:()->Unit,
-    onCatalog:()->Unit,
-    onCart:()->Unit,
-    onOrders:()->Unit,
-    onProfile:()->Unit,
-    retailMode:Boolean=false,
-    onRetailExit:()->Unit={},
-    onAddToCart:(ProtoCatalogProduct,Int)->Unit={_,_->}
-){
-    val gridState=rememberLazyGridState(initialFirstVisibleItemIndex=initialIndex.coerceAtLeast(0),initialFirstVisibleItemScrollOffset=initialOffset.coerceAtLeast(0))
-    var previewProduct by remember{mutableStateOf<ProtoCatalogProduct?>(null)}
-    Box(Modifier.fillMaxSize()){
-        ProtoLiveBackground()
-        Scaffold(
-            containerColor=Color.Transparent,
-            bottomBar={if(retailMode)ProtoRetailBottomBar(ProtoScreen.RetailProductList,cart.size,onHome,onCatalog,onCart,onRetailExit,onOrders) else ProtoClientBottomBar(ProtoScreen.ProductList,cart.size,onHome,onCatalog,onCart,onOrders,onProfile)}
-        ){pad->
-            Column(Modifier.fillMaxSize().padding(pad)){
-                ProtoBrandHeader(onBack=onBack)
-                Row(
-                    Modifier.fillMaxWidth().padding(horizontal=16.dp,vertical=6.dp),
-                    verticalAlignment=Alignment.CenterVertically
-                ){
-                    Column(Modifier.weight(1f)){
-                        Text("Каталог",color=ProtoText,fontSize=30.sp,fontWeight=FontWeight.Bold)
-                        Text("Найдено: " + products.size + " позиций",color=ProtoMuted,fontSize=12.sp)
-                    }
-                    BadgedBox(badge={if(cart.size>0)Badge(containerColor=ProtoGold){Text(cart.size.toString(),color=Color.Black)}}){
-                        IconButton(onClick=onCart){Icon(Icons.Outlined.ShoppingCart,null,tint=ProtoGold)}
-                    }
-                }
-                OutlinedButton(
-                    onClick=onOpenFilter,
-                    modifier=Modifier.padding(horizontal=16.dp).fillMaxWidth(),
-                    border=BorderStroke(1.dp,ProtoBorder),
-                    shape=RoundedCornerShape(24.dp)
-                ){
-                    Icon(Icons.Outlined.Tune,null,tint=ProtoGold)
-                    Spacer(Modifier.width(8.dp))
-                    Text("Изменить фильтр",color=ProtoGold)
-                }
-                if(products.isEmpty()){
-                    Box(Modifier.weight(1f).fillMaxWidth(),contentAlignment=Alignment.Center){
-                        Text("По выбранным параметрам товаров нет",color=ProtoMuted)
-                    }
-                }else{
-                    LazyVerticalGrid(
-                        columns=GridCells.Fixed(2),
-                        state=gridState,
-                        modifier=Modifier.weight(1f),
-                        contentPadding=PaddingValues(12.dp),
-                        horizontalArrangement=Arrangement.spacedBy(10.dp),
-                        verticalArrangement=Arrangement.spacedBy(10.dp)
-                    ){
-                        items(products,key={it.sku}){p->
-                            ProtoProductCard(
-                                p=p,
-                                currentStock=availableStock(p),
-                                discount=discount,
-                                onImage={previewProduct=p},
-                                onOpen={onOpenProduct(p,gridState.firstVisibleItemIndex,gridState.firstVisibleItemScrollOffset)},
-                                onAddToCart={q->onAddToCart(p,q)}
-                            )
-                        }
-                    }
-                }
-            }
-        }
-    }
-    previewProduct?.let{product->ProtoProductImagePreview(product){previewProduct=null}}
-}
-@Composable
-private fun ProtoProductCard(
-    p:ProtoCatalogProduct,
-    currentStock:Int,
-    discount:Int,
-    modifier:Modifier=Modifier,
-    onImage:()->Unit={},
-    onOpen:()->Unit,
-    onAddToCart:(Int)->Unit={}
-) {
-    var qty by remember(p.sku){mutableStateOf(1)}
-    Card(
-        colors=CardDefaults.cardColors(containerColor=ProtoPanel),
-        border=BorderStroke(1.dp,ProtoBorder),
-        shape=RoundedCornerShape(15.dp),
-        modifier=modifier.height(392.dp)
-    ){
-        Box(Modifier.fillMaxWidth().height(140.dp).background(ProtoPanel2).clickable(onClick=onImage)){
-            ProtoProductImage(p,Modifier.fillMaxSize())
-            Surface(
-                Modifier.align(Alignment.BottomStart).padding(7.dp),
-                color=if(currentStock>0)Color(0xDD123A27)else Color(0xDD4A2220),
-                shape=RoundedCornerShape(18.dp)
-            ){
-                Text(
-                    if(currentStock>0)"В наличии $currentStock" else "Под заказ · ${p.productionDays} дн.",
-                    color=if(currentStock>0)ProtoGreen else ProtoGoldSoft,
-                    fontSize=9.sp,
-                    modifier=Modifier.padding(horizontal=7.dp,vertical=3.dp)
-                )
-            }
-        }
-        Column(Modifier.padding(horizontal=9.dp).padding(top=6.dp,bottom=10.dp).fillMaxSize()){
-            Text(
-                p.name,
-                color=ProtoText,
-                fontWeight=FontWeight.Bold,
-                fontSize=14.sp,
-                lineHeight=17.sp,
-                maxLines=2,
-                overflow=TextOverflow.Ellipsis
-            )
-            Text("Артикул: "+p.sku,color=ProtoGoldSoft,fontSize=13.sp,lineHeight=16.sp,fontWeight=FontWeight.Bold,maxLines=1,overflow=TextOverflow.Ellipsis,modifier=Modifier.padding(top=2.dp))
-            if(!(p.size.isBlank()||p.size=="—"))Text("Размер: "+p.size,color=ProtoMuted,fontSize=12.sp,lineHeight=15.sp,maxLines=1,overflow=TextOverflow.Ellipsis,modifier=Modifier.padding(top=1.dp))
-            Text(protoMoney(p.price),color=ProtoText,fontWeight=FontWeight.Bold,fontSize=20.sp,lineHeight=24.sp,modifier=Modifier.padding(top=2.dp))
-            Spacer(Modifier.weight(1f))
-            Column(verticalArrangement=Arrangement.spacedBy(8.dp)){
-                OutlinedButton(
-                    onClick=onOpen,
-                    modifier=Modifier.fillMaxWidth().height(40.dp),
-                    contentPadding=PaddingValues(horizontal=4.dp),
-                    border=BorderStroke(1.dp,ProtoGold),
-                    shape=RoundedCornerShape(10.dp)
-                ){
-                    Text("ПОДРОБНЕЕ",color=ProtoGold,fontSize=12.sp,fontWeight=FontWeight.Bold,maxLines=1)
-                }
-                Row(Modifier.fillMaxWidth().height(40.dp),verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.SpaceBetween){
-                    ProtoQtyButton(Icons.Outlined.Remove,{qty=(qty-1).coerceAtLeast(1)},40.dp)
-                    Text(qty.toString(),color=ProtoText,fontSize=16.sp,fontWeight=FontWeight.Bold)
-                    ProtoQtyButton(Icons.Outlined.Add,{qty+=1},40.dp)
-                }
-                Button(
-                    onClick={onAddToCart(qty);qty=1},
-                    modifier=Modifier.fillMaxWidth().height(40.dp),
-                    contentPadding=PaddingValues(horizontal=4.dp),
-                    colors=ButtonDefaults.buttonColors(containerColor=ProtoGold),
-                    shape=RoundedCornerShape(10.dp)
-                ){
-                    Text("В КОРЗИНУ",color=Color.Black,fontSize=12.sp,fontWeight=FontWeight.Bold,maxLines=1)
-                }
-            }
-        }
-    }
-}
-@Composable
-private fun ProtoProductDetailScreen(
-    product:ProtoCatalogProduct?,
-    currentStock:Int,
-    qty:Int,
-    discount:Int,
-    cartCount:Int,
-    editingCart:Boolean,
-    onBack:()->Unit,
-    onMinus:()->Unit,
-    onPlus:()->Unit,
-    onAdd:()->Unit,
-    onHome:()->Unit,
-    onCatalog:()->Unit,
-    onCart:()->Unit,
-    onOrders:()->Unit,
-    onProfile:()->Unit,
-    retailMode:Boolean=false,
-    onRetailExit:()->Unit={}
-) {
-    val p=product?:return
-    var preview by remember{mutableStateOf(false)}
-    val discountedUnit=p.price*(100-discount)/100
-    val base=p.price*qty
-    val total=discountedUnit*qty
-    Box(Modifier.fillMaxSize()){
-        ProtoLiveBackground()
-        Scaffold(containerColor=Color.Transparent,bottomBar={if(retailMode)ProtoRetailBottomBar(ProtoScreen.RetailProductDetail,cartCount,onHome,onCatalog,onCart,onRetailExit,onOrders) else ProtoClientBottomBar(ProtoScreen.ProductDetail,cartCount,onHome,onCatalog,onCart,onOrders,onProfile)}){pad->
-            LazyColumn(
-                Modifier.fillMaxSize().padding(pad),
-                contentPadding=PaddingValues(horizontal=18.dp,vertical=8.dp),
-                verticalArrangement=Arrangement.spacedBy(8.dp)
-            ){
-                item{ProtoBrandHeader(onBack=onBack,edge=0.dp)}
-                item{
-                    Card(
-                        colors=CardDefaults.cardColors(containerColor=ProtoPanel),
-                        border=BorderStroke(1.dp,ProtoBorder),
-                        shape=RoundedCornerShape(22.dp),
-                        modifier=Modifier.fillMaxWidth().height(320.dp).clickable{preview=true}
-                    ){ProtoProductImage(p,Modifier.fillMaxSize(),ContentScale.Fit)}
-                }
-                item{
-                    Text(p.name,color=ProtoText,fontSize=28.sp,fontWeight=FontWeight.Bold)
-                    ProtoSkuText(p.sku,extra=" · "+p.size,fontSize=15)
-                }
-                item{
-                    Row(verticalAlignment=Alignment.CenterVertically){
-                        Text(protoMoney(p.price),color=ProtoText,fontSize=30.sp,fontWeight=FontWeight.Bold,modifier=Modifier.weight(1f))
-                        Text(if(currentStock>0)"В наличии $currentStock шт." else "Под заказ · от "+p.productionDays+" дней",color=if(currentStock>0)ProtoGreen else ProtoGoldSoft,fontSize=12.sp)
-                    }
-                }
-                if(qty>currentStock)item{Text("В наличии "+currentStock+" шт., остальное под заказ · от "+p.productionDays+" дней",color=ProtoOrange,fontSize=12.sp)}
-                item{
-                    ProtoSectionCard{
-                        Text("Количество",color=ProtoGoldSoft,fontWeight=FontWeight.SemiBold)
-                        Row(
-                            Modifier.fillMaxWidth().padding(vertical=8.dp),
-                            verticalAlignment=Alignment.CenterVertically,
-                            horizontalArrangement=Arrangement.Center
-                        ){
-                            ProtoQtyButton(Icons.Outlined.Remove,onMinus,size=42.dp)
-                            Text(qty.toString(),color=ProtoText,fontSize=24.sp,fontWeight=FontWeight.Bold,modifier=Modifier.padding(horizontal=22.dp))
-                            ProtoQtyButton(Icons.Outlined.Add,onPlus,size=42.dp)
-                        }
-                        HorizontalDivider(color=ProtoBorder,modifier=Modifier.padding(vertical=6.dp))
-                        ProtoInfoRow("Цена за 1 шт.",protoMoney(p.price))
-                        if(discount>0)ProtoInfoRow("Скидка клиента "+discount+"%","−"+protoMoney(base-total))
-                        ProtoInfoRow("Количество",qty.toString()+" шт.")
-                        ProtoInfoRow("Итого",protoMoney(total))
-                        Spacer(Modifier.height(10.dp))
-                        ProtoPrimaryButton(if(editingCart)"Сохранить в корзине" else "Добавить в корзину",onAdd)
-                    }
-                }
-                item{ProtoSectionCard{Text("Характеристики",color=ProtoGoldSoft,fontSize=16.sp,fontWeight=FontWeight.Bold);ProtoInfoRow("Категория",p.type);ProtoInfoRow("Качество",p.quality);ProtoInfoRow("Размер",p.size)}}
-            }
-        }
-    }
-    if(preview)ProtoProductImagePreview(p){preview=false}
-}
-@Composable
-private fun ProtoCartScreen(
-    products:List<ProtoCatalogProduct>,
-    cart:SnapshotStateMap<String,Int>,
-    discount:Int,
-    availableStock:(ProtoCatalogProduct)->Int,
-    onBack:()->Unit,
-    onPlus:(ProtoCatalogProduct)->Unit,
-    onMinus:(ProtoCatalogProduct)->Unit,
-    onDelete:(ProtoCatalogProduct)->Unit,
-    onOpenProduct:(ProtoCatalogProduct)->Unit,
-    onCheckout:()->Unit,
-    onHome:()->Unit,
-    onCatalog:()->Unit,
-    onOrders:()->Unit,
-    onProfile:()->Unit,
-    retailMode:Boolean=false,
-    onRetailExit:()->Unit={}
-) {
-    val lines=cart.mapNotNull{(sku,q)->products.firstOrNull{it.sku==sku}?.let{it to q}}
-    val base=lines.sumOf{it.first.price*it.second}
-    val total=base*(100-discount)/100
-    var previewProduct by remember{mutableStateOf<ProtoCatalogProduct?>(null)}
-    Box(Modifier.fillMaxSize()){
-        ProtoLiveBackground()
-        Scaffold(containerColor=Color.Transparent,bottomBar={if(retailMode)ProtoRetailBottomBar(ProtoScreen.RetailCart,cart.size,onHome,onCatalog,onCart={},onRetailExit,onOrders) else ProtoClientBottomBar(ProtoScreen.Cart,cart.size,onHome,onCatalog,onCart={},onOrders,onProfile)}){pad->
-            Column(Modifier.fillMaxSize().padding(pad)){
-                ProtoBrandHeader(onBack=onBack)
-                Text("Корзина",color=ProtoText,fontSize=31.sp,fontWeight=FontWeight.Bold,modifier=Modifier.padding(horizontal=18.dp,vertical=8.dp))
-                LazyColumn(Modifier.weight(1f),contentPadding=PaddingValues(horizontal=18.dp),verticalArrangement=Arrangement.spacedBy(10.dp)){
-                    if(lines.isEmpty())item{ProtoSectionCard{Text("Корзина пуста",color=ProtoMuted)}}
-                    items(lines,key={it.first.sku}){pair->
-                        val p=pair.first
-                        val q=pair.second
-                        val available=availableStock(p)
-                        ProtoSectionCard{
-                            Row(verticalAlignment=Alignment.CenterVertically){
-                                ProtoProductImage(
-                                    p,
-                                    Modifier.size(82.dp).clip(RoundedCornerShape(12.dp)).clickable{previewProduct=p}
-                                )
-                                Spacer(Modifier.width(10.dp))
-                                Column(Modifier.weight(1f).clickable{onOpenProduct(p)}){
-                                    Text(p.name,color=ProtoText,fontWeight=FontWeight.SemiBold,maxLines=1,overflow=TextOverflow.Ellipsis)
-                                    ProtoSkuText(p.sku)
-                                    if(q>available)Text("В наличии "+available+" шт., остальное под заказ",color=ProtoOrange,fontSize=10.sp)
-                                    Row(verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.spacedBy(7.dp),modifier=Modifier.padding(top=6.dp)){
-                                        ProtoQtyButton(Icons.Outlined.Remove,{onMinus(p)})
-                                        Text(q.toString(),color=ProtoText,fontWeight=FontWeight.Bold)
-                                        ProtoQtyButton(Icons.Outlined.Add,{onPlus(p)})
-                                    }
-                                }
-                                Column(horizontalAlignment=Alignment.End){
-                                    Text(protoMoney(p.price*q*(100-discount)/100),color=ProtoGoldSoft,fontWeight=FontWeight.Bold)
-                                    IconButton(onClick={onDelete(p)}){Icon(Icons.Outlined.Delete,null,tint=ProtoGold)}
-                                }
-                            }
-                        }
-                    }
-                }
-                ProtoSectionCard(Modifier.padding(horizontal=18.dp,vertical=8.dp)){
-                    ProtoInfoRow("Товары",protoMoney(base))
-                    ProtoInfoRow("Скидка клиента "+discount+"%","−"+protoMoney(base-total))
-                    HorizontalDivider(color=ProtoBorder,modifier=Modifier.padding(vertical=8.dp))
-                    Row(Modifier.fillMaxWidth()){
-                        Text("Итого",color=ProtoText,fontSize=18.sp,fontWeight=FontWeight.Bold)
-                        Spacer(Modifier.weight(1f))
-                        Text(protoMoney(total),color=ProtoText,fontSize=22.sp,fontWeight=FontWeight.Bold)
-                    }
-                }
-                ProtoPrimaryButton("Оформить заказ",onCheckout,lines.isNotEmpty(),Modifier.padding(horizontal=18.dp,vertical=8.dp))
-            }
-        }
-    }
-    previewProduct?.let{product->ProtoProductImagePreview(product){previewProduct=null}}
-}
-@Composable
-private fun ProtoCheckoutScreen(
-    cartPositions:Int,
-    totalPieces:Int,
-    baseTotal:Int,
-    finalTotal:Int,
-    discount:Int,
-    defaultAddress:String,
-    contacts:List<SansaraCompanyContact>,
-    clientStatus:String,
-    earliestDate:LocalDate,
-    shortages:List<String>,
-    onBack:()->Unit,
-    onSubmit:(String,String,String,String,String,String,String)->Unit,
-    onHome:()->Unit,
-    onCatalog:()->Unit,
-    onCart:()->Unit,
-    onOrders:()->Unit,
-    onProfile:()->Unit,
-    retailMode:Boolean=false,
-    onRetailExit:()->Unit={}
-){
-    var method by remember{mutableStateOf("Доставка")}
-    var address by remember(defaultAddress){mutableStateOf(defaultAddress)}
-    var comment by remember{mutableStateOf("")}
-    var selectedContact by remember(contacts){mutableStateOf(contacts.firstOrNull())}
-    var selectedDate by remember(earliestDate){mutableStateOf(earliestDate)}
-    var selectedTime by remember{mutableStateOf("до 12:00")}
-    var showCalendar by remember{mutableStateOf(false)}
-    var submitting by remember{mutableStateOf(false)}
-
-    Box(Modifier.fillMaxSize()){
-        ProtoLiveBackground()
-        Scaffold(containerColor=Color.Transparent,bottomBar={if(retailMode)ProtoRetailBottomBar(ProtoScreen.RetailCheckout,cartPositions,onHome,onCatalog,onCart,onRetailExit,onOrders) else ProtoClientBottomBar(ProtoScreen.Checkout,cartPositions,onHome,onCatalog,onCart,onOrders,onProfile)}){pad->
-            Column(Modifier.fillMaxSize().padding(pad)){
-                ProtoBrandHeader(onBack=onBack)
-                Text("Оформление заказа",color=ProtoText,fontSize=30.sp,fontWeight=FontWeight.Bold,modifier=Modifier.padding(horizontal=18.dp,vertical=8.dp))
-                LazyColumn(Modifier.weight(1f),contentPadding=PaddingValues(horizontal=18.dp),verticalArrangement=Arrangement.spacedBy(10.dp)){
-                    item{
-                        ProtoSectionCard{
-                            Text("Получатель",color=ProtoGoldSoft,fontWeight=FontWeight.SemiBold)
-                            Spacer(Modifier.height(8.dp))
-                            contacts.forEach{contact->
-                                val active=selectedContact?.userId==contact.userId
-                                Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).clickable{selectedContact=contact}.padding(vertical=7.dp),verticalAlignment=Alignment.CenterVertically){
-                                    RadioButton(selected=active,onClick={selectedContact=contact},colors=RadioButtonDefaults.colors(selectedColor=ProtoGold))
-                                    Column{Text(contact.name,color=ProtoText,fontWeight=FontWeight.SemiBold);Text(contact.phone,color=ProtoMuted,fontSize=11.sp)}
-                                }
-                            }
-                        }
-                    }
-                    item{
-                        ProtoSectionCard{
-                            Text("Способ получения",color=ProtoGoldSoft,fontWeight=FontWeight.SemiBold)
-                            Spacer(Modifier.height(8.dp))
-                            Row(horizontalArrangement=Arrangement.spacedBy(8.dp)){
-                                listOf("Доставка","Самовывоз","ТК").forEach{label->
-                                    val active=method==label
-                                    Surface(color=if(active)ProtoGold else ProtoPanel2,border=BorderStroke(1.dp,if(active)ProtoGold else ProtoBorder),shape=RoundedCornerShape(22.dp),modifier=Modifier.weight(1f).height(44.dp).clickable{method=label}){
-                                        Box(Modifier.fillMaxSize(),contentAlignment=Alignment.Center){Text(label,color=if(active)Color.Black else ProtoText,fontSize=11.sp,fontWeight=FontWeight.SemiBold)}
-                                    }
-                                }
-                            }
-                        }
-                    }
-                    item{ProtoField(address,{address=it},if(method=="Самовывоз")"Точка самовывоза" else if(method=="ТК")"Транспортная компания и город" else "Адрес доставки")}
-                    item{
-                        ProtoSectionCard(Modifier.clickable{showCalendar=true}){
-                            Row(verticalAlignment=Alignment.CenterVertically){
-                                Icon(Icons.Outlined.CalendarMonth,null,tint=ProtoGold)
-                                Spacer(Modifier.width(10.dp))
-                                Column(Modifier.weight(1f)){Text("Дата доставки",color=ProtoMuted,fontSize=11.sp);Text(selectedDate.format(DateTimeFormatter.ofPattern("dd.MM.yyyy")),color=ProtoText,fontWeight=FontWeight.SemiBold)}
-                                Icon(Icons.Outlined.ChevronRight,null,tint=ProtoGold)
-                            }
-                        }
-                    }
-                    item{
-                        Text("Время",color=ProtoGoldSoft,fontWeight=FontWeight.SemiBold)
-                        Row(horizontalArrangement=Arrangement.spacedBy(8.dp)){
-                            listOf("до 12:00","12:00–15:00","15:00–18:00").forEach{slot->
-                                val active=selectedTime==slot
-                                Surface(color=if(active)ProtoGold else ProtoPanel,border=BorderStroke(1.dp,if(active)ProtoGold else ProtoBorder),shape=RoundedCornerShape(20.dp),modifier=Modifier.weight(1f).height(44.dp).clickable{selectedTime=slot}){
-                                    Box(Modifier.fillMaxSize(),contentAlignment=Alignment.Center){Text(slot,color=if(active)Color.Black else ProtoText,fontSize=10.sp,fontWeight=FontWeight.SemiBold)}
-                                }
-                            }
-                        }
-                    }
-                    if(shortages.isNotEmpty())item{
-                        ProtoSectionCard{
-                            Text("Часть заказа будет произведена",color=ProtoOrange,fontWeight=FontWeight.Bold)
-                            shortages.forEach{Text(it,color=ProtoMuted,fontSize=11.sp,modifier=Modifier.padding(top=3.dp))}
-                            Text("Минимальная дата: "+earliestDate.format(DateTimeFormatter.ofPattern("dd.MM.yyyy")),color=ProtoGoldSoft,fontSize=11.sp,modifier=Modifier.padding(top=6.dp))
-                        }
-                    }
-                    item{
-                        OutlinedTextField(
-                            value=comment,
-                            onValueChange={if(it.length<=500)comment=it},
-                            label={Text("Комментарий")},
-                            modifier=Modifier.fillMaxWidth(),
-                            minLines=3,
-                            maxLines=5,
-                            colors=protoFieldColors()
-                        )
-                        Text(comment.length.toString()+"/500",color=ProtoMuted,fontSize=10.sp,modifier=Modifier.fillMaxWidth().padding(top=2.dp))
-                    }
-                    item{
-                        ProtoSectionCard{
-                            ProtoInfoRow("Статус",clientStatus)
-                            ProtoInfoRow("Товары",protoMoney(baseTotal))
-                            ProtoInfoRow("Скидка клиента "+discount+"%","−"+protoMoney(baseTotal-finalTotal))
-                            ProtoInfoRow("Всего",totalPieces.toString()+" шт.")
-                            HorizontalDivider(color=ProtoBorder,modifier=Modifier.padding(vertical=7.dp))
-                            ProtoInfoRow("Итого",protoMoney(finalTotal))
-                        }
-                    }
-                }
-                ProtoPrimaryButton(
-                    "Отправить заказ",
-                    {
-                        val contact=selectedContact
-                        // Защита от двойного нажатия: второй тап создавал второй заказ.
-                        if(contact!=null && !submitting){
-                            submitting=true
-                            onSubmit(method,address,comment,contact.name,contact.phone,selectedDate.format(DateTimeFormatter.ofPattern("dd.MM.yyyy")),selectedTime)
-                        }
-                    },
-                    enabled=selectedContact!=null && address.isNotBlank() && !submitting,
-                    modifier=Modifier.padding(18.dp)
-                )
-            }
-        }
-    }
-    if(showCalendar){
-        ProtoProductionCalendarDialog(
-            selectedDate=selectedDate,
-            onDismiss={showCalendar=false},
-            onSelect={date->selectedDate=if(date.isBefore(earliestDate))earliestDate else date;showCalendar=false}
-        )
-    }
-}
-
-@Composable
-private fun ProtoOrderSentScreen(
-    order: ProtoOrder?,
-    onView: () -> Unit,
-    onCatalog: () -> Unit,
-    onHome: () -> Unit,
-    onCart: () -> Unit,
-    onOrders: () -> Unit,
-    onProfile: () -> Unit
-) {
-    val currentOrder = order ?: return
-
-    Box(Modifier.fillMaxSize()) {
-        ProtoLiveBackground()
-        Scaffold(
-            containerColor = Color.Transparent,
-            bottomBar = {
-                ProtoClientBottomBar(
-                    current = ProtoScreen.OrderSent,
-                    cartCount = 0,
-                    onHome = onHome,
-                    onCatalog = onCatalog,
-                    onCart = onCart,
-                    onOrders = onOrders,
-                    onProfile = onProfile
-                )
-            }
-        ) { pad ->
-            Column(
-                Modifier.fillMaxSize().padding(pad).padding(horizontal = 18.dp),
-                horizontalAlignment = Alignment.CenterHorizontally
-            ) {
-                ProtoBrandHeader()
-                Spacer(Modifier.height(32.dp))
-                Box(Modifier.size(112.dp).border(3.dp, ProtoGold, CircleShape), contentAlignment = Alignment.Center) {
-                    Icon(Icons.Outlined.Check, null, tint = ProtoGold, modifier = Modifier.size(64.dp))
-                }
-                Text("Заказ отправлен", color = ProtoText, fontSize = 31.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(top = 20.dp))
-                Text(
-                    "Ваша заявка передана в SANSARA. Менеджер получил заказ на сборку и доставку.",
-                    color = ProtoMuted,
-                    fontSize = 14.sp,
-                    lineHeight = 20.sp,
-                    modifier = Modifier.padding(vertical = 12.dp)
-                )
-                ProtoSectionCard {
-                    Text("Заказ № " + currentOrder.id, color = ProtoText, fontSize = 20.sp, fontWeight = FontWeight.Bold)
-                    ProtoInfoRow("Статус", currentOrder.status)
-                    ProtoInfoRow("Получатель", currentOrder.clientName)
-                    ProtoInfoRow("Сумма", protoMoney(currentOrder.total))
-                    ProtoInfoRow("Получение", currentOrder.deliveryMethod)
-                }
-                Spacer(Modifier.weight(1f))
-                ProtoPrimaryButton("Смотреть заказ", onView)
-                Spacer(Modifier.height(10.dp))
-                ProtoSecondaryButton("Вернуться в каталог", onCatalog)
-                Spacer(Modifier.height(16.dp))
-            }
-        }
-    }
-}
-
-@Composable
-private fun ProtoOrderListScreen(
+internal fun ProtoOrderListScreen(
     orders: List<ProtoOrder>,
     products: List<ProtoCatalogProduct>,
     onBack: () -> Unit,
@@ -3045,146 +2368,9 @@ private fun ProtoOrderListScreen(
         )
     }
 }
+
 @Composable
-private fun ProtoOrderDetailScreen(
-    order:ProtoOrder?,
-    products:List<ProtoCatalogProduct>,
-    isAdmin:Boolean,
-    onBack:()->Unit,
-    onStatus:(String)->Unit,
-    onRepeat:(()->Unit)?=null,
-    onEditRepeat:(()->Unit)?=null,
-    onCancel:(()->Unit)?=null
-){
-    val o=order?:return
-    val statuses=listOf("Получен","Подтверждён","Собирается","Доставляется","Доставлен")
-    val currentIndex=statuses.indexOf(o.status)
-    val latestEvent=o.history.lastOrNull{it.status==o.status} ?: o.history.lastOrNull()
-    var confirmCancel by remember(o.id){mutableStateOf(false)}
-    if(confirmCancel && onCancel!=null){
-        AlertDialog(
-            onDismissRequest={confirmCancel=false},
-            containerColor=ProtoPanel,
-            title={Text("Отменить заказ №"+o.id+"?",color=ProtoText)},
-            text={Text(if(isAdmin)"Резерв снимется, списанный товар вернётся на склад. Клиент получит уведомление." else "Заказ будет отменён. Отменить отмену нельзя.",color=ProtoMuted)},
-            confirmButton={TextButton(onClick={confirmCancel=false;onCancel?.invoke()}){Text("Отменить заказ",color=ProtoRed)}},
-            dismissButton={TextButton(onClick={confirmCancel=false}){Text("Назад",color=ProtoMuted)}}
-        )
-    }
-
-    ProtoScaffold("Заказ №"+o.id,o.clientName+" · "+protoMoney(o.total),onBack){
-        if(isAdmin && onCancel!=null && o.status !in setOf("Доставлен","Отменён")){
-            item{
-                OutlinedButton(onClick={confirmCancel=true},modifier=Modifier.fillMaxWidth().height(48.dp),border=BorderStroke(1.dp,ProtoRed),shape=RoundedCornerShape(24.dp)){
-                    Text("Отменить заказ",color=ProtoRed)
-                }
-            }
-        }
-        item{
-            ProtoSectionCard{
-                Text("Статус",color=ProtoGoldSoft,fontWeight=FontWeight.SemiBold)
-                Spacer(Modifier.height(8.dp))
-                if(isAdmin){
-                    if(o.status=="Отменён"){
-                        Row(verticalAlignment=Alignment.CenterVertically){Box(Modifier.size(12.dp).background(ProtoRed,CircleShape));Spacer(Modifier.width(9.dp));Text("Отменён",color=ProtoRed,fontWeight=FontWeight.Bold)}
-                    }else{
-                        statuses.forEachIndexed{i,status->
-                            val reached=currentIndex>=i
-                            Row(Modifier.fillMaxWidth().padding(vertical=5.dp),verticalAlignment=Alignment.CenterVertically){
-                                Box(Modifier.size(12.dp).background(if(reached)ProtoGreen else ProtoBorder,CircleShape))
-                                Spacer(Modifier.width(9.dp))
-                                Text(status,color=if(reached)ProtoText else ProtoMuted,modifier=Modifier.weight(1f))
-                                RadioButton(selected=o.status==status,onClick={if(i>=currentIndex)onStatus(status)},enabled=i>=currentIndex,colors=RadioButtonDefaults.colors(selectedColor=ProtoGold))
-                            }
-                        }
-                    }
-                }else{
-                    Row(verticalAlignment=Alignment.CenterVertically){
-                        Box(Modifier.size(12.dp).background(if(o.status=="Отменён")ProtoRed else if(o.status=="Доставлен")ProtoGreen else ProtoGold,CircleShape))
-                        Spacer(Modifier.width(9.dp))
-                        Column{
-                            Text(o.status,color=if(o.status=="Отменён")ProtoRed else ProtoText,fontSize=20.sp,fontWeight=FontWeight.Bold)
-                            latestEvent?.let{Text(it.dateTime,color=ProtoMuted,fontSize=11.sp)}
-                        }
-                    }
-                }
-            }
-        }
-
-        item{Text("Состав заказа",color=ProtoText,fontSize=20.sp,fontWeight=FontWeight.Bold)}
-        items(o.lines,key={it.sku}){line->
-            val product=products.firstOrNull{it.sku==line.sku}
-            ProtoSectionCard{
-                Row(verticalAlignment=Alignment.CenterVertically){
-                    if(product!=null){
-                        ProtoProductImage(product,Modifier.size(74.dp).clip(RoundedCornerShape(11.dp)))
-                        Spacer(Modifier.width(10.dp))
-                    }
-                    Column(Modifier.weight(1f)){
-                        Text(line.name,color=ProtoText,fontWeight=FontWeight.SemiBold,maxLines=2,overflow=TextOverflow.Ellipsis)
-                        ProtoSkuText(line.sku,fontSize=13)
-                        Text(line.qty.toString()+" шт. × "+protoMoney(line.price),color=ProtoMuted,fontSize=11.sp)
-                    }
-                    Text(protoMoney(line.lineTotal),color=ProtoGoldSoft,fontWeight=FontWeight.Bold)
-                }
-            }
-        }
-
-        item{
-            ProtoSectionCard{
-                ProtoInfoRow("Товары",protoMoney(o.baseTotal))
-                ProtoInfoRow("Скидка клиента "+o.discountPct+"%","−"+protoMoney(o.baseTotal-o.total))
-                HorizontalDivider(color=ProtoBorder,modifier=Modifier.padding(vertical=7.dp))
-                ProtoInfoRow("Итого",protoMoney(o.total))
-            }
-        }
-
-        if(!isAdmin){
-            item{
-                Column(verticalArrangement=Arrangement.spacedBy(9.dp)){
-                    if(onRepeat!=null)ProtoPrimaryButton("Заказать повторно",onRepeat)
-                    if(onEditRepeat!=null)ProtoSecondaryButton("Изменить и заказать",onEditRepeat)
-                    if(o.status=="Получен" && onCancel!=null){
-                        OutlinedButton(onClick={confirmCancel=true},modifier=Modifier.fillMaxWidth().height(48.dp),border=BorderStroke(1.dp,ProtoRed),shape=RoundedCornerShape(24.dp)){
-                            Text("Отменить заказ",color=ProtoRed)
-                        }
-                    }
-                }
-            }
-        }
-
-        item{
-            ProtoSectionCard{
-                if(o.recipient.isNotBlank())ProtoInfoRow("Получатель",o.recipient)
-                if(o.contactPhone.isNotBlank())ProtoInfoRow("Контакт",o.contactPhone)
-                ProtoInfoRow("Способ получения",o.deliveryMethod)
-                if(o.deliveryAddress.isNotBlank())ProtoInfoRow("Адрес",o.deliveryAddress)
-                if(o.deliveryDate.isNotBlank())ProtoInfoRow("Дата",o.deliveryDate)
-                if(o.deliveryTime.isNotBlank())ProtoInfoRow("Время",o.deliveryTime)
-                if(o.comment.isNotBlank()){
-                    Text("Комментарий",color=ProtoMuted,fontSize=11.sp,modifier=Modifier.padding(top=6.dp))
-                    Text(o.comment,color=ProtoText)
-                }
-            }
-        }
-
-        if(isAdmin){
-            item{Text("История заказа",color=ProtoText,fontSize=20.sp,fontWeight=FontWeight.Bold)}
-            items(o.history.asReversed()){event->
-                ProtoSectionCard{
-                    Row(verticalAlignment=Alignment.CenterVertically){
-                        Icon(Icons.Outlined.History,null,tint=if(event.status=="Отменён")ProtoRed else ProtoGold)
-                        Spacer(Modifier.width(9.dp))
-                        Column(Modifier.weight(1f)){Text(event.status,color=if(event.status=="Отменён")ProtoRed else ProtoText,fontWeight=FontWeight.SemiBold);Text(event.dateTime,color=ProtoMuted,fontSize=11.sp)}
-                        Text(event.actor,color=ProtoGoldSoft,fontSize=11.sp)
-                    }
-                }
-            }
-        }
-    }
-}
-@Composable
-private fun ProtoOrderHistoryFilterDialog(
+internal fun ProtoOrderHistoryFilterDialog(
     period:String,
     orders:List<ProtoOrder>,
     products:List<ProtoCatalogProduct>,
@@ -3233,43 +2419,7 @@ private fun ProtoOrderHistoryFilterDialog(
 }
 
 @Composable
-private fun ProtoNotificationsScreen(
-    notifications:List<ProtoNotification>,
-    onBack:()->Unit,
-    onReadAll:()->Unit,
-    onDelete:(String)->Unit
-){
-    LaunchedEffect(Unit){onReadAll()}
-    ProtoScaffold("Уведомления","Изменения статусов заказов",onBack){
-        if(notifications.isEmpty()){
-            item{ProtoSectionCard{Text("Новых уведомлений нет",color=ProtoMuted)}}
-        }else{
-            items(notifications,key={it.id}){notification->
-                ProtoSectionCard{
-                    Row(verticalAlignment=Alignment.Top){
-                        Column(Modifier.weight(1f)){
-                            Row(verticalAlignment=Alignment.CenterVertically){
-                                if(!notification.read){
-                                    Box(Modifier.size(8.dp).background(ProtoGold,CircleShape))
-                                    Spacer(Modifier.width(7.dp))
-                                }
-                                Text(notification.title,color=ProtoText,fontWeight=FontWeight.Bold)
-                            }
-                            Text(notification.message,color=ProtoMuted,fontSize=12.sp,modifier=Modifier.padding(top=5.dp))
-                            Text(notification.dateTime,color=ProtoGoldSoft,fontSize=10.sp,modifier=Modifier.padding(top=7.dp))
-                        }
-                        IconButton(onClick={onDelete(notification.id)}){
-                            Icon(Icons.Outlined.DeleteOutline,contentDescription="Удалить",tint=ProtoMuted)
-                        }
-                    }
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun ProtoProfileScreen(
+internal fun ProtoProfileScreen(
     client:ProtoClient,
     onBack:()->Unit,
     onCall:()->Unit,
@@ -3314,12 +2464,12 @@ private fun ProtoProfileScreen(
 }
 
 @Composable
-private fun ProtoSuspendedScreen(onCall:()->Unit,onMessage:()->Unit,onBack:()->Unit,onCatalog:()->Unit,onHome:()->Unit,onOrders:()->Unit){
+internal fun ProtoSuspendedScreen(onCall:()->Unit,onMessage:()->Unit,onBack:()->Unit,onCatalog:()->Unit,onHome:()->Unit,onOrders:()->Unit){
     Box(Modifier.fillMaxSize()){ProtoLiveBackground();Scaffold(containerColor=Color.Transparent,bottomBar={ProtoClientBottomBar(ProtoScreen.Suspended,0,onHome,onCatalog,onCart={},onOrders=onOrders,onProfile={})}){pad->Column(Modifier.fillMaxSize().padding(pad).padding(horizontal=18.dp)){ProtoBrandHeader(onBack=onBack);Text("Профиль",color=ProtoText,fontSize=30.sp,fontWeight=FontWeight.Bold,modifier=Modifier.padding(vertical=8.dp));ProtoSectionCard{Text("Ваш статус временно приостановлен.",color=ProtoRed,fontSize=24.sp,fontWeight=FontWeight.Bold);Spacer(Modifier.height(10.dp));Text("Самостоятельное оформление заказов недоступно. Пожалуйста, свяжитесь с администратором.",color=ProtoMuted,lineHeight=20.sp)};Spacer(Modifier.height(12.dp));ProtoSectionCard{ProtoInfoRow("Телефон администратора",BuildConfig.ADMIN_PHONE)};Spacer(Modifier.height(12.dp));ProtoPrimaryButton("Позвонить администратору",onCall);Spacer(Modifier.height(10.dp));ProtoSecondaryButton("Написать менеджеру",onMessage)}}}
 }
 
 @Composable
-private fun ProtoClientMenuOverlay(
+internal fun ProtoClientMenuOverlay(
     onDismiss:()->Unit,
     onChat:()->Unit,
     onProfile:()->Unit,
@@ -3366,7 +2516,7 @@ private fun ProtoClientMenuOverlay(
 }
 
 @Composable
-private fun ProtoClientReportsScreen(orders:List<ProtoOrder>,shipments:List<ShipmentEntity> = emptyList(),typeOf:(String)->String = {"Прочее"},onBack:()->Unit){
+internal fun ProtoClientReportsScreen(orders:List<ProtoOrder>,shipments:List<ShipmentEntity> = emptyList(),typeOf:(String)->String = {"Прочее"},onBack:()->Unit){
     val delivered=orders.filter{it.status=="Доставлен"}
     val total=orders.sumOf{it.total}
     ProtoScaffold("Отчётность","Ваши заказы и оборот",onBack){
@@ -3385,7 +2535,7 @@ private fun ProtoClientReportsScreen(orders:List<ProtoOrder>,shipments:List<Ship
 }
 
 @Composable
-private fun ProtoClientSettingsScreen(notificationsEnabled:Boolean,onNotifications:(Boolean)->Unit,onBack:()->Unit){
+internal fun ProtoClientSettingsScreen(notificationsEnabled:Boolean,onNotifications:(Boolean)->Unit,onBack:()->Unit){
     ProtoScaffold("Настройки","Параметры клиентского приложения",onBack){
         item{ProtoSectionCard{ProtoSwitchRow("Уведомления о заказах",notificationsEnabled,onNotifications);Text("Уведомления о смене статуса отображаются на колокольчике главного экрана.",color=ProtoMuted,fontSize=10.sp)}}
         item{ProtoSectionCard{ProtoInfoRow("Версия",BuildConfig.VERSION_NAME);ProtoInfoRow("Режим","Клиент")}}
@@ -3393,7 +2543,7 @@ private fun ProtoClientSettingsScreen(notificationsEnabled:Boolean,onNotificatio
 }
 
 @Composable
-private fun ProtoAgentClientsScreen(
+internal fun ProtoAgentClientsScreen(
     customers:List<SansaraAgentCustomer>,
     settings:SansaraAgentSettings,
     onBack:()->Unit,
@@ -3429,7 +2579,7 @@ private fun ProtoAgentClientsScreen(
 }
 
 @Composable
-private fun ProtoAgentCustomerDialog(onDismiss:()->Unit,onSave:(String,String,String,String,String,String)->Unit){
+internal fun ProtoAgentCustomerDialog(onDismiss:()->Unit,onSave:(String,String,String,String,String,String)->Unit){
     var name by remember{mutableStateOf("")};var phone by remember{mutableStateOf("")};var email by remember{mutableStateOf("")};var city by remember{mutableStateOf("")};var address by remember{mutableStateOf("")};var comment by remember{mutableStateOf("")}
     Dialog(onDismissRequest=onDismiss){
         Surface(color=ProtoPanel,shape=RoundedCornerShape(20.dp),border=BorderStroke(1.dp,ProtoBorder)){
@@ -3451,7 +2601,7 @@ private fun ProtoAgentCustomerDialog(onDismiss:()->Unit,onSave:(String,String,St
 }
 
 @Composable
-private fun ProtoAgentClientDetailScreen(
+internal fun ProtoAgentClientDetailScreen(
     customer:SansaraAgentCustomer?,
     markups:List<SansaraAgentMarkup>,
     reminders:List<SansaraAgentReminder>,
@@ -3526,11 +2676,11 @@ private fun ProtoAgentClientDetailScreen(
     }
 }
 
-private fun protoReminderTime(epoch:Long):String=
+internal fun protoReminderTime(epoch:Long):String=
     Instant.ofEpochMilli(epoch).atZone(java.time.ZoneId.systemDefault()).toLocalDateTime().format(DateTimeFormatter.ofPattern("dd.MM.yyyy HH:mm"))
 
 @Composable
-private fun ProtoAdminAccountsScreen(
+internal fun ProtoAdminAccountsScreen(
     admins:List<SansaraAdminAccount>,
     currentUserId:String,
     onBack:()->Unit,
@@ -3579,7 +2729,7 @@ private fun ProtoAdminAccountsScreen(
 }
 
 @Composable
-private fun ProtoWorkshopTasksScreen(
+internal fun ProtoWorkshopTasksScreen(
     tasks:List<WorkshopTaskEntity>,
     products:List<ProtoCatalogProduct> = emptyList(),
     productionMode:Boolean,
@@ -3731,12 +2881,12 @@ private fun ProtoWorkshopTasksScreen(
     }
 }
 
-private fun protoWorkshopPlanQty(linesJson:String):Int=runCatching{
+internal fun protoWorkshopPlanQty(linesJson:String):Int=runCatching{
     val a=JSONArray(linesJson)
     (0 until a.length()).sumOf{i->a.getJSONObject(i).optInt("qty",0)}
 }.getOrDefault(0)
 
-private fun protoWorkshopLinesLabel(linesJson:String):String=runCatching{
+internal fun protoWorkshopLinesLabel(linesJson:String):String=runCatching{
     val a=JSONArray(linesJson)
     (0 until a.length()).joinToString("\n"){i->
         val o=a.getJSONObject(i)
@@ -3747,7 +2897,7 @@ private fun protoWorkshopLinesLabel(linesJson:String):String=runCatching{
 }.getOrDefault(linesJson.ifBlank{"Без позиций"})
 
 @Composable
-private fun ProtoAttendanceScreen(
+internal fun ProtoAttendanceScreen(
     selectedDate:LocalDate,
     assemblers:List<SansaraAssembler>,
     rows:List<AttendanceEntity>,
@@ -3789,7 +2939,7 @@ private fun ProtoAttendanceScreen(
 }
 
 @Composable
-private fun ProtoAdminReportsScreen(
+internal fun ProtoAdminReportsScreen(
     tasks:List<WorkshopTaskEntity>,
     attendance:List<AttendanceEntity>,
     presence:List<PresenceSessionEntity>,
@@ -3835,7 +2985,7 @@ private fun ProtoAdminReportsScreen(
     }
 }
 
-private fun protoDuration(ms:Long):String{
+internal fun protoDuration(ms:Long):String{
     val totalMinutes=(ms/60_000L).coerceAtLeast(0L)
     val h=totalMinutes/60
     val m=totalMinutes%60
@@ -3843,7 +2993,7 @@ private fun protoDuration(ms:Long):String{
 }
 
 @Composable
-private fun ProtoAdminChatsScreen(
+internal fun ProtoAdminChatsScreen(
     clients:List<ProtoClient>,
     messages:List<SansaraChatMessage>,
     onBack:()->Unit,
@@ -3893,17 +3043,22 @@ private fun ProtoAdminChatsScreen(
 }
 
 @Composable
-private fun ProtoChatScreen(
+internal fun ProtoChatScreen(
     title:String,
     subtitle:String,
     messages:List<SansaraChatMessage>,
     currentRole:String,
     onBack:()->Unit,
     onRead:()->Unit,
-    onSend:(String,String,String,String)->Unit
+    onSend:(String,String,String,String)->Unit,
+    banner:String?=null,
+    onCall:(()->Unit)?=null,
+    bottomBar:(@Composable ()->Unit)?=null
 ){
     val context=LocalContext.current
     var text by remember{mutableStateOf("")}
+    val listState=androidx.compose.foundation.lazy.rememberLazyListState()
+    LaunchedEffect(messages.size){if(messages.isNotEmpty())listState.animateScrollToItem(messages.size)}
     val chatScope=rememberCoroutineScope()
     var attachMenu by remember{mutableStateOf(false)}
     var photoPreview by remember{mutableStateOf<String?>(null)}
@@ -3940,17 +3095,15 @@ private fun ProtoChatScreen(
             }
         }
         Column(Modifier.fillMaxSize()){
-            ProtoBrandHeader(onBack=onBack,showBell=false)
-            Column(Modifier.padding(horizontal=18.dp)){
-                Text(title,color=ProtoText,fontSize=26.sp,fontWeight=FontWeight.Bold,maxLines=1,overflow=TextOverflow.Ellipsis)
-                Text(subtitle,color=ProtoMuted,fontSize=11.sp)
-            }
+            ProtoTopBar(title=title,subtitle=subtitle,onBack=onBack,action=if(onCall!=null){{IconButton(onClick=onCall){Icon(Icons.Outlined.Call,contentDescription="Позвонить",tint=ProtoGold)}}}else null)
+            if(!banner.isNullOrBlank())Text(banner,color=ProtoMuted,fontSize=12.sp,lineHeight=16.sp,modifier=Modifier.fillMaxWidth().padding(horizontal=16.dp).background(ProtoPanel2,RoundedCornerShape(12.dp)).padding(horizontal=12.dp,vertical=8.dp))
             LazyColumn(
+                state=listState,
                 modifier=Modifier.weight(1f),
                 contentPadding=PaddingValues(horizontal=16.dp,vertical=12.dp),
                 verticalArrangement=Arrangement.spacedBy(8.dp)
             ){
-                if(messages.isEmpty())item{Text("Начните переписку",color=ProtoMuted,modifier=Modifier.padding(12.dp))}
+                if(messages.isEmpty())item{ProtoEmptyState(Icons.Outlined.ChatBubbleOutline,"Сообщений пока нет","Напишите вопрос — ответим в рабочее время")}
                 items(messages,key={it.id}){msg->
                     val mine=msg.senderRole==currentRole
                     Row(Modifier.fillMaxWidth(),horizontalArrangement=if(mine)Arrangement.End else Arrangement.Start){
@@ -3961,7 +3114,7 @@ private fun ProtoChatScreen(
                             modifier=Modifier.fillMaxWidth(.82f)
                         ){
                             Column(Modifier.padding(11.dp)){
-                                if(msg.body.isNotBlank())Text(msg.body,color=ProtoText,fontSize=13.sp,lineHeight=18.sp)
+                                if(msg.body.isNotBlank())Text(msg.body,color=ProtoText,fontSize=15.sp,lineHeight=20.sp)
                                 if(msg.attachmentUri.isNotBlank()&&msg.attachmentMime.startsWith("image/")){
                                     AsyncImage(
                                         model=msg.attachmentUri,
@@ -3983,10 +3136,10 @@ private fun ProtoChatScreen(
                                     ){
                                         Icon(if(msg.attachmentMime.startsWith("image/"))Icons.Outlined.Image else Icons.Outlined.AttachFile,null,tint=ProtoGold)
                                         Spacer(Modifier.width(8.dp))
-                                        Text(msg.attachmentName.ifBlank{"Вложение"},color=ProtoGoldSoft,fontSize=11.sp,maxLines=1,overflow=TextOverflow.Ellipsis)
+                                        Text(msg.attachmentName.ifBlank{"Вложение"},color=ProtoGoldSoft,fontSize=13.sp,maxLines=1,overflow=TextOverflow.Ellipsis)
                                     }
                                 }
-                                Text(protoChatTime(msg.createdAt),color=ProtoMuted,fontSize=9.sp,modifier=Modifier.align(Alignment.End).padding(top=5.dp))
+                                Text(protoChatTime(msg.createdAt),color=ProtoMuted,fontSize=11.sp,modifier=Modifier.align(Alignment.End).padding(top=5.dp))
                             }
                         }
                     }
@@ -4023,12 +3176,13 @@ private fun ProtoChatScreen(
                     Icon(Icons.Outlined.Send,contentDescription="Отправить",tint=if(text.isNotBlank())ProtoGold else ProtoMuted)
                 }
             }
+            if(bottomBar!=null)bottomBar()
         }
     }
 }
 
 @Composable
-private fun ProtoAdminHomeScreen(
+internal fun ProtoAdminHomeScreen(
     registrationsTotal:Int,
     clients:List<ProtoClient>,
     orders:List<ProtoOrder>,
@@ -4088,13 +3242,13 @@ private fun ProtoAdminHomeScreen(
     }
 }
 @Composable
-private fun ProtoAdminSearchScreen(clients:List<ProtoClient>,orders:List<ProtoOrder>,products:List<ProtoCatalogProduct>,stockOverrides:SnapshotStateMap<String,Int>,onBack:()->Unit,onClient:(ProtoClient)->Unit,onOrder:(ProtoOrder)->Unit,onProduct:(ProtoCatalogProduct)->Unit){
+internal fun ProtoAdminSearchScreen(clients:List<ProtoClient>,orders:List<ProtoOrder>,products:List<ProtoCatalogProduct>,stockOverrides:SnapshotStateMap<String,Int>,onBack:()->Unit,onClient:(ProtoClient)->Unit,onOrder:(ProtoOrder)->Unit,onProduct:(ProtoCatalogProduct)->Unit){
     var query by remember{mutableStateOf("")};val q=query.trim();val fc=if(q.isBlank())emptyList() else clients.filter{it.name.contains(q,true)||it.contact.contains(q,true)||it.id.contains(q,true)};val fo=if(q.isBlank())emptyList() else orders.filter{it.id.contains(q,true)||it.clientName.contains(q,true)};val fp=if(q.isBlank())emptyList() else products.filter{it.sku.contains(q,true)||it.name.contains(q,true)}.take(20)
     ProtoScaffold("Поиск","Клиенты · заказы · товары",onBack){item{ProtoField(query,{query=it},"Введите название, ID или артикул")};if(q.isBlank())item{Text("Начните ввод — поиск работает сразу по всей системе.",color=ProtoMuted)};if(fc.isNotEmpty())item{Text("Клиенты",color=ProtoGoldSoft,fontSize=18.sp,fontWeight=FontWeight.Bold)};items(fc,key={it.id}){c->ProtoSectionCard(Modifier.clickable{onClient(c)}){Text(c.name,color=ProtoText,fontWeight=FontWeight.SemiBold);Text("${c.id} · ${c.status}",color=ProtoMuted,fontSize=11.sp)}};if(fo.isNotEmpty())item{Text("Заказы",color=ProtoGoldSoft,fontSize=18.sp,fontWeight=FontWeight.Bold)};items(fo,key={it.id}){o->ProtoOrderRow(o){onOrder(o)}};if(fp.isNotEmpty())item{Text("Товары",color=ProtoGoldSoft,fontSize=18.sp,fontWeight=FontWeight.Bold)};items(fp,key={it.sku}){p->ProtoSectionCard(Modifier.clickable{onProduct(p)}){Row(verticalAlignment=Alignment.CenterVertically){ProtoProductImage(p,Modifier.size(44.dp).clip(RoundedCornerShape(8.dp)));Spacer(Modifier.width(8.dp));Column(Modifier.weight(1f)){Text(p.name,color=ProtoText,fontWeight=FontWeight.SemiBold);ProtoSkuText(p.sku,fontSize=13)};Text("${stockOverrides[p.sku]?:p.stock} шт.",color=ProtoGoldSoft)}}}}
 }
 
 @Composable
-private fun ProtoAdminClientsScreen(clients:List<ProtoClient>,onBack:()->Unit,onOpen:(ProtoClient)->Unit){
+internal fun ProtoAdminClientsScreen(clients:List<ProtoClient>,onBack:()->Unit,onOpen:(ProtoClient)->Unit){
     var q by remember{mutableStateOf("")}
     var filter by remember{mutableStateOf("Все")}
     val filters=listOf("Все","Активный","Оптовик","VIP","Приостановлен","Онлайн")
@@ -4154,7 +3308,7 @@ private fun ProtoAdminClientsScreen(clients:List<ProtoClient>,onBack:()->Unit,on
 }
 
 @Composable
-private fun ProtoAdminClientScreen(
+internal fun ProtoAdminClientScreen(
     client: ProtoClient?,
     retailCustomers: List<SansaraAgentCustomer>,
     retailMarkups: List<SansaraAgentMarkup>,
@@ -4341,7 +3495,7 @@ private fun ProtoAdminClientScreen(
 }
 
 @Composable
-private fun ProtoAdminOrdersScreen(orders:List<ProtoOrder>,onBack:()->Unit,onOpen:(ProtoOrder)->Unit){
+internal fun ProtoAdminOrdersScreen(orders:List<ProtoOrder>,onBack:()->Unit,onOpen:(ProtoOrder)->Unit){
     var q by remember{mutableStateOf("")}
     var filter by remember{mutableStateOf("Все")}
     val statuses=listOf("Все","Получен","Подтверждён","Собирается","Доставляется","Доставлен","Отменён")
@@ -4374,7 +3528,7 @@ private fun ProtoAdminOrdersScreen(orders:List<ProtoOrder>,onBack:()->Unit,onOpe
 }
 
 @Composable
-private fun ProtoAdminCatalogScreen(
+internal fun ProtoAdminCatalogScreen(
     products:List<ProtoCatalogProduct>,
     stockOverrides:SnapshotStateMap<String,Int>,
     syncStatus:String,
@@ -4416,7 +3570,7 @@ private fun ProtoAdminCatalogScreen(
 }
 
 @Composable
-private fun ProtoAdminSettingsMenuScreen(syncStatus:String,lastSync:String,lowStockThreshold:Int,onBack:()->Unit,onOpen:(String)->Unit,onCall:()->Unit){
+internal fun ProtoAdminSettingsMenuScreen(syncStatus:String,lastSync:String,lowStockThreshold:Int,onBack:()->Unit,onOpen:(String)->Unit,onCall:()->Unit){
     val rows=listOf(
         Triple("Профиль компании",Icons.Outlined.Business,"Данные SANSARA и контакты"),
         Triple("Пользователи и роли",Icons.Outlined.Groups,"Администраторы и производство"),
@@ -4441,7 +3595,7 @@ private fun ProtoAdminSettingsMenuScreen(syncStatus:String,lastSync:String,lowSt
 }
 
 @Composable
-private fun ProtoAssemblerAdminScreen(assemblers:List<SansaraAssembler>,onBack:()->Unit,onAdd:(String)->Unit,onToggle:(SansaraAssembler)->Unit){
+internal fun ProtoAssemblerAdminScreen(assemblers:List<SansaraAssembler>,onBack:()->Unit,onAdd:(String)->Unit,onToggle:(SansaraAssembler)->Unit){
     var name by remember{mutableStateOf("")}
     ProtoScaffold("Сборщицы","Добавлять и отключать может только администратор",onBack){
         item{ProtoSectionCard{ProtoField(name,{name=it},"ФИО / имя сборщицы");ProtoPrimaryButton("Добавить",{if(name.isNotBlank()){onAdd(name);name=""}},enabled=name.isNotBlank())}}
@@ -4457,7 +3611,7 @@ private fun ProtoAssemblerAdminScreen(assemblers:List<SansaraAssembler>,onBack:(
 }
 
 @Composable
-private fun ProtoAdminSettingsDetailScreen(
+internal fun ProtoAdminSettingsDetailScreen(
     section:String,threshold:Int,reg:Boolean,orders:Boolean,prod:Boolean,low:Boolean,
     tildaUrl:String,syncStatus:String,lastSync:String,syncing:Boolean,backupStatus:String,backendStatus:String,
     telegramEnabled:Boolean,telegramRetryEnabled:Boolean,telegramApiUrl:String,telegramTemplate:String,telegramLastLog:String,
@@ -4508,7 +3662,7 @@ private fun ProtoAdminSettingsDetailScreen(
 }
 
 @Composable
-private fun ProtoAttentionScreen(regs:List<ProtoRegistration>,blocked:List<ProtoClient>,picking:List<ProtoOrder>,lowStock:List<ProtoCatalogProduct>,stockValue:(ProtoCatalogProduct)->Int,onBack:()->Unit,onClient:(ProtoClient)->Unit,onOrder:(ProtoOrder)->Unit,onApprove:(ProtoRegistration)->Unit,onClose:(ProtoRegistration)->Unit,onLowStock:()->Unit){
+internal fun ProtoAttentionScreen(regs:List<ProtoRegistration>,blocked:List<ProtoClient>,picking:List<ProtoOrder>,lowStock:List<ProtoCatalogProduct>,stockValue:(ProtoCatalogProduct)->Int,onBack:()->Unit,onClient:(ProtoClient)->Unit,onOrder:(ProtoOrder)->Unit,onApprove:(ProtoRegistration)->Unit,onClose:(ProtoRegistration)->Unit,onLowStock:()->Unit){
     ProtoScaffold("Требует внимания","Задачи остаются до обработки",onBack){
         item{Text("Новые регистрации",color=ProtoGoldSoft,fontSize=18.sp,fontWeight=FontWeight.Bold)}
         if(regs.isEmpty())item{Text("Новых регистраций нет",color=ProtoMuted)} else items(regs,key={it.id}){r->ProtoSectionCard{Text(r.organization,color=ProtoText,fontWeight=FontWeight.SemiBold);Text("${r.type} · ${r.contact1} · ${r.phone1}",color=ProtoMuted,fontSize=12.sp);Text("${r.createdAt} · ${r.status}",color=ProtoMuted,fontSize=10.sp);Row(Modifier.padding(top=7.dp),horizontalArrangement=Arrangement.spacedBy(8.dp)){Button(onClick={onApprove(r)},colors=ButtonDefaults.buttonColors(containerColor=ProtoGold),modifier=Modifier.weight(1f)){Text("Подтвердить",color=Color.Black,fontSize=11.sp)};OutlinedButton(onClick={onClose(r)},border=BorderStroke(1.dp,ProtoBorder),modifier=Modifier.weight(1f)){Text("Закрыть",color=ProtoMuted,fontSize=11.sp)}}}}
@@ -4519,10 +3673,10 @@ private fun ProtoAttentionScreen(regs:List<ProtoRegistration>,blocked:List<Proto
 }
 
 @Composable
-private fun ProtoOnlineControllerScreen(clients:List<ProtoClient>,onBack:()->Unit,onClient:(ProtoClient)->Unit){ProtoScaffold("Кто в сети","Активность клиентов",onBack){item{ProtoSectionCard{ProtoInfoRow("Клиенты онлайн","${clients.count{it.online}}")}};item{Text("Клиенты сегодня",color=ProtoText,fontSize=19.sp,fontWeight=FontWeight.Bold)};items(clients.sortedByDescending{it.online},key={it.id}){c->ProtoSectionCard(Modifier.clickable{onClient(c)}){Row{Box(Modifier.size(9.dp).background(if(c.online)ProtoGreen else ProtoMuted,CircleShape).align(Alignment.CenterVertically));Spacer(Modifier.width(8.dp));Column(Modifier.weight(1f)){Text(c.name,color=ProtoText);Text("Последняя активность: ${c.lastSeen}",color=ProtoMuted,fontSize=11.sp)};Text("${c.orderCount} заказов",color=ProtoGoldSoft,fontSize=11.sp)}}}}}
+internal fun ProtoOnlineControllerScreen(clients:List<ProtoClient>,onBack:()->Unit,onClient:(ProtoClient)->Unit){ProtoScaffold("Кто в сети","Активность клиентов",onBack){item{ProtoSectionCard{ProtoInfoRow("Клиенты онлайн","${clients.count{it.online}}")}};item{Text("Клиенты сегодня",color=ProtoText,fontSize=19.sp,fontWeight=FontWeight.Bold)};items(clients.sortedByDescending{it.online},key={it.id}){c->ProtoSectionCard(Modifier.clickable{onClient(c)}){Row{Box(Modifier.size(9.dp).background(if(c.online)ProtoGreen else ProtoMuted,CircleShape).align(Alignment.CenterVertically));Spacer(Modifier.width(8.dp));Column(Modifier.weight(1f)){Text(c.name,color=ProtoText);Text("Последняя активность: ${c.lastSeen}",color=ProtoMuted,fontSize=11.sp)};Text("${c.orderCount} заказов",color=ProtoGoldSoft,fontSize=11.sp)}}}}}
 
 @Composable
-private fun ProtoProductionHomeScreen(
+internal fun ProtoProductionHomeScreen(
     selectedDate:LocalDate,
     drafts:List<ProtoProductionDraft>,
     opsForDay:List<ProtoProductionOp>,
@@ -4631,13 +3785,13 @@ private fun ProtoProductionHomeScreen(
 }
 
 @Composable
-private fun ProtoProductionCategoryScreen(onBack:()->Unit,onCategory:(String)->Unit){ProtoScaffold("Выпуск продукции","Что произведено в цеху?",onBack){item{listOf("Венки","Венки круглые","Корзины","Флоретки","Полянки").forEach{cat->ProtoSectionCard(Modifier.padding(vertical=4.dp).clickable{onCategory(cat)}){Row(verticalAlignment=Alignment.CenterVertically){Image(painterResource(protoPlaceholderForType(cat)),null,Modifier.size(42.dp).clip(RoundedCornerShape(8.dp)),contentScale=ContentScale.Crop);Spacer(Modifier.width(12.dp));Text(cat,color=ProtoText,fontSize=18.sp,fontWeight=FontWeight.SemiBold,modifier=Modifier.weight(1f));Icon(Icons.Outlined.ChevronRight,null,tint=ProtoGold)}}}}}}
+internal fun ProtoProductionCategoryScreen(onBack:()->Unit,onCategory:(String)->Unit){ProtoScaffold("Выпуск продукции","Что произведено в цеху?",onBack){item{listOf("Венки","Венки круглые","Корзины","Флоретки","Полянки").forEach{cat->ProtoSectionCard(Modifier.padding(vertical=4.dp).clickable{onCategory(cat)}){Row(verticalAlignment=Alignment.CenterVertically){Image(painterResource(protoPlaceholderForType(cat)),null,Modifier.size(42.dp).clip(RoundedCornerShape(8.dp)),contentScale=ContentScale.Crop);Spacer(Modifier.width(12.dp));Text(cat,color=ProtoText,fontSize=18.sp,fontWeight=FontWeight.SemiBold,modifier=Modifier.weight(1f));Icon(Icons.Outlined.ChevronRight,null,tint=ProtoGold)}}}}}}
 
 @Composable
-private fun ProtoProductionCatalogScreen(products:List<ProtoCatalogProduct>,onBack:()->Unit,onSelect:(ProtoCatalogProduct)->Unit){var query by remember{mutableStateOf("")};val filtered=products.filter{query.isBlank()||it.sku.contains(query,true)||it.name.contains(query,true)};ProtoScaffold("Каталог производства","Выберите модель — артикул подставится автоматически",onBack){item{ProtoField(query,{query=it},"Поиск по артикулу или названию")};items(filtered,key={it.sku}){p->ProtoSectionCard(Modifier.clickable{onSelect(p)}){Row(verticalAlignment=Alignment.CenterVertically){ProtoProductImage(p,Modifier.size(58.dp).clip(RoundedCornerShape(10.dp)));Spacer(Modifier.width(10.dp));Column(Modifier.weight(1f)){Text(p.name,color=ProtoText,fontWeight=FontWeight.SemiBold);Text("Арт. ${p.sku} · ${p.quality} · ${p.size}",color=ProtoMuted,fontSize=11.sp)};Icon(Icons.Outlined.ChevronRight,null,tint=ProtoGold)}}}}}
+internal fun ProtoProductionCatalogScreen(products:List<ProtoCatalogProduct>,onBack:()->Unit,onSelect:(ProtoCatalogProduct)->Unit){var query by remember{mutableStateOf("")};val filtered=products.filter{query.isBlank()||it.sku.contains(query,true)||it.name.contains(query,true)};ProtoScaffold("Каталог производства","Выберите модель — артикул подставится автоматически",onBack){item{ProtoField(query,{query=it},"Поиск по артикулу или названию")};items(filtered,key={it.sku}){p->ProtoSectionCard(Modifier.clickable{onSelect(p)}){Row(verticalAlignment=Alignment.CenterVertically){ProtoProductImage(p,Modifier.size(58.dp).clip(RoundedCornerShape(10.dp)));Spacer(Modifier.width(10.dp));Column(Modifier.weight(1f)){Text(p.name,color=ProtoText,fontWeight=FontWeight.SemiBold);Text("Арт. ${p.sku} · ${p.quality} · ${p.size}",color=ProtoMuted,fontSize=11.sp)};Icon(Icons.Outlined.ChevronRight,null,tint=ProtoGold)}}}}}
 
 @Composable
-private fun ProtoProductionEntryScreen(
+internal fun ProtoProductionEntryScreen(
     product:ProtoCatalogProduct?,
     qty:Int,
     assembler:String,
@@ -4687,7 +3841,7 @@ private fun ProtoProductionEntryScreen(
 }
 
 @Composable
-private fun ProtoProductionCalendarDialog(selectedDate:LocalDate,onDismiss:()->Unit,onSelect:(LocalDate)->Unit){
+internal fun ProtoProductionCalendarDialog(selectedDate:LocalDate,onDismiss:()->Unit,minDate:LocalDate?=null,workdaysOnly:Boolean=false,maxDate:LocalDate?=null,onSelect:(LocalDate)->Unit){
     var month by remember(selectedDate){mutableStateOf(YearMonth.from(selectedDate))}
     val first=month.atDay(1)
     val daysInMonth=month.lengthOfMonth()
@@ -4705,7 +3859,7 @@ private fun ProtoProductionCalendarDialog(selectedDate:LocalDate,onDismiss:()->U
         text={
             Column{
                 Row(Modifier.fillMaxWidth()){
-                    listOf("Пн","Вт","Ср","Чт","Пт","Сб","Вс").forEach{d->Text(d,color=ProtoMuted,fontSize=10.sp,modifier=Modifier.weight(1f),textAlign=androidx.compose.ui.text.style.TextAlign.Center)}
+                    listOf("Пн","Вт","Ср","Чт","Пт","Сб","Вс").forEach{d->Text(d,color=ProtoMuted,fontSize=12.sp,modifier=Modifier.weight(1f),textAlign=androidx.compose.ui.text.style.TextAlign.Center)}
                 }
                 Spacer(Modifier.height(6.dp))
                 val cells=(shift+daysInMonth).let{((it+6)/7)*7}
@@ -4716,26 +3870,29 @@ private fun ProtoProductionCalendarDialog(selectedDate:LocalDate,onDismiss:()->U
                             if(day in 1..daysInMonth){
                                 val date=month.atDay(day)
                                 val selected=date==selectedDate
+                                val enabled=(minDate==null||!date.isBefore(minDate))&&(maxDate==null||!date.isAfter(maxDate))&&(!workdaysOnly||protoIsWorkday(date))
+                                val today=date==LocalDate.now()
                                 Box(
                                     Modifier.weight(1f).aspectRatio(1f).padding(2.dp)
                                         .clip(CircleShape)
                                         .background(if(selected)ProtoGold else Color.Transparent)
-                                        .clickable{onSelect(date)},
+                                        .then(if(today&&!selected)Modifier.border(1.dp,ProtoGold.copy(alpha=.6f),CircleShape) else Modifier)
+                                        .clickable(enabled=enabled){onSelect(date)},
                                     contentAlignment=Alignment.Center
-                                ){Text(day.toString(),color=if(selected)Color.Black else ProtoText,fontSize=12.sp,fontWeight=if(selected)FontWeight.Bold else FontWeight.Normal)}
+                                ){Text(day.toString(),color=when{selected->Color.Black;!enabled->ProtoMuted.copy(alpha=.35f);else->ProtoText},fontSize=13.sp,fontWeight=if(selected)FontWeight.Bold else FontWeight.Normal)}
                             } else Spacer(Modifier.weight(1f).aspectRatio(1f))
                         }
                     }
                 }
             }
         },
-        confirmButton={TextButton(onClick={onSelect(LocalDate.now())}){Text("Сегодня",color=ProtoGold)}},
+        confirmButton={if(minDate==null||!LocalDate.now().isBefore(minDate))TextButton(onClick={onSelect(LocalDate.now())}){Text("Сегодня",color=ProtoGold)}},
         dismissButton={TextButton(onClick=onDismiss){Text("Закрыть",color=ProtoMuted)}}
     )
 }
 
 @Composable
-private fun ProtoProductionHistoryScreen(
+internal fun ProtoProductionHistoryScreen(
     ops:List<ProtoProductionOp>,
     products:List<ProtoCatalogProduct>,
     canEdit:Boolean,
@@ -4820,7 +3977,7 @@ private fun ProtoProductionHistoryScreen(
     }
 }
 
-private fun protoReportMonthLabel(key:String):String{
+internal fun protoReportMonthLabel(key:String):String{
     val parts=key.split(".")
     if(parts.size!=2)return key
     val ym=runCatching{YearMonth.of(parts[1].toInt(),parts[0].toInt())}.getOrNull()?:return key
@@ -4828,7 +3985,7 @@ private fun protoReportMonthLabel(key:String):String{
 }
 
 @Composable
-private fun ProtoProductionReportScreen(selectedDate:LocalDate,ops:List<ProtoProductionOp>,products:List<ProtoCatalogProduct>,onBack:()->Unit){
+internal fun ProtoProductionReportScreen(selectedDate:LocalDate,ops:List<ProtoProductionOp>,products:List<ProtoCatalogProduct>,onBack:()->Unit){
     val totalQty=ops.sumOf{it.qty}
     val wreathQty=ops.filter{op->products.firstOrNull{it.sku==op.sku}?.type?.contains("Венки",true)==true}.sumOf{it.qty}
     val totalAmount=ops.sumOf{it.amountRub}
@@ -4849,7 +4006,7 @@ private fun ProtoProductionReportScreen(selectedDate:LocalDate,ops:List<ProtoPro
 }
 
 @Composable
-private fun ProtoProductionPaymentsScreen(ops:List<ProtoProductionOp>,onBack:()->Unit,onExport:()->Unit){
+internal fun ProtoProductionPaymentsScreen(ops:List<ProtoProductionOp>,onBack:()->Unit,onExport:()->Unit){
     var period by remember{mutableStateOf("Месяц")}
     val today=LocalDate.now()
     fun parse(value:String)=runCatching{LocalDate.parse(value,DateTimeFormatter.ofPattern("dd.MM.yyyy"))}.getOrNull()
@@ -4873,20 +4030,20 @@ private fun ProtoProductionPaymentsScreen(ops:List<ProtoProductionOp>,onBack:()-
 }
 
 @Composable
-private fun ProtoStaffProfileScreen(role:String,onBack:()->Unit,onCall:()->Unit,onLogout:()->Unit){
+internal fun ProtoStaffProfileScreen(role:String,onBack:()->Unit,onCall:()->Unit,onLogout:()->Unit){
     ProtoScaffold("Профиль",role,onBack){
         item{ProtoSectionCard{ProtoInfoRow("Роль",role);ProtoInfoRow("Дата",currentDateLong());ProtoInfoRow("Версия",BuildConfig.VERSION_NAME);ProtoInfoRow("Поддержка",BuildConfig.ADMIN_PHONE);Spacer(Modifier.height(8.dp));OutlinedButton(onClick=onCall,modifier=Modifier.fillMaxWidth(),border=BorderStroke(1.dp,ProtoGold)){Icon(Icons.Outlined.Phone,null,tint=ProtoGold);Spacer(Modifier.width(7.dp));Text("Позвонить в поддержку",color=ProtoGold)};TextButton(onClick=onLogout,modifier=Modifier.fillMaxWidth()){Text("Выйти",color=ProtoMuted)}}}
     }
 }
 
 @Composable
-private fun ProtoServerScreen(products:List<ProtoCatalogProduct>,stockOverrides:SnapshotStateMap<String,Int>,productionOps:List<ProtoProductionOp>,orders:List<ProtoOrder>,clients:List<ProtoClient>,reservedForSku:(String)->Int,onBack:()->Unit,onProduced:()->Unit,onStock:()->Unit,onReserve:()->Unit,onNewClients:()->Unit,onOnline:()->Unit,onExport:()->Unit){
+internal fun ProtoServerScreen(products:List<ProtoCatalogProduct>,stockOverrides:SnapshotStateMap<String,Int>,productionOps:List<ProtoProductionOp>,orders:List<ProtoOrder>,clients:List<ProtoClient>,reservedForSku:(String)->Int,onBack:()->Unit,onProduced:()->Unit,onStock:()->Unit,onReserve:()->Unit,onNewClients:()->Unit,onOnline:()->Unit,onExport:()->Unit){
     val reserve=products.sumOf{reservedForSku(it.sku)};val available=products.sumOf{p->((stockOverrides[p.sku]?:p.stock)-reservedForSku(p.sku)).coerceAtLeast(0)};val monthProduced=productionOps.sumOf{it.qty};val monthKey=LocalDate.now().format(DateTimeFormatter.ofPattern("MM.yyyy"));val newClients=clients.count{it.registeredAt.endsWith(monthKey)}
     Box(Modifier.fillMaxSize()){ProtoLiveBackground();LazyColumn(Modifier.fillMaxSize(),contentPadding=PaddingValues(horizontal=18.dp,vertical=8.dp),verticalArrangement=Arrangement.spacedBy(12.dp)){item{ProtoBrandHeader(onBack=onBack)};item{Text("Сервер данных",color=ProtoText,fontSize=30.sp,fontWeight=FontWeight.Bold);Text("Учёт по месяцам · "+currentMonthLabel(),color=ProtoMuted,fontSize=13.sp)};item{Row(horizontalArrangement=Arrangement.spacedBy(8.dp)){ProtoMetricCard("Выпуск",monthProduced.toString(),"",Modifier.weight(1f),onProduced);ProtoMetricCard("Резерв",reserve.toString(),"",Modifier.weight(1f),onReserve)}};item{Row(horizontalArrangement=Arrangement.spacedBy(8.dp)){ProtoMetricCard("Доступно",available.toString(),"",Modifier.weight(1f),onStock);ProtoMetricCard("Новые клиенты",newClients.toString(),"",Modifier.weight(1f),onNewClients)}};item{Text("Товары",color=ProtoText,fontSize=21.sp,fontWeight=FontWeight.Bold)};items(products.take(12)){p->val ph=stockOverrides[p.sku]?:p.stock;val rs=reservedForSku(p.sku);ProtoSectionCard{Row{Column(Modifier.weight(1f)){Text(p.name,color=ProtoText,fontWeight=FontWeight.SemiBold);Text(p.sku,color=ProtoMuted,fontSize=10.sp)};Column(horizontalAlignment=Alignment.End){Text("Остаток $ph",color=ProtoText,fontSize=11.sp);Text("Резерв $rs · Доступно "+(ph-rs).coerceAtLeast(0),color=ProtoGoldSoft,fontSize=11.sp)}}}};item{ProtoSectionCard(Modifier.clickable{onOnline()}){ProtoInfoRow("Клиенты онлайн",clients.count{it.online}.toString())}};item{Row(horizontalArrangement=Arrangement.spacedBy(8.dp)){ProtoSecondaryButton("Экспорт",onExport,Modifier.weight(1f));ProtoSecondaryButton("Остатки",onStock,Modifier.weight(1f))}}}}
 }
 
 @Composable
-private fun ProtoStockListScreen(
+internal fun ProtoStockListScreen(
     products:List<ProtoCatalogProduct>,
     stockOverrides:SnapshotStateMap<String,Int>,
     reservedForSku:(String)->Int,
@@ -4988,24 +4145,19 @@ private fun ProtoStockListScreen(
 }
 
 @Composable
-private fun ProtoLowStockListScreen(products:List<ProtoCatalogProduct>,stockOverrides:SnapshotStateMap<String,Int>,reservedForSku:(String)->Int,threshold:Int,onBack:()->Unit){val low=products.map{p->Triple(p,stockOverrides[p.sku]?:p.stock,reservedForSku(p.sku))}.filter{(p,physical,reserved)->(physical-reserved).coerceAtLeast(0)<=threshold};ProtoScaffold("Низкие остатки","Порог: ≤ $threshold шт.",onBack){if(low.isEmpty())item{Text("Все остатки выше установленного порога",color=ProtoGreen)}else items(low,key={it.first.sku}){(p,physical,reserved)->val available=(physical-reserved).coerceAtLeast(0);ProtoSectionCard{Row(verticalAlignment=Alignment.CenterVertically){ProtoProductImage(p,Modifier.size(48.dp).clip(RoundedCornerShape(8.dp)));Spacer(Modifier.width(9.dp));Column(Modifier.weight(1f)){Text(p.name,color=ProtoText,fontWeight=FontWeight.SemiBold);Text("${p.sku} · факт $physical · резерв $reserved",color=ProtoMuted,fontSize=10.sp)};Text("$available",color=ProtoOrange,fontSize=20.sp,fontWeight=FontWeight.Bold)}}}}}
+internal fun ProtoLowStockListScreen(products:List<ProtoCatalogProduct>,stockOverrides:SnapshotStateMap<String,Int>,reservedForSku:(String)->Int,threshold:Int,onBack:()->Unit){val low=products.map{p->Triple(p,stockOverrides[p.sku]?:p.stock,reservedForSku(p.sku))}.filter{(p,physical,reserved)->(physical-reserved).coerceAtLeast(0)<=threshold};ProtoScaffold("Низкие остатки","Порог: ≤ $threshold шт.",onBack){if(low.isEmpty())item{Text("Все остатки выше установленного порога",color=ProtoGreen)}else items(low,key={it.first.sku}){(p,physical,reserved)->val available=(physical-reserved).coerceAtLeast(0);ProtoSectionCard{Row(verticalAlignment=Alignment.CenterVertically){ProtoProductImage(p,Modifier.size(48.dp).clip(RoundedCornerShape(8.dp)));Spacer(Modifier.width(9.dp));Column(Modifier.weight(1f)){Text(p.name,color=ProtoText,fontWeight=FontWeight.SemiBold);Text("${p.sku} · факт $physical · резерв $reserved",color=ProtoMuted,fontSize=10.sp)};Text("$available",color=ProtoOrange,fontSize=20.sp,fontWeight=FontWeight.Bold)}}}}}
 
 @Composable
-private fun ProtoReserveListScreen(orders:List<ProtoOrder>,onBack:()->Unit){ProtoScaffold("Резерв","За кем закреплены товары",onBack){items(orders.filter{it.status!="Доставлен"},key={it.id}){o->ProtoSectionCard{Text(o.clientName,color=ProtoText,fontWeight=FontWeight.SemiBold);Text("${o.id} · ${o.pieces} шт. · ${protoMoney(o.total)}",color=ProtoMuted,fontSize=11.sp);o.lines.forEach{l->Text("${l.sku} — ${l.qty} шт.",color=ProtoGoldSoft,fontSize=11.sp)}}}}}
+internal fun ProtoReserveListScreen(orders:List<ProtoOrder>,onBack:()->Unit){ProtoScaffold("Резерв","За кем закреплены товары",onBack){items(orders.filter{it.status!="Доставлен"},key={it.id}){o->ProtoSectionCard{Text(o.clientName,color=ProtoText,fontWeight=FontWeight.SemiBold);Text("${o.id} · ${o.pieces} шт. · ${protoMoney(o.total)}",color=ProtoMuted,fontSize=11.sp);o.lines.forEach{l->Text("${l.sku} — ${l.qty} шт.",color=ProtoGoldSoft,fontSize=11.sp)}}}}}
 
 @Composable
-private fun ProtoNewClientsScreen(clients:List<ProtoClient>,onBack:()->Unit,onOpen:(ProtoClient)->Unit){val monthKey=LocalDate.now().format(DateTimeFormatter.ofPattern("MM.yyyy"));val current=clients.filter{it.registeredAt.endsWith(monthKey)};ProtoScaffold("Новые клиенты",currentMonthLabel(),onBack){items(current,key={it.id}){c->ProtoSectionCard(Modifier.clickable{onOpen(c)}){Text(c.name,color=ProtoText,fontWeight=FontWeight.SemiBold);Text("${c.orderCount} заказов · оборот ${protoMoney(c.monthTurnover)}",color=ProtoMuted,fontSize=11.sp)}}}}
+internal fun ProtoNewClientsScreen(clients:List<ProtoClient>,onBack:()->Unit,onOpen:(ProtoClient)->Unit){val monthKey=LocalDate.now().format(DateTimeFormatter.ofPattern("MM.yyyy"));val current=clients.filter{it.registeredAt.endsWith(monthKey)};ProtoScaffold("Новые клиенты",currentMonthLabel(),onBack){items(current,key={it.id}){c->ProtoSectionCard(Modifier.clickable{onOpen(c)}){Text(c.name,color=ProtoText,fontWeight=FontWeight.SemiBold);Text("${c.orderCount} заказов · оборот ${protoMoney(c.monthTurnover)}",color=ProtoMuted,fontSize=11.sp)}}}}
 
 @Composable
-private fun ProtoExportScreen(onBack:()->Unit,onExport:(String)->Unit){var report by remember{mutableStateOf("Остатки на складе")};ProtoScaffold("Экспорт","Выберите отчёт — CSV сохраняется в Downloads",onBack){item{ProtoSectionCard{listOf("Остатки на складе","Резерв по клиентам","Выпуск за месяц","Производство по сборщицам","Заказы за месяц").forEach{r->Row(Modifier.fillMaxWidth().clickable{report=r}.padding(vertical=5.dp),verticalAlignment=Alignment.CenterVertically){RadioButton(selected=report==r,onClick={report=r},colors=RadioButtonDefaults.colors(selectedColor=ProtoGold));Text(r,color=ProtoText)}};Button(onClick={onExport(report)},modifier=Modifier.fillMaxWidth().padding(top=8.dp),colors=ButtonDefaults.buttonColors(containerColor=ProtoGold)){Icon(Icons.Outlined.FileDownload,null,tint=Color.Black);Spacer(Modifier.width(7.dp));Text("Экспортировать CSV",color=Color.Black,fontWeight=FontWeight.Bold)}}}}}
+internal fun ProtoExportScreen(onBack:()->Unit,onExport:(String)->Unit){var report by remember{mutableStateOf("Остатки на складе")};ProtoScaffold("Экспорт","Выберите отчёт — CSV сохраняется в Downloads",onBack){item{ProtoSectionCard{listOf("Остатки на складе","Резерв по клиентам","Выпуск за месяц","Производство по сборщицам","Заказы за месяц").forEach{r->Row(Modifier.fillMaxWidth().clickable{report=r}.padding(vertical=5.dp),verticalAlignment=Alignment.CenterVertically){RadioButton(selected=report==r,onClick={report=r},colors=RadioButtonDefaults.colors(selectedColor=ProtoGold));Text(r,color=ProtoText)}};Button(onClick={onExport(report)},modifier=Modifier.fillMaxWidth().padding(top=8.dp),colors=ButtonDefaults.buttonColors(containerColor=ProtoGold)){Icon(Icons.Outlined.FileDownload,null,tint=Color.Black);Spacer(Modifier.width(7.dp));Text("Экспортировать CSV",color=Color.Black,fontWeight=FontWeight.Bold)}}}}}
 
 @Composable
-private fun ProtoRegistrationSentScreen(reg:ProtoRegistration?,onBack:()->Unit){
-    Box(Modifier.fillMaxSize()){ProtoLiveBackground();Column(Modifier.fillMaxSize().padding(horizontal=18.dp),horizontalAlignment=Alignment.CenterHorizontally){ProtoBrandHeader(showBell=false);Spacer(Modifier.height(38.dp));Box(Modifier.size(112.dp).border(3.dp,ProtoGold,CircleShape),contentAlignment=Alignment.Center){Icon(Icons.Outlined.Check,null,tint=ProtoGold,modifier=Modifier.size(64.dp))};Text("Заявка отправлена",color=ProtoText,fontSize=31.sp,fontWeight=FontWeight.Bold,modifier=Modifier.padding(top=20.dp));Text("Спасибо за регистрацию. Мы проверим данные и откроем доступ к каталогу и заказам.",color=ProtoMuted,fontSize=14.sp,lineHeight=20.sp,modifier=Modifier.padding(vertical=14.dp));if(reg!=null)ProtoSectionCard{ProtoInfoRow("Тип клиента",reg.type);ProtoInfoRow("Организация",reg.organization);ProtoInfoRow("Телефон",reg.phone1);ProtoInfoRow("E-mail",reg.email)};Spacer(Modifier.weight(1f));ProtoPrimaryButton("Понятно",onBack);Spacer(Modifier.height(22.dp))}}
-}
-
-@Composable
-private fun ProtoSimpleMessageScreen(title:String,text:String,onBack:()->Unit){
+internal fun ProtoSimpleMessageScreen(title:String,text:String,onBack:()->Unit){
     Box(Modifier.fillMaxSize()){
         ProtoLiveBackground()
         Column(Modifier.fillMaxSize().padding(horizontal=18.dp),horizontalAlignment=Alignment.CenterHorizontally){
@@ -5024,18 +4176,18 @@ private fun ProtoSimpleMessageScreen(title:String,text:String,onBack:()->Unit){
 }
 
 @Composable
-private fun ProtoScaffold(title:String,subtitle:String?=null,onBack:(()->Unit)?=null,content:LazyListScope.()->Unit){
+internal fun ProtoScaffold(title:String,subtitle:String?=null,onBack:(()->Unit)?=null,content:LazyListScope.()->Unit){
     Box(Modifier.fillMaxSize()){ProtoLiveBackground();Column(Modifier.fillMaxSize()){ProtoBrandHeader(onBack=onBack);Column(Modifier.padding(horizontal=16.dp)){Text(title,color=ProtoText,fontSize=28.sp,fontWeight=FontWeight.Bold);if(subtitle!=null)Text(subtitle,color=ProtoMuted,fontSize=12.sp)};LazyColumn(Modifier.weight(1f),contentPadding=PaddingValues(horizontal=16.dp,vertical=8.dp),verticalArrangement=Arrangement.spacedBy(10.dp),content=content)}}
 }
 
 @Composable
-private fun ProtoHeader(title:String,subtitle:String,onBack:()->Unit){Row(verticalAlignment=Alignment.CenterVertically){ProtoCircleBack(onBack);Spacer(Modifier.width(12.dp));Column{Text(title,color=ProtoText,fontSize=27.sp,fontWeight=FontWeight.Bold);Text(subtitle,color=ProtoMuted,fontSize=11.sp)}}}
+internal fun ProtoHeader(title:String,subtitle:String,onBack:()->Unit){Row(verticalAlignment=Alignment.CenterVertically){ProtoCircleBack(onBack);Spacer(Modifier.width(12.dp));Column{Text(title,color=ProtoText,fontSize=27.sp,fontWeight=FontWeight.Bold);Text(subtitle,color=ProtoMuted,fontSize=11.sp)}}}
 
 @Composable
-private fun ProtoCircleBack(onClick:()->Unit){Box(Modifier.size(44.dp).clip(CircleShape).background(Color(0xCC11100E)).border(1.dp,ProtoGold,CircleShape).clickable(onClick=onClick),contentAlignment=Alignment.Center){Icon(Icons.Outlined.ArrowBack,null,tint=ProtoGold)}}
+internal fun ProtoCircleBack(onClick:()->Unit){Box(Modifier.size(44.dp).clip(CircleShape).background(Color(0xCC11100E)).border(1.dp,ProtoGold,CircleShape).clickable(onClick=onClick),contentAlignment=Alignment.Center){Icon(Icons.Outlined.ArrowBack,null,tint=ProtoGold)}}
 
 @Composable
-private fun ProtoBackButton(onClick: () -> Unit) {
+internal fun ProtoBackButton(onClick: () -> Unit) {
     Box(
         modifier = Modifier
             .padding(start = 14.dp, top = 34.dp)
@@ -5051,7 +4203,7 @@ private fun ProtoBackButton(onClick: () -> Unit) {
 }
 
 @Composable
-private fun BoxScope.PrototypeClickArea(
+internal fun BoxScope.PrototypeClickArea(
     maxWidth: Dp,
     maxHeight: Dp,
     x: Float,
@@ -5070,22 +4222,22 @@ private fun BoxScope.PrototypeClickArea(
 }
 
 @Composable
-private fun ProtoQtyButton(icon: androidx.compose.ui.graphics.vector.ImageVector,onClick:()->Unit,size:Dp=34.dp){
+internal fun ProtoQtyButton(icon: androidx.compose.ui.graphics.vector.ImageVector,onClick:()->Unit,size:Dp=34.dp){
     Surface(color=ProtoPanel2,border=BorderStroke(1.dp,ProtoGold),shape=RoundedCornerShape(10.dp),modifier=Modifier.size(size).clickable(onClick=onClick)){Box(Modifier.fillMaxSize(),contentAlignment=Alignment.Center){Icon(icon,null,tint=ProtoGold,modifier=Modifier.size((size.value*.48f).dp))}}
 }
 
 @Composable
-private fun BoxScope.ProtoDevelopmentMiniBadge(maxWidth:Dp,maxHeight:Dp,x:Float,y:Float,w:Float,h:Float){
+internal fun BoxScope.ProtoDevelopmentMiniBadge(maxWidth:Dp,maxHeight:Dp,x:Float,y:Float,w:Float,h:Float){
     Box(Modifier.offset(maxWidth*x,maxHeight*y).size(maxWidth*w,maxHeight*h).background(Color.Black.copy(alpha=.38f),RoundedCornerShape(10.dp)),contentAlignment=Alignment.BottomCenter){Surface(color=ProtoPanel.copy(alpha=.94f),shape=RoundedCornerShape(10.dp),border=BorderStroke(1.dp,ProtoBorder),modifier=Modifier.padding(bottom=4.dp)){Text("В разработке",color=ProtoMuted,fontSize=7.sp,maxLines=1,modifier=Modifier.padding(horizontal=4.dp,vertical=2.dp))}}
 }
 
 @Composable
-private fun BoxScope.ProtoDevelopmentOverlay(maxWidth:Dp,maxHeight:Dp,x:Float,y:Float,w:Float,h:Float){
+internal fun BoxScope.ProtoDevelopmentOverlay(maxWidth:Dp,maxHeight:Dp,x:Float,y:Float,w:Float,h:Float){
     Box(Modifier.offset(maxWidth*x,maxHeight*y).size(maxWidth*w,maxHeight*h).background(Color.Black.copy(alpha=.52f),RoundedCornerShape(14.dp)),contentAlignment=Alignment.Center){Surface(color=ProtoPanel.copy(alpha=.94f),border=BorderStroke(1.dp,ProtoBorder),shape=RoundedCornerShape(18.dp)){Text("В разработке",color=ProtoMuted,fontSize=11.sp,fontWeight=FontWeight.SemiBold,modifier=Modifier.padding(horizontal=12.dp,vertical=6.dp))}}
 }
 
 @Composable
-private fun BoxWithConstraintsScope.ProtoReferenceCartBadge(count:Int){
+internal fun BoxWithConstraintsScope.ProtoReferenceCartBadge(count:Int){
     Box(Modifier.offset(maxWidth*.488f,maxHeight*.908f).size(32.dp).background(ProtoPanel,CircleShape))
     if(count>0){
         Box(Modifier.offset(maxWidth*.505f,maxHeight*.912f).size(23.dp).background(ProtoGold,CircleShape),contentAlignment=Alignment.Center){
@@ -5095,7 +4247,7 @@ private fun BoxWithConstraintsScope.ProtoReferenceCartBadge(count:Int){
 }
 
 @Composable
-private fun ProtoProductImagePreview(product:ProtoCatalogProduct,onDismiss:()->Unit){
+internal fun ProtoProductImagePreview(product:ProtoCatalogProduct,onDismiss:()->Unit){
     Dialog(onDismissRequest=onDismiss,properties=DialogProperties(usePlatformDefaultWidth=false,decorFitsSystemWindows=false)){
         BackHandler { onDismiss() }
         var scale by remember{mutableFloatStateOf(1f)}
@@ -5114,7 +4266,7 @@ private fun ProtoProductImagePreview(product:ProtoCatalogProduct,onDismiss:()->U
     }
 }
 
-private fun Modifier.androidx_pointerInput_zoom(
+internal fun Modifier.androidx_pointerInput_zoom(
     set:(Float,Float,Float)->Unit,
     scale:()->Float,
     offX:()->Float,
@@ -5131,26 +4283,26 @@ private fun Modifier.androidx_pointerInput_zoom(
     }
 
 @Composable
-private fun ProtoSectionCard(modifier:Modifier=Modifier,content:@Composable ColumnScope.()->Unit){Card(colors=CardDefaults.cardColors(containerColor=ProtoPanel),border=BorderStroke(1.dp,ProtoBorder),shape=RoundedCornerShape(14.dp),modifier=modifier.fillMaxWidth()){Column(Modifier.padding(14.dp),content=content)}}
+internal fun ProtoSectionCard(modifier:Modifier=Modifier,content:@Composable ColumnScope.()->Unit){Card(colors=CardDefaults.cardColors(containerColor=ProtoPanel),border=BorderStroke(1.dp,ProtoBorder),shape=RoundedCornerShape(14.dp),modifier=modifier.fillMaxWidth()){Column(Modifier.padding(14.dp),content=content)}}
 
 @Composable
-private fun ProtoField(value:String,onChange:(String)->Unit,label:String,keyboardType:KeyboardType=KeyboardType.Text){OutlinedTextField(value=value,onValueChange=onChange,label={Text(label)},modifier=Modifier.fillMaxWidth().padding(vertical=4.dp),singleLine=true,keyboardOptions=KeyboardOptions(keyboardType=keyboardType),colors=protoFieldColors())}
+internal fun ProtoField(value:String,onChange:(String)->Unit,label:String,keyboardType:KeyboardType=KeyboardType.Text){OutlinedTextField(value=value,onValueChange=onChange,label={Text(label)},modifier=Modifier.fillMaxWidth().padding(vertical=4.dp),singleLine=true,keyboardOptions=KeyboardOptions(keyboardType=keyboardType),colors=protoFieldColors())}
 
 @Composable
-private fun protoChatFieldColors()=OutlinedTextFieldDefaults.colors(focusedBorderColor=ProtoGold,unfocusedBorderColor=ProtoBorder,focusedTextColor=ProtoText,unfocusedTextColor=ProtoText,focusedLabelColor=ProtoGold,unfocusedLabelColor=ProtoMuted,focusedContainerColor=ProtoPanel2,unfocusedContainerColor=ProtoPanel2,cursorColor=ProtoGold,focusedPlaceholderColor=ProtoMuted,unfocusedPlaceholderColor=ProtoMuted)
+internal fun protoChatFieldColors()=OutlinedTextFieldDefaults.colors(focusedBorderColor=ProtoGold,unfocusedBorderColor=ProtoBorder,focusedTextColor=ProtoText,unfocusedTextColor=ProtoText,focusedLabelColor=ProtoGold,unfocusedLabelColor=ProtoMuted,focusedContainerColor=ProtoPanel2,unfocusedContainerColor=ProtoPanel2,cursorColor=ProtoGold,focusedPlaceholderColor=ProtoMuted,unfocusedPlaceholderColor=ProtoMuted)
 
 @Composable
-private fun protoFieldColors()=OutlinedTextFieldDefaults.colors(focusedBorderColor=ProtoGold,unfocusedBorderColor=ProtoBorder,focusedTextColor=ProtoText,unfocusedTextColor=ProtoText,focusedLabelColor=ProtoGold,unfocusedLabelColor=ProtoMuted,focusedLeadingIconColor=ProtoGold,unfocusedLeadingIconColor=ProtoMuted,disabledBorderColor=ProtoBorder,disabledTextColor=ProtoMuted)
+internal fun protoFieldColors()=OutlinedTextFieldDefaults.colors(focusedBorderColor=ProtoGold,unfocusedBorderColor=ProtoBorder,focusedTextColor=ProtoText,unfocusedTextColor=ProtoText,focusedLabelColor=ProtoGold,unfocusedLabelColor=ProtoMuted,focusedLeadingIconColor=ProtoGold,unfocusedLeadingIconColor=ProtoMuted,disabledBorderColor=ProtoBorder,disabledTextColor=ProtoMuted)
 
 @Composable
-private fun ProtoCompactGrid(title:String,options:List<String>,selected:Set<String>,toggle:(String)->Unit,disabled:Set<String> = emptySet()){Text(title,color=ProtoGoldSoft,fontSize=17.sp,fontWeight=FontWeight.SemiBold,modifier=Modifier.padding(top=7.dp,bottom=6.dp));options.chunked(2).forEach{row->Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.spacedBy(6.dp)){row.forEach{o->val off=o in disabled;FilterChip(selected=o in selected,onClick={if(!off)toggle(o)},enabled=!off,label={Text(if(off)"$o · в разработке" else o,fontSize=if(off)12.sp else 15.sp,maxLines=2)},modifier=Modifier.weight(1f).height(48.dp),colors=FilterChipDefaults.filterChipColors(selectedContainerColor=ProtoGold,selectedLabelColor=Color.Black,labelColor=ProtoText,disabledLabelColor=ProtoMuted))};if(row.size==1)Spacer(Modifier.weight(1f))};Spacer(Modifier.height(8.dp))}
+internal fun ProtoCompactGrid(title:String,options:List<String>,selected:Set<String>,toggle:(String)->Unit,disabled:Set<String> = emptySet()){Text(title,color=ProtoGoldSoft,fontSize=17.sp,fontWeight=FontWeight.SemiBold,modifier=Modifier.padding(top=7.dp,bottom=6.dp));options.chunked(2).forEach{row->Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.spacedBy(6.dp)){row.forEach{o->val off=o in disabled;FilterChip(selected=o in selected,onClick={if(!off)toggle(o)},enabled=!off,label={Text(if(off)"$o · в разработке" else o,fontSize=if(off)12.sp else 15.sp,maxLines=2)},modifier=Modifier.weight(1f).height(48.dp),colors=FilterChipDefaults.filterChipColors(selectedContainerColor=ProtoGold,selectedLabelColor=Color.Black,labelColor=ProtoText,disabledLabelColor=ProtoMuted))};if(row.size==1)Spacer(Modifier.weight(1f))};Spacer(Modifier.height(8.dp))}
 }
 
 @Composable
-private fun ProtoCategoryButton(label:String,disabled:Boolean,modifier:Modifier,onClick:()->Unit){OutlinedButton(onClick=onClick,enabled=true,modifier=modifier.height(46.dp),border=BorderStroke(1.dp,if(disabled)ProtoBorder else ProtoGold),contentPadding=PaddingValues(horizontal=5.dp)){Text(if(disabled)"$label · скоро" else label,color=if(disabled)ProtoMuted else ProtoGold,fontSize=11.sp,maxLines=1)}}
+internal fun ProtoCategoryButton(label:String,disabled:Boolean,modifier:Modifier,onClick:()->Unit){OutlinedButton(onClick=onClick,enabled=true,modifier=modifier.height(46.dp),border=BorderStroke(1.dp,if(disabled)ProtoBorder else ProtoGold),contentPadding=PaddingValues(horizontal=5.dp)){Text(if(disabled)"$label · скоро" else label,color=if(disabled)ProtoMuted else ProtoGold,fontSize=11.sp,maxLines=1)}}
 
 @Composable
-private fun ProtoPopularRow(p:ProtoCatalogProduct,stock:Int,onOpen:()->Unit){
+internal fun ProtoPopularRow(p:ProtoCatalogProduct,stock:Int,onOpen:()->Unit){
     Card(
         colors=CardDefaults.cardColors(containerColor=ProtoPanel),
         border=BorderStroke(1.dp,ProtoBorder),
@@ -5173,7 +4325,7 @@ private fun ProtoPopularRow(p:ProtoCatalogProduct,stock:Int,onOpen:()->Unit){
     }
 }
 @Composable
-private fun ProtoCartRow(p:ProtoCatalogProduct,qty:Int,onMinus:()->Unit,onPlus:()->Unit,onDelete:()->Unit){
+internal fun ProtoCartRow(p:ProtoCatalogProduct,qty:Int,onMinus:()->Unit,onPlus:()->Unit,onDelete:()->Unit){
     Card(
         colors=CardDefaults.cardColors(containerColor=ProtoPanel),
         border=BorderStroke(1.dp,ProtoBorder),
@@ -5200,22 +4352,22 @@ private fun ProtoCartRow(p:ProtoCatalogProduct,qty:Int,onMinus:()->Unit,onPlus:(
     }
 }
 @Composable
-private fun ProtoOrderRow(o:ProtoOrder,onClick:()->Unit){ProtoSectionCard(Modifier.clickable(onClick=onClick)){Row{Column(Modifier.weight(1f)){Text(o.id,color=ProtoGoldSoft,fontWeight=FontWeight.Bold);Text(o.clientName,color=ProtoText,fontWeight=FontWeight.SemiBold);Text("${o.pieces} шт. · ${o.dateTime}",color=ProtoMuted,fontSize=11.sp)};Column(horizontalAlignment=Alignment.End){Text(protoMoney(o.total),color=ProtoGoldSoft,fontWeight=FontWeight.Bold);ProtoPill(o.status,protoStatusColor(o.status))}}}}
+internal fun ProtoOrderRow(o:ProtoOrder,onClick:()->Unit){ProtoSectionCard(Modifier.clickable(onClick=onClick)){Row{Column(Modifier.weight(1f)){Text(o.id,color=ProtoGoldSoft,fontWeight=FontWeight.Bold);Text(o.clientName,color=ProtoText,fontWeight=FontWeight.SemiBold);Text("${o.pieces} шт. · ${o.dateTime}",color=ProtoMuted,fontSize=11.sp)};Column(horizontalAlignment=Alignment.End){Text(protoMoney(o.total),color=ProtoGoldSoft,fontWeight=FontWeight.Bold);ProtoPill(o.status,protoStatusColor(o.status))}}}}
 
 @Composable
-private fun ProtoMetricCard(title:String,value:String,subtitle:String,modifier:Modifier,onClick:()->Unit){Card(colors=CardDefaults.cardColors(containerColor=ProtoPanel),border=BorderStroke(1.dp,ProtoBorder),shape=RoundedCornerShape(14.dp),modifier=modifier.clickable(onClick=onClick)){Column(Modifier.padding(12.dp)){Text(title,color=ProtoMuted,fontSize=11.sp);Text(value,color=ProtoText,fontSize=25.sp,fontWeight=FontWeight.Bold);Text(subtitle,color=ProtoGoldSoft,fontSize=10.sp)}}}
+internal fun ProtoMetricCard(title:String,value:String,subtitle:String,modifier:Modifier,onClick:()->Unit){Card(colors=CardDefaults.cardColors(containerColor=ProtoPanel),border=BorderStroke(1.dp,ProtoBorder),shape=RoundedCornerShape(14.dp),modifier=modifier.clickable(onClick=onClick)){Column(Modifier.padding(12.dp)){Text(title,color=ProtoMuted,fontSize=11.sp);Text(value,color=ProtoText,fontSize=25.sp,fontWeight=FontWeight.Bold);Text(subtitle,color=ProtoGoldSoft,fontSize=10.sp)}}}
 
 @Composable
-private fun ProtoQuickButton(label:String,icon:androidx.compose.ui.graphics.vector.ImageVector,modifier:Modifier,onClick:()->Unit){OutlinedButton(onClick=onClick,modifier=modifier.height(64.dp),border=BorderStroke(1.dp,ProtoBorder),contentPadding=PaddingValues(3.dp)){Column(horizontalAlignment=Alignment.CenterHorizontally){Icon(icon,null,tint=ProtoGold,modifier=Modifier.size(20.dp));Text(label,color=ProtoText,fontSize=9.sp,maxLines=1)}}}
+internal fun ProtoQuickButton(label:String,icon:androidx.compose.ui.graphics.vector.ImageVector,modifier:Modifier,onClick:()->Unit){OutlinedButton(onClick=onClick,modifier=modifier.height(64.dp),border=BorderStroke(1.dp,ProtoBorder),contentPadding=PaddingValues(3.dp)){Column(horizontalAlignment=Alignment.CenterHorizontally){Icon(icon,null,tint=ProtoGold,modifier=Modifier.size(20.dp));Text(label,color=ProtoText,fontSize=9.sp,maxLines=1)}}}
 
 @Composable
-private fun ProtoAttentionLine(title:String,subtitle:String,color:Color,onClick:()->Unit){Card(colors=CardDefaults.cardColors(containerColor=ProtoPanel),border=BorderStroke(1.dp,ProtoBorder),modifier=Modifier.fillMaxWidth().padding(vertical=3.dp).clickable(onClick=onClick)){Row(Modifier.padding(11.dp),verticalAlignment=Alignment.CenterVertically){Box(Modifier.size(9.dp).background(color,CircleShape));Spacer(Modifier.width(9.dp));Column(Modifier.weight(1f)){Text(title,color=ProtoText,fontWeight=FontWeight.SemiBold);Text(subtitle,color=ProtoMuted,fontSize=10.sp)};Icon(Icons.Outlined.ChevronRight,null,tint=ProtoGold)}}}
+internal fun ProtoAttentionLine(title:String,subtitle:String,color:Color,onClick:()->Unit){Card(colors=CardDefaults.cardColors(containerColor=ProtoPanel),border=BorderStroke(1.dp,ProtoBorder),modifier=Modifier.fillMaxWidth().padding(vertical=3.dp).clickable(onClick=onClick)){Row(Modifier.padding(11.dp),verticalAlignment=Alignment.CenterVertically){Box(Modifier.size(9.dp).background(color,CircleShape));Spacer(Modifier.width(9.dp));Column(Modifier.weight(1f)){Text(title,color=ProtoText,fontWeight=FontWeight.SemiBold);Text(subtitle,color=ProtoMuted,fontSize=10.sp)};Icon(Icons.Outlined.ChevronRight,null,tint=ProtoGold)}}}
 
 @Composable
-private fun ProtoSwitchRow(label:String,value:Boolean,onChange:(Boolean)->Unit){Row(Modifier.fillMaxWidth(),verticalAlignment=Alignment.CenterVertically){Text(label,color=ProtoText,modifier=Modifier.weight(1f));Switch(checked=value,onCheckedChange=onChange,colors=SwitchDefaults.colors(checkedThumbColor=Color.Black,checkedTrackColor=ProtoGold))}}
+internal fun ProtoSwitchRow(label:String,value:Boolean,onChange:(Boolean)->Unit){Row(Modifier.fillMaxWidth(),verticalAlignment=Alignment.CenterVertically){Text(label,color=ProtoText,modifier=Modifier.weight(1f));Switch(checked=value,onCheckedChange=onChange,colors=SwitchDefaults.colors(checkedThumbColor=Color.Black,checkedTrackColor=ProtoGold))}}
 
 @Composable
-private fun ProtoSkuText(sku:String,extra:String="",fontSize:Int=13){
+internal fun ProtoSkuText(sku:String,extra:String="",fontSize:Int=13){
     Text(
         "Арт. "+sku+extra,
         color=ProtoGoldSoft,
@@ -5227,16 +4379,16 @@ private fun ProtoSkuText(sku:String,extra:String="",fontSize:Int=13){
 }
 
 @Composable
-private fun ProtoInfoRow(label:String,value:String){Row(Modifier.fillMaxWidth().padding(vertical=4.dp)){Text(label,color=ProtoMuted);Spacer(Modifier.weight(1f));Text(value,color=ProtoText,fontWeight=FontWeight.Medium)}}
+internal fun ProtoInfoRow(label:String,value:String){Row(Modifier.fillMaxWidth().padding(vertical=4.dp)){Text(label,color=ProtoMuted);Spacer(Modifier.weight(1f));Text(value,color=ProtoText,fontWeight=FontWeight.Medium)}}
 
 @Composable
-private fun ProtoPill(text:String,color:Color){Surface(color=color.copy(alpha=.16f),shape=RoundedCornerShape(20.dp),border=BorderStroke(1.dp,color.copy(alpha=.55f))){Text(text,color=color,fontSize=10.sp,modifier=Modifier.padding(horizontal=8.dp,vertical=4.dp))}}
+internal fun ProtoPill(text:String,color:Color){Surface(color=color.copy(alpha=.16f),shape=RoundedCornerShape(20.dp),border=BorderStroke(1.dp,color.copy(alpha=.55f))){Text(text,color=color,fontSize=10.sp,modifier=Modifier.padding(horizontal=8.dp,vertical=4.dp))}}
 
 @Composable
-private fun ProtoActionChip(text:String,icon:androidx.compose.ui.graphics.vector.ImageVector,modifier:Modifier,onClick:()->Unit){OutlinedButton(onClick=onClick,modifier=modifier.height(44.dp),border=BorderStroke(1.dp,ProtoBorder)){Icon(icon,null,tint=ProtoGold,modifier=Modifier.size(17.dp));Spacer(Modifier.width(5.dp));Text(text,color=ProtoText,fontSize=11.sp)}}
+internal fun ProtoActionChip(text:String,icon:androidx.compose.ui.graphics.vector.ImageVector,modifier:Modifier,onClick:()->Unit){OutlinedButton(onClick=onClick,modifier=modifier.height(44.dp),border=BorderStroke(1.dp,ProtoBorder)){Icon(icon,null,tint=ProtoGold,modifier=Modifier.size(17.dp));Spacer(Modifier.width(5.dp));Text(text,color=ProtoText,fontSize=11.sp)}}
 
 @Composable
-private fun ProtoClientBottomBar(current:ProtoScreen,cartCount:Int,onHome:()->Unit,onCatalog:()->Unit,onCart:()->Unit,onOrders:()->Unit,onProfile:()->Unit){
+internal fun ProtoClientBottomBar(current:ProtoScreen,cartCount:Int,onHome:()->Unit,onCatalog:()->Unit,onCart:()->Unit,onOrders:()->Unit,onProfile:()->Unit){
     val catalog=current in setOf(ProtoScreen.Catalog,ProtoScreen.Filter,ProtoScreen.ProductList,ProtoScreen.ProductDetail)
     val cart=current in setOf(ProtoScreen.Cart,ProtoScreen.Checkout)
     val orders=current in setOf(ProtoScreen.OrderList,ProtoScreen.OrderDetail,ProtoScreen.OrderSent)
@@ -5260,7 +4412,7 @@ private fun ProtoClientBottomBar(current:ProtoScreen,cartCount:Int,onHome:()->Un
     }
 }
 @Composable
-private fun ProtoRetailBottomBar(
+internal fun ProtoRetailBottomBar(
     current:ProtoScreen,
     cartCount:Int,
     onHome:()->Unit,
@@ -5292,25 +4444,25 @@ private fun ProtoRetailBottomBar(
 }
 
 @Composable
-private fun ProtoAdminBottomBar(current:ProtoScreen,onHome:()->Unit,onClients:()->Unit,onOrders:()->Unit,onStock:()->Unit,onProfile:()->Unit){NavigationBar(containerColor=ProtoPanel,tonalElevation=0.dp){ProtoNavItem(current==ProtoScreen.AdminHome,"Главная",Icons.Outlined.Home,onHome);ProtoNavItem(current in setOf(ProtoScreen.AdminClients,ProtoScreen.AdminClient),"Клиенты",Icons.Outlined.Groups,onClients);ProtoNavItem(current in setOf(ProtoScreen.AdminOrders,ProtoScreen.AdminOrderDetail),"Заказы",Icons.Outlined.ReceiptLong,onOrders);ProtoNavItem(current in setOf(ProtoScreen.Server,ProtoScreen.StockList,ProtoScreen.ReserveList),"Склад",Icons.Outlined.Inventory2,onStock);ProtoNavItem(current in setOf(ProtoScreen.AdminSettings,ProtoScreen.AdminSettingsDetail),"Профиль",Icons.Outlined.Person,onProfile)}
+internal fun ProtoAdminBottomBar(current:ProtoScreen,onHome:()->Unit,onClients:()->Unit,onOrders:()->Unit,onStock:()->Unit,onProfile:()->Unit){NavigationBar(containerColor=ProtoPanel,tonalElevation=0.dp){ProtoNavItem(current==ProtoScreen.AdminHome,"Главная",Icons.Outlined.Home,onHome);ProtoNavItem(current in setOf(ProtoScreen.AdminClients,ProtoScreen.AdminClient),"Клиенты",Icons.Outlined.Groups,onClients);ProtoNavItem(current in setOf(ProtoScreen.AdminOrders,ProtoScreen.AdminOrderDetail),"Заказы",Icons.Outlined.ReceiptLong,onOrders);ProtoNavItem(current in setOf(ProtoScreen.Server,ProtoScreen.StockList,ProtoScreen.ReserveList),"Склад",Icons.Outlined.Inventory2,onStock);ProtoNavItem(current in setOf(ProtoScreen.AdminSettings,ProtoScreen.AdminSettingsDetail),"Профиль",Icons.Outlined.Person,onProfile)}
 }
 
 @Composable
-private fun ProtoProductionBottomBar(onHome:()->Unit,onProduction:()->Unit,onHistory:()->Unit,onStock:()->Unit,onProfile:()->Unit){NavigationBar(containerColor=ProtoPanel,tonalElevation=0.dp){ProtoNavItem(false,"Главная",Icons.Outlined.Home,onHome);ProtoNavItem(true,"Производство",Icons.Outlined.LocalFlorist,onProduction);ProtoNavItem(false,"История",Icons.Outlined.History,onHistory);ProtoNavItem(false,"Склад",Icons.Outlined.Inventory2,onStock);ProtoNavItem(false,"Профиль",Icons.Outlined.Person,onProfile)}}
+internal fun ProtoProductionBottomBar(onHome:()->Unit,onProduction:()->Unit,onHistory:()->Unit,onStock:()->Unit,onProfile:()->Unit){NavigationBar(containerColor=ProtoPanel,tonalElevation=0.dp){ProtoNavItem(false,"Главная",Icons.Outlined.Home,onHome);ProtoNavItem(true,"Производство",Icons.Outlined.LocalFlorist,onProduction);ProtoNavItem(false,"История",Icons.Outlined.History,onHistory);ProtoNavItem(false,"Склад",Icons.Outlined.Inventory2,onStock);ProtoNavItem(false,"Профиль",Icons.Outlined.Person,onProfile)}}
 
 @Composable
-private fun RowScope.ProtoNavItem(selected:Boolean,label:String,icon:androidx.compose.ui.graphics.vector.ImageVector,onClick:()->Unit){NavigationBarItem(selected=selected,onClick=onClick,icon={Icon(icon,null)},label={Text(label,fontSize=9.sp)},colors=protoNavColors())}
+internal fun RowScope.ProtoNavItem(selected:Boolean,label:String,icon:androidx.compose.ui.graphics.vector.ImageVector,onClick:()->Unit){NavigationBarItem(selected=selected,onClick=onClick,icon={Icon(icon,null)},label={Text(label,fontSize=9.sp)},colors=protoNavColors())}
 
 @Composable
-private fun protoNavColors()=NavigationBarItemDefaults.colors(selectedIconColor=Color.Black,selectedTextColor=ProtoGold,indicatorColor=ProtoGold,unselectedIconColor=ProtoMuted,unselectedTextColor=ProtoMuted)
+internal fun protoNavColors()=NavigationBarItemDefaults.colors(selectedIconColor=Color.Black,selectedTextColor=ProtoGold,indicatorColor=ProtoGold,unselectedIconColor=ProtoMuted,unselectedTextColor=ProtoMuted)
 
 @Composable
-private fun ProtoProductImage(p:ProtoCatalogProduct,modifier:Modifier=Modifier,contentScale:ContentScale=ContentScale.Crop){
+internal fun ProtoProductImage(p:ProtoCatalogProduct,modifier:Modifier=Modifier,contentScale:ContentScale=ContentScale.Crop){
     val placeholder=painterResource(protoPlaceholderForType(p.type))
     AsyncImage(model=p.imageUrl.takeIf{it.isNotBlank()}?:protoPlaceholderForType(p.type),contentDescription=p.name,modifier=modifier,contentScale=contentScale,placeholder=placeholder,error=placeholder,fallback=placeholder)
 }
 
-private fun protoPlaceholderForType(type:String)=when(type){
+internal fun protoPlaceholderForType(type:String)=when(type){
     "Венки","Венки круглые","Корзины","Полянки","Флоретки"->R.drawable.mock_wreath
     "Ленты"->R.drawable.mock_ribbon
     "Гробы"->R.drawable.mock_coffin
@@ -5321,19 +4473,19 @@ private fun protoPlaceholderForType(type:String)=when(type){
     else->R.drawable.mock_generic
 }
 
-private fun protoParseOrderDate(value:String):LocalDateTime? =
+internal fun protoParseOrderDate(value:String):LocalDateTime? =
     runCatching { LocalDateTime.parse(value,DateTimeFormatter.ofPattern("dd.MM.yyyy HH:mm")) }.getOrNull()
 
-private fun protoOrderMonthKey(value:String):String =
+internal fun protoOrderMonthKey(value:String):String =
     protoParseOrderDate(value)?.let { YearMonth.from(it).toString() } ?: "0000-00"
 
-private fun protoMonthLabel(key:String):String {
+internal fun protoMonthLabel(key:String):String {
     val ym=runCatching{YearMonth.parse(key)}.getOrNull() ?: return key
     val month=ym.month.getDisplayName(java.time.format.TextStyle.FULL_STANDALONE,ruLocale)
     return month.replaceFirstChar{if(it.isLowerCase())it.titlecase(ruLocale) else it.toString()}+" "+ym.year
 }
 
-private fun protoFilterOrdersByPeriod(orders:List<ProtoOrder>,period:String):List<ProtoOrder>{
+internal fun protoFilterOrdersByPeriod(orders:List<ProtoOrder>,period:String):List<ProtoOrder>{
     val cutoff=when(period){
         "30 дней" -> LocalDate.now().minusDays(30)
         "90 дней" -> LocalDate.now().minusDays(90)
@@ -5345,11 +4497,11 @@ private fun protoFilterOrdersByPeriod(orders:List<ProtoOrder>,period:String):Lis
     }
 }
 
-private fun protoChatTime(epoch:Long):String =
+internal fun protoChatTime(epoch:Long):String =
     Instant.ofEpochMilli(epoch).atZone(java.time.ZoneId.systemDefault()).toLocalDateTime()
         .format(DateTimeFormatter.ofPattern("dd.MM HH:mm"))
 
-private fun protoUriName(context:Context,uri:Uri):String {
+internal fun protoUriName(context:Context,uri:Uri):String {
     var name=uri.lastPathSegment ?: "Вложение"
     runCatching {
         context.contentResolver.query(uri,arrayOf(OpenableColumns.DISPLAY_NAME),null,null,null)?.use { cursor ->
@@ -5373,7 +4525,7 @@ private suspend fun protoCopyChatImage(context:Context,uri:Uri):Triple<String,St
         }.getOrNull()
     }
 
-private fun protoOpenAttachment(context:Context,uriValue:String,mime:String) {
+internal fun protoOpenAttachment(context:Context,uriValue:String,mime:String) {
     runCatching {
         val uri=Uri.parse(uriValue)
         val intent=Intent(Intent.ACTION_VIEW).apply {
@@ -5384,7 +4536,7 @@ private fun protoOpenAttachment(context:Context,uriValue:String,mime:String) {
     }
 }
 
-private fun protoLoadNotifications(prefs:android.content.SharedPreferences):List<ProtoNotification>{
+internal fun protoLoadNotifications(prefs:android.content.SharedPreferences):List<ProtoNotification>{
     return runCatching {
         val raw=prefs.getString("client_notifications","[]").orEmpty()
         val array=JSONArray(raw)
@@ -5397,13 +4549,14 @@ private fun protoLoadNotifications(prefs:android.content.SharedPreferences):List
                 title=o.optString("title","Уведомление"),
                 message=o.optString("message",""),
                 dateTime=o.optString("dateTime",""),
-                read=o.optBoolean("read",false)
+                read=o.optBoolean("read",false),
+                orderId=o.optString("orderId","")
             )
         }
     }.getOrDefault(emptyList())
 }
 
-private fun protoSaveNotifications(prefs:android.content.SharedPreferences,items:List<ProtoNotification>){
+internal fun protoSaveNotifications(prefs:android.content.SharedPreferences,items:List<ProtoNotification>){
     val array=JSONArray()
     items.forEach { n ->
         array.put(JSONObject().apply {
@@ -5414,12 +4567,13 @@ private fun protoSaveNotifications(prefs:android.content.SharedPreferences,items
             put("message",n.message)
             put("dateTime",n.dateTime)
             put("read",n.read)
+            put("orderId",n.orderId)
         })
     }
     prefs.edit().putString("client_notifications",array.toString()).apply()
 }
 
-private fun protoProductCategoryKey(type:String):String = when {
+internal fun protoProductCategoryKey(type:String):String = when {
     type.contains("Вен", ignoreCase=true) -> "Венки"
     type.contains("Гроб", ignoreCase=true) -> "Гробы"
     type.contains("Крест", ignoreCase=true) -> "Кресты"
@@ -5428,9 +4582,9 @@ private fun protoProductCategoryKey(type:String):String = when {
     else -> type.ifBlank { "Прочее" }
 }
 
-private fun protoToggle(set:Set<String>,value:String)=if(value in set)set-value else set+value
-private fun protoMoney(value:Int)=NumberFormat.getCurrencyInstance(ruLocale).format(value).replace(",00","")
-private fun protoStatusColor(status:String):Color = when(status){
+internal fun protoToggle(set:Set<String>,value:String)=if(value in set)set-value else set+value
+internal fun protoMoney(value:Int)=NumberFormat.getCurrencyInstance(ruLocale).format(value).replace(",00","")
+internal fun protoStatusColor(status:String):Color = when(status){
     "Получен"->ProtoMuted
     "Подтверждён"->ProtoGold
     "Собирается","Доставляется"->ProtoOrange
@@ -5438,11 +4592,11 @@ private fun protoStatusColor(status:String):Color = when(status){
     "Отменён"->ProtoRed
     else->ProtoGoldSoft
 }
-private fun protoIconForType(type:String)=when(type){"Венки","Венки круглые"->Icons.Outlined.LocalFlorist;"Корзины"->Icons.Outlined.ShoppingBasket;"Полянки","Флоретки"->Icons.Outlined.Spa;"Ленты"->Icons.Outlined.ReceiptLong;else->Icons.Outlined.Inventory2}
+internal fun protoIconForType(type:String)=when(type){"Венки","Венки круглые"->Icons.Outlined.LocalFlorist;"Корзины"->Icons.Outlined.ShoppingBasket;"Полянки","Флоретки"->Icons.Outlined.Spa;"Ленты"->Icons.Outlined.ReceiptLong;else->Icons.Outlined.Inventory2}
 
-private fun protoLoadProducts(context:Context):List<ProtoCatalogProduct>{return try{val root=JSONObject(context.assets.open("demo_data.json").bufferedReader().use{it.readText()});val arr=root.getJSONArray("products");(0 until arr.length()).map{i->val o=arr.getJSONObject(i);ProtoCatalogProduct(o.getString("sku"),o.getString("name"),o.getString("type"),o.optString("quality","—"),o.getString("size"),o.getInt("price"),o.getInt("stock"),o.getString("status"),o.optInt("productionDays",3),o.optString("imageUrl",""),o.optString("externalId",o.optString("sku","")))}}catch(_:Exception){emptyList()}}
+internal fun protoLoadProducts(context:Context):List<ProtoCatalogProduct>{return try{val root=JSONObject(context.assets.open("demo_data.json").bufferedReader().use{it.readText()});val arr=root.getJSONArray("products");(0 until arr.length()).map{i->val o=arr.getJSONObject(i);ProtoCatalogProduct(o.getString("sku"),o.getString("name"),o.getString("type"),o.optString("quality","—"),o.getString("size"),o.getInt("price"),o.getInt("stock"),o.getString("status"),o.optInt("productionDays",3),o.optString("imageUrl",""),o.optString("externalId",o.optString("sku","")))}}catch(_:Exception){emptyList()}}
 
-private fun protoExportCsv(
+internal fun protoExportCsv(
     context: Context,
     report: String,
     products: List<ProtoCatalogProduct>,
@@ -5504,26 +4658,26 @@ private fun protoExportCsv(
         .onFailure { toast("Ошибка экспорта: ${it.message ?: "неизвестная ошибка"}") }
 }
 
-private fun protoDialNumber(context:Context,phone:String){val normalized=phone.filter{it.isDigit()||it=='+'};context.startActivity(Intent(Intent.ACTION_DIAL,Uri.parse("tel:$normalized")))}
-private fun protoDial(context:Context){protoDialNumber(context,BuildConfig.ADMIN_PHONE)}
-private fun protoMessage(context:Context){context.startActivity(Intent(Intent.ACTION_SENDTO,Uri.parse("smsto:${BuildConfig.ADMIN_PHONE}")))}
+internal fun protoDialNumber(context:Context,phone:String){val normalized=phone.filter{it.isDigit()||it=='+'};context.startActivity(Intent(Intent.ACTION_DIAL,Uri.parse("tel:$normalized")))}
+internal fun protoDial(context:Context){protoDialNumber(context,BuildConfig.ADMIN_PHONE)}
+internal fun protoMessage(context:Context){context.startActivity(Intent(Intent.ACTION_SENDTO,Uri.parse("smsto:${BuildConfig.ADMIN_PHONE}")))}
 
 // ───────────── Продажи: отгрузки, оплаты, клиенты ─────────────
 
-private val protoDateFmt: DateTimeFormatter = DateTimeFormatter.ofPattern("dd.MM.yyyy")
+internal val protoDateFmt: DateTimeFormatter = DateTimeFormatter.ofPattern("dd.MM.yyyy")
 
-private fun protoParseDate(value: String): LocalDate? = runCatching { LocalDate.parse(value.trim(), protoDateFmt) }.getOrNull()
-private fun protoDaysTo(due: String): Int? = protoParseDate(due)?.let { java.time.temporal.ChronoUnit.DAYS.between(LocalDate.now(), it).toInt() }
-private fun protoMonthKey(date: String): String = date.substringAfter('.', "")
+internal fun protoParseDate(value: String): LocalDate? = runCatching { LocalDate.parse(value.trim(), protoDateFmt) }.getOrNull()
+internal fun protoDaysTo(due: String): Int? = protoParseDate(due)?.let { java.time.temporal.ChronoUnit.DAYS.between(LocalDate.now(), it).toInt() }
+internal fun protoMonthKey(date: String): String = date.substringAfter('.', "")
 
-private fun protoMoneyColor(s: ShipmentEntity): Color = if (s.moneyStatus == "CONFIRMED") ProtoGreen else ProtoRed
-private fun protoMoneyLabel(s: ShipmentEntity): String = when (s.moneyStatus) {
+internal fun protoMoneyColor(s: ShipmentEntity): Color = if (s.moneyStatus == "CONFIRMED") ProtoGreen else ProtoRed
+internal fun protoMoneyLabel(s: ShipmentEntity): String = when (s.moneyStatus) {
     "CONFIRMED" -> "Оплата подтверждена"
     "REQUESTED" -> "Ждёт подтверждения админа"
     else -> if (s.paymentType == "DEFERRED") "Отсрочка · деньги не получены" else "Деньги не подтверждены"
 }
 
-private fun protoDaysLabel(due: String): String {
+internal fun protoDaysLabel(due: String): String {
     val d = protoDaysTo(due) ?: return "—"
     return when {
         d > 0 -> "$d дн."
@@ -5533,7 +4687,7 @@ private fun protoDaysLabel(due: String): String {
 }
 
 @Composable
-private fun ProtoSalesHomeScreen(
+internal fun ProtoSalesHomeScreen(
     name: String,
     shipments: List<ShipmentEntity>,
     onNew: () -> Unit,
@@ -5577,7 +4731,7 @@ private fun ProtoSalesHomeScreen(
 }
 
 @Composable
-private fun ProtoSalesShipmentForm(
+internal fun ProtoSalesShipmentForm(
     clients: List<ProtoClient>,
     orders: List<ProtoOrder>,
     shipments: List<ShipmentEntity>,
@@ -5671,7 +4825,7 @@ private fun ProtoSalesShipmentForm(
 }
 
 @Composable
-private fun ProtoShipmentsScreen(
+internal fun ProtoShipmentsScreen(
     items: List<ShipmentEntity>,
     adminMode: Boolean,
     onBack: () -> Unit,
@@ -5758,7 +4912,7 @@ private fun ProtoShipmentsScreen(
 }
 
 @Composable
-private fun ProtoSalesClientsScreen(
+internal fun ProtoSalesClientsScreen(
     clients: List<ProtoClient>,
     shipments: List<ShipmentEntity>,
     onBack: () -> Unit,
@@ -5784,7 +4938,7 @@ private fun ProtoSalesClientsScreen(
 }
 
 @Composable
-private fun ProtoClientFinanceBlock(clientId: String, shipments: List<ShipmentEntity>, title: String = "Финансы клиента", receivableLabel: String = "Дебиторка", onlyDeferred: Boolean = false) {
+internal fun ProtoClientFinanceBlock(clientId: String, shipments: List<ShipmentEntity>, title: String = "Финансы клиента", receivableLabel: String = "Дебиторка", onlyDeferred: Boolean = false) {
     val mine = if (clientId.isBlank()) shipments else shipments.filter { it.clientId == clientId }
     val month = currentDateShort().substringAfter('.')
     val turnover = mine.filter { protoMonthKey(it.shipDate) == month }.sumOf { it.amount }
@@ -5809,7 +4963,7 @@ private fun ProtoClientFinanceBlock(clientId: String, shipments: List<ShipmentEn
 }
 
 @Composable
-private fun ProtoSalesClientScreen(
+internal fun ProtoSalesClientScreen(
     client: ProtoClient?,
     shipments: List<ShipmentEntity>,
     orders: List<ProtoOrder>,
@@ -5846,23 +5000,23 @@ private fun ProtoSalesClientScreen(
 
 // ───────────── Финансы: дашборд руководителя, расходы, аналитика клиента ─────────────
 
-private data class ProtoFinanceTotals(
+internal data class ProtoFinanceTotals(
     val turnover: Int, val received: Int, val expenses: Int, val profit: Int,
     val receivable: Int, val deferred: Int, val overdue: Int, val pendingSum: Int, val pendingCount: Int
 )
 
-private fun protoEpochDate(ms: Long): String =
+internal fun protoEpochDate(ms: Long): String =
     if (ms <= 0L) "" else java.time.Instant.ofEpochMilli(ms).atZone(java.time.ZoneId.systemDefault()).toLocalDate().format(protoDateFmt)
 
-private fun protoThisMonthKey(): String = LocalDate.now().format(DateTimeFormatter.ofPattern("MM.yyyy"))
-private fun protoPrevMonthKey(): String = LocalDate.now().minusMonths(1).format(DateTimeFormatter.ofPattern("MM.yyyy"))
-private fun protoInPeriod(date: String, month: String?): Boolean = month == null || protoMonthKey(date) == month
+internal fun protoThisMonthKey(): String = LocalDate.now().format(DateTimeFormatter.ofPattern("MM.yyyy"))
+internal fun protoPrevMonthKey(): String = LocalDate.now().minusMonths(1).format(DateTimeFormatter.ofPattern("MM.yyyy"))
+internal fun protoInPeriod(date: String, month: String?): Boolean = month == null || protoMonthKey(date) == month
 
 /**
  * Оборот = сумма отгрузок за период. Поступления = подтверждённые админом деньги (по дате подтверждения).
  * Чистая прибыль = подтверждённые поступления − расходы. Дебиторка = всё, что не подтверждено админом.
  */
-private fun protoFinanceTotals(shipments: List<ShipmentEntity>, expenses: List<ExpenseEntity>, month: String?): ProtoFinanceTotals {
+internal fun protoFinanceTotals(shipments: List<ShipmentEntity>, expenses: List<ExpenseEntity>, month: String?): ProtoFinanceTotals {
     val turnover = shipments.filter { protoInPeriod(it.shipDate, month) }.sumOf { it.amount }
     val received = shipments.filter { it.moneyStatus == "CONFIRMED" && protoInPeriod(protoEpochDate(it.confirmedAt), month) }.sumOf { it.amount }
     val spent = expenses.filter { protoInPeriod(it.date, month) }.sumOf { it.amount }
@@ -5873,10 +5027,10 @@ private fun protoFinanceTotals(shipments: List<ShipmentEntity>, expenses: List<E
     return ProtoFinanceTotals(turnover, received, spent, received - spent, open.sumOf { it.amount }, deferred.sumOf { it.amount }, overdue, pending.sumOf { it.amount }, pending.size)
 }
 
-private val protoExpenseCategories = listOf("Сырьё", "Зарплата", "Доставка", "Аренда", "Реклама", "Прочее")
+internal val protoExpenseCategories = listOf("Сырьё", "Зарплата", "Доставка", "Аренда", "Реклама", "Прочее")
 
 @Composable
-private fun ProtoFinanceCard(title: String, value: String, subtitle: String, valueColor: Color, modifier: Modifier, onClick: () -> Unit = {}) {
+internal fun ProtoFinanceCard(title: String, value: String, subtitle: String, valueColor: Color, modifier: Modifier, onClick: () -> Unit = {}) {
     Card(
         colors = CardDefaults.cardColors(containerColor = ProtoPanel),
         border = BorderStroke(1.dp, ProtoBorder),
@@ -5892,7 +5046,7 @@ private fun ProtoFinanceCard(title: String, value: String, subtitle: String, val
 }
 
 @Composable
-private fun ProtoManagerDashboardScreen(
+internal fun ProtoManagerDashboardScreen(
     shipments: List<ShipmentEntity>,
     expenses: List<ExpenseEntity>,
     onBack: () -> Unit,
@@ -6033,21 +5187,21 @@ private fun ProtoManagerDashboardScreen(
     }
 }
 
-private fun protoPlural(n: Int, one: String, few: String, many: String): String {
+internal fun protoPlural(n: Int, one: String, few: String, many: String): String {
     val m100 = n % 100; val m10 = n % 10
     val w = if (m100 in 11..14) many else when (m10) { 1 -> one; 2, 3, 4 -> few; else -> many }
     return "$n $w"
 }
 
-private fun protoGuessType(name: String): String = name.lowercase().let {
+internal fun protoGuessType(name: String): String = name.lowercase().let {
     when { "корзин" in it -> "Корзины"; "полян" in it -> "Полянки"; "флорет" in it -> "Флоретки"; "венок" in it || "венк" in it -> "Венки"; else -> "Прочее" }
 }
 
-private data class ProtoSkuStat(val sku: String, val name: String, val qty: Int, val sum: Int)
+internal data class ProtoSkuStat(val sku: String, val name: String, val qty: Int, val sum: Int)
 
 /** Что и сколько заказывал клиент: по группам товара и по артикулам, на какую сумму. */
 @Composable
-private fun ProtoClientAnalyticsBlock(orders: List<ProtoOrder>, typeOf: (String) -> String, title: String = "Что заказывает клиент") {
+internal fun ProtoClientAnalyticsBlock(orders: List<ProtoOrder>, typeOf: (String) -> String, title: String = "Что заказывает клиент") {
     var showAll by remember { mutableStateOf(false) }
     val stats = orders.flatMap { it.lines }.groupBy { it.sku }
         .map { (sku, ls) -> ProtoSkuStat(sku, ls.first().name, ls.sumOf { it.qty }, ls.sumOf { it.lineTotal }) }
