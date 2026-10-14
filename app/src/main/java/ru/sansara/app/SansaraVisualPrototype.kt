@@ -90,7 +90,7 @@ internal val ProtoOrange = Warning
 internal enum class ProtoScreen {
     Welcome, Login, Registration, RegistrationSent,
     Home, Catalog, Filter, ProductList, ProductDetail, Cart, Checkout, OrderSent, OrderList, OrderDetail, Notifications, ClientChat, ClientReports, ClientSettings, AgentClients, AgentClientDetail, RetailHome, RetailCatalog, RetailFilter, RetailProductList, RetailProductDetail, RetailCart, RetailCheckout, RetailOrderSent, RetailOrderList, RetailOrderDetail, RetailNotifications, Profile, Suspended,
-    AdminHome, AdminSearch, AdminClients, AdminClient, AdminOrders, AdminOrderDetail, AdminNotifications, AdminCatalog, AdminSettings, AdminSettingsDetail, AdminAttention, OnlineController, LowStockList, AdminChats, AdminChat, AdminProductionChat, AdminReports, AdminWorkshop, AdminAdmins, AdminAttendance, AdminProduct,
+    AdminHome, AdminSearch, AdminClients, AdminClient, AdminOrders, AdminOrderDetail, AdminNotifications, AdminCatalog, AdminSettings, AdminSettingsDetail, AdminAttention, OnlineController, LowStockList, AdminChats, AdminChat, AdminProductionChat, AdminReports, AdminWorkshop, AdminAdmins, AdminAttendance, AdminProduct, AgentBase, AgentMarkup, AgentProductMarkup, AgentOrders,
     Production, ProductionCategory, ProductionCatalog, ProductionEntry, ProductionHistory, ProductionReport, ProductionPayments, ProductionProfile, ProductionWorkshop, ProductionAttendance, ProductionChat,
     Server, StockList, ReserveList, NewClients, Export, AdminAssemblers,
     SalesHome, SalesShipmentNew, SalesShipments, SalesClients, SalesClient, AdminPayments, AdminDashboard, SalesProfile
@@ -304,6 +304,10 @@ fun SansaraVisualPrototype() {
     var workshopPrefill by remember { mutableStateOf<Map<String, Int>>(emptyMap()) }
     var workshopPrefillComment by remember { mutableStateOf("") }
     var selectedAdminSku by remember { mutableStateOf("") }
+    val agentSkuMarkups = remember { mutableStateMapOf<String, Int>() }
+    var agentDiscountTick by remember { mutableIntStateOf(0) }
+    var showAgentNewCustomer by remember { mutableStateOf(false) }
+    val clientExpenses = remember { mutableStateListOf<ProtoClientExpense>() }
     var selectedOrderId by remember { mutableStateOf("S-002384") }
     var selectedClientId by remember { mutableStateOf("C-1024") }
     var selectedChatClientId by remember { mutableStateOf("C-1024") }
@@ -705,19 +709,27 @@ fun SansaraVisualPrototype() {
     fun ownerAgentSettings(ownerId:String):SansaraAgentSettings =
         agentSettings.firstOrNull { it.ownerClientId==ownerId } ?: SansaraAgentSettings(ownerId,false,0)
 
+    // Порядок: индивидуальная наценка клиента по группе → наценка агента на позицию → общая наценка.
     fun markupForProduct(ownerId:String,customerId:String,product:ProtoCatalogProduct):Int {
         val category=protoProductCategoryKey(product.type)
         val individual=agentMarkups.firstOrNull { it.customerId==customerId && it.category==category }
-        if(individual!=null)return individual.markupPct
+        if(individual!=null && individual.markupPct>0)return individual.markupPct
+        agentSkuMarkups[product.sku]?.let { return it }
         val general=ownerAgentSettings(ownerId)
         return if(general.generalMarkupEnabled)general.generalMarkupPct else 0
     }
 
-    fun retailProducts(ownerId:String,customerId:String):List<ProtoCatalogProduct> =
-        catalogProducts.map { product ->
+    fun retailProducts(ownerId:String,customerId:String):List<ProtoCatalogProduct> {
+        val discount = if (customerId.isBlank()) 0 else (agentDiscountTick.let { protoCustomerDiscount(prefs, customerId) })
+        return catalogProducts.map { product ->
             val markup=markupForProduct(ownerId,customerId,product)
-            product.copy(price=(product.price*(1.0+markup/100.0)).roundToInt())
+            val withMarkup=product.price*(1.0+markup/100.0)
+            product.copy(price=(withMarkup*(100-discount)/100.0).roundToInt())
         }
+    }
+
+    /** «Новый» клиент агента — пока у него нет ни одной завершённой (доставленной) продажи. */
+    fun isNewAgentCustomer(c: SansaraAgentCustomer): Boolean = orders.none { it.retailCustomerId == c.id && it.status == "Доставлен" }
 
     fun clientConversationId(clientId:String) = "CLIENT:" + clientId
 
@@ -910,6 +922,10 @@ fun SansaraVisualPrototype() {
     }
 
     LaunchedEffect(Unit) { loginLockedUntil = prefs.getLong("login_locked_until", 0L) }
+    LaunchedEffect(selectedClientId) {
+        agentSkuMarkups.clear(); agentSkuMarkups.putAll(protoLoadSkuMarkups(prefs, selectedClientId))
+        clientExpenses.clear(); clientExpenses.addAll(protoLoadClientExpenses(prefs, selectedClientId))
+    }
     LaunchedEffect(loginLockedUntil) {
         val wait = loginLockedUntil - System.currentTimeMillis()
         if (wait > 0) { delay(wait); loginLockedUntil = 0L }
@@ -1195,12 +1211,29 @@ fun SansaraVisualPrototype() {
                     }
                 )
             }
-            ProtoScreen.ClientReports -> ProtoClientReportsScreen(
-                orders = ordersOf(currentClient()),
-                shipments = shipments.filter { it.clientId == currentClient().id },
-                typeOf = { sku -> products.firstOrNull { it.sku == sku }?.type ?: "Прочее" },
-                onBack = { back() }
-            )
+            ProtoScreen.ClientReports -> {
+                val c = currentClient()
+                val retail = orders.filter { it.clientId == c.id && it.retailCustomerId.isNotBlank() }
+                ProtoClientReportsScreen(
+                    isAgent = c.clientType.contains("Агент", true) || retail.isNotEmpty(),
+                    orders = ordersOf(c),
+                    retailOrders = retail,
+                    shipments = shipments.filter { it.clientId == c.id },
+                    expenses = clientExpenses,
+                    typeOf = { sku -> products.firstOrNull { it.sku == sku }?.type ?: protoGuessType(orders.flatMap { o -> o.lines }.firstOrNull { it.sku == sku }?.name.orEmpty()) },
+                    onBack = { back() },
+                    onOpenOrder = { o ->
+                        selectedOrderId = o.id
+                        if (o.retailCustomerId.isNotBlank()) { selectedAgentCustomerId = o.retailCustomerId; go(ProtoScreen.RetailOrderDetail) } else go(ProtoScreen.OrderDetail)
+                    },
+                    onOpenProduct = { sku -> catalogProducts.firstOrNull { it.sku == sku }?.let { openProduct(it) } ?: toast("Позиция снята с продажи") },
+                    onAddExpense = { cat, amount, comment ->
+                        clientExpenses.add(0, ProtoClientExpense("E-" + System.currentTimeMillis(), currentDateShort(), cat, amount, comment))
+                        protoSaveClientExpenses(prefs, c.id, clientExpenses.toList())
+                    },
+                    onDeleteExpense = { e -> clientExpenses.removeAll { it.id == e.id }; protoSaveClientExpenses(prefs, c.id, clientExpenses.toList()) }
+                )
+            }
             ProtoScreen.ClientSettings -> ProtoClientSettingsScreen(
                 notificationsEnabled = notificationsOrders,
                 onNotifications = { notificationsOrders = it },
@@ -1826,26 +1859,68 @@ fun SansaraVisualPrototype() {
             ProtoScreen.NewClients -> ProtoNewClientsScreen(clients, onBack = { back() }, onOpen = { openAdminClient(it.id) })
             ProtoScreen.Export -> ProtoExportScreen(onBack = { back() }, onExport = { report, period -> protoExportCsv(context, report, period, products, stockOverrides, orders, clients, productionOps, reservedForSku = { reservedForSku(it) }, toast = { toast(it) }) })
             ProtoScreen.AgentClients -> {
-                val ownerId=currentClient().id
-                ProtoAgentClientsScreen(
-                    customers=agentCustomers.filter{it.ownerClientId==ownerId},
-                    settings=ownerAgentSettings(ownerId),
-                    onBack={back()},
-                    onSaveSettings={enabled,pct->
+                val ownerId = currentClient().id
+                val mine = agentCustomers.filter { it.ownerClientId == ownerId }
+                val st = ownerAgentSettings(ownerId)
+                ProtoAgentHubScreen(
+                    newCount = mine.count { isNewAgentCustomer(it) },
+                    totalCount = mine.size,
+                    ordersCount = orders.count { it.clientId == ownerId && it.retailCustomerId.isNotBlank() },
+                    markupLabel = (if (st.generalMarkupEnabled) "Общая ${st.generalMarkupPct}%" else "Общая выключена") + if (agentSkuMarkups.isNotEmpty()) " · на позиции: ${agentSkuMarkups.size}" else "",
+                    onBack = { back() },
+                    onNew = { showAgentNewCustomer = true },
+                    onBase = { go(ProtoScreen.AgentBase) },
+                    onMarkup = { go(ProtoScreen.AgentMarkup) },
+                    onOrders = { go(ProtoScreen.AgentOrders) }
+                )
+            }
+            ProtoScreen.AgentBase -> {
+                val ownerId = currentClient().id
+                ProtoAgentBaseScreen(
+                    customers = agentCustomers.filter { it.ownerClientId == ownerId },
+                    isNew = { isNewAgentCustomer(it) },
+                    ordersOf = { c -> orders.count { it.retailCustomerId == c.id && it.status != "Отменён" } },
+                    onBack = { back() },
+                    onOpen = { c -> selectedAgentCustomerId = c.id; go(ProtoScreen.AgentClientDetail) },
+                    onAdd = { showAgentNewCustomer = true }
+                )
+            }
+            ProtoScreen.AgentMarkup -> {
+                val ownerId = currentClient().id
+                ProtoAgentMarkupScreen(
+                    settings = ownerAgentSettings(ownerId),
+                    skuMarkupCount = agentSkuMarkups.size,
+                    onBack = { back() },
+                    onSave = { enabled, pct ->
                         scope.launch {
-                            runCatching{repository.saveAgentSettings(ownerId,enabled,pct)}
-                                .onSuccess{refreshAgentData();toast("Настройки наценки сохранены")}
-                                .onFailure{toast(it.message?:"Ошибка сохранения")}
+                            runCatching { repository.saveAgentSettings(ownerId, enabled, pct) }
+                                .onSuccess { refreshAgentData(); toast(if (enabled) "Общая наценка $pct% сохранена" else "Наценка выключена — продажа по закупочной цене") }
+                                .onFailure { toast(it.message ?: "Ошибка сохранения") }
                         }
                     },
-                    onAdd={name,phone,email,city,address,comment->
-                        scope.launch {
-                            runCatching{repository.saveAgentCustomer(null,ownerId,name,phone,email,city,address,comment)}
-                                .onSuccess{customer->selectedAgentCustomerId=customer.id;refreshAgentData();toast("Клиент сохранён")}
-                                .onFailure{toast(it.message?:"Ошибка сохранения")}
-                        }
-                    },
-                    onOpen={customer->selectedAgentCustomerId=customer.id;go(ProtoScreen.AgentClientDetail)}
+                    onSpecific = { go(ProtoScreen.AgentProductMarkup) }
+                )
+            }
+            ProtoScreen.AgentProductMarkup -> {
+                val ownerId = currentClient().id
+                val st = ownerAgentSettings(ownerId)
+                ProtoAgentProductMarkupScreen(
+                    products = catalogProducts,
+                    markups = agentSkuMarkups,
+                    generalPct = if (st.generalMarkupEnabled) st.generalMarkupPct else 0,
+                    onBack = { back() },
+                    onSet = { sku, pct ->
+                        if (pct == null) agentSkuMarkups.remove(sku) else agentSkuMarkups[sku] = pct
+                        protoSaveSkuMarkups(prefs, ownerId, agentSkuMarkups.toMap())
+                    }
+                )
+            }
+            ProtoScreen.AgentOrders -> {
+                val ownerId = currentClient().id
+                ProtoAgentOrdersScreen(
+                    orders = orders.filter { it.clientId == ownerId && it.retailCustomerId.isNotBlank() },
+                    onBack = { back() },
+                    onOpen = { o -> selectedAgentCustomerId = o.retailCustomerId; selectedOrderId = o.id; go(ProtoScreen.RetailOrderDetail) }
                 )
             }
             ProtoScreen.AgentClientDetail -> {
@@ -1883,7 +1958,11 @@ fun SansaraVisualPrototype() {
                     onRetail={
                         if(customer==null)toast("Клиент не выбран")
                         else{retailCart.clear();retailSelectedProduct=null;history.add(screen);screen=ProtoScreen.RetailHome}
-                    }
+                    },
+                    discount=agentDiscountTick.let{customer?.let{protoCustomerDiscount(prefs,it.id)}?:0},
+                    onDiscount={pct->customer?.let{protoSetCustomerDiscount(prefs,it.id,pct);agentDiscountTick+=1}},
+                    ordersCount=orders.count{it.retailCustomerId==selectedAgentCustomerId&&it.status!="Отменён"},
+                    onOrders={go(ProtoScreen.AgentOrders)}
                 )
             }
             else -> Unit
@@ -2126,11 +2205,17 @@ fun SansaraVisualPrototype() {
                     onOpen = { n -> if (n.orderId in ids) { selectedOrderId = n.orderId; go(ProtoScreen.RetailOrderDetail) } }
                 )
             }
-            ProtoScreen.RetailOrderSent -> ProtoSimpleMessageScreen(
-                "Заказ отправлен",
-                "Заказ для клиента «$customerName» на " + protoMoney(retailLastTotal) + " передан администратору. Закупочные цены клиенту не показываются.",
-                onBack = exitRetail
-            )
+            ProtoScreen.RetailOrderSent -> {
+                val last = orders.firstOrNull { it.id == selectedOrderId }
+                ProtoRetailOrderSentScreen(
+                    orderId = last?.id.orEmpty(),
+                    customerName = customerName,
+                    total = retailLastTotal,
+                    onContinue = { history.clear(); screen = ProtoScreen.RetailHome },
+                    onOpenOrder = { go(ProtoScreen.RetailOrderDetail) },
+                    onMyApp = { history.clear(); screen = ProtoScreen.Home }
+                )
+            }
             else -> Unit
         }
     }
@@ -2229,7 +2314,7 @@ fun SansaraVisualPrototype() {
             ProtoScreen.Notifications, ProtoScreen.ClientChat, ProtoScreen.ClientReports, ProtoScreen.ClientSettings, ProtoScreen.Profile, ProtoScreen.Suspended -> protoGroupB()
             ProtoScreen.AdminHome, ProtoScreen.AdminSearch, ProtoScreen.AdminClients, ProtoScreen.AdminClient, ProtoScreen.AdminOrders, ProtoScreen.AdminOrderDetail, ProtoScreen.AdminChats, ProtoScreen.AdminChat, ProtoScreen.AdminProductionChat, ProtoScreen.AdminNotifications, ProtoScreen.AdminCatalog, ProtoScreen.AdminSettings, ProtoScreen.AdminSettingsDetail, ProtoScreen.AdminAttention, ProtoScreen.OnlineController, ProtoScreen.LowStockList, ProtoScreen.AdminAssemblers, ProtoScreen.AdminAdmins, ProtoScreen.AdminWorkshop, ProtoScreen.AdminAttendance, ProtoScreen.AdminProduct -> protoGroupC()
             ProtoScreen.SalesHome, ProtoScreen.SalesShipmentNew, ProtoScreen.SalesShipments, ProtoScreen.AdminPayments, ProtoScreen.SalesClients, ProtoScreen.SalesClient, ProtoScreen.AdminReports, ProtoScreen.AdminDashboard, ProtoScreen.SalesProfile -> protoGroupD()
-            ProtoScreen.Production, ProtoScreen.ProductionCategory, ProtoScreen.ProductionCatalog, ProtoScreen.ProductionEntry, ProtoScreen.ProductionHistory, ProtoScreen.ProductionReport, ProtoScreen.ProductionPayments, ProtoScreen.ProductionProfile, ProtoScreen.ProductionWorkshop, ProtoScreen.ProductionAttendance, ProtoScreen.ProductionChat, ProtoScreen.Server, ProtoScreen.StockList, ProtoScreen.ReserveList, ProtoScreen.NewClients, ProtoScreen.Export, ProtoScreen.AgentClients, ProtoScreen.AgentClientDetail -> protoGroupE()
+            ProtoScreen.Production, ProtoScreen.ProductionCategory, ProtoScreen.ProductionCatalog, ProtoScreen.ProductionEntry, ProtoScreen.ProductionHistory, ProtoScreen.ProductionReport, ProtoScreen.ProductionPayments, ProtoScreen.ProductionProfile, ProtoScreen.ProductionWorkshop, ProtoScreen.ProductionAttendance, ProtoScreen.ProductionChat, ProtoScreen.Server, ProtoScreen.StockList, ProtoScreen.ReserveList, ProtoScreen.NewClients, ProtoScreen.Export, ProtoScreen.AgentClients, ProtoScreen.AgentClientDetail, ProtoScreen.AgentBase, ProtoScreen.AgentMarkup, ProtoScreen.AgentProductMarkup, ProtoScreen.AgentOrders -> protoGroupE()
             ProtoScreen.RetailHome, ProtoScreen.RetailCatalog, ProtoScreen.RetailFilter, ProtoScreen.RetailProductList, ProtoScreen.RetailProductDetail, ProtoScreen.RetailCart, ProtoScreen.RetailCheckout, ProtoScreen.RetailOrderList, ProtoScreen.RetailOrderDetail, ProtoScreen.RetailNotifications, ProtoScreen.RetailOrderSent -> protoGroupF()
         }
         }
@@ -2247,6 +2332,21 @@ fun SansaraVisualPrototype() {
                 onCustomers = { showClientMenu=false; refreshAgentData(); go(ProtoScreen.AgentClients) },
                 onReports = { showClientMenu=false; go(ProtoScreen.ClientReports) },
                 onSettings = { showClientMenu=false; go(ProtoScreen.ClientSettings) }
+            )
+        }
+
+        if (showAgentNewCustomer) {
+            ProtoAgentCustomerDialog(
+                onDismiss = { showAgentNewCustomer = false },
+                onSave = { n, ph, e, city, a, comment ->
+                    showAgentNewCustomer = false
+                    val ownerId = currentClient().id
+                    scope.launch {
+                        runCatching { repository.saveAgentCustomer(null, ownerId, n, ph, e, city, a, comment) }
+                            .onSuccess { cust -> selectedAgentCustomerId = cust.id; refreshAgentData(); toast("Клиент сохранён — он в списке «Новые клиенты»"); go(ProtoScreen.AgentClientDetail) }
+                            .onFailure { toast(it.message ?: "Ошибка сохранения") }
+                    }
+                }
             )
         }
 
@@ -2620,25 +2720,6 @@ internal fun ProtoClientMenuOverlay(
 }
 
 @Composable
-internal fun ProtoClientReportsScreen(orders:List<ProtoOrder>,shipments:List<ShipmentEntity> = emptyList(),typeOf:(String)->String = {"Прочее"},onBack:()->Unit){
-    val delivered=orders.filter{it.status=="Доставлен"}
-    val total=orders.sumOf{it.total}
-    ProtoScaffold("Отчётность","Ваши заказы и оборот",onBack){
-        item{
-            Row(horizontalArrangement=Arrangement.spacedBy(10.dp)){
-                ProtoMetricCard("Заказов",orders.size.toString(),"всего",Modifier.weight(1f)){}
-                ProtoMetricCard("Доставлено",delivered.size.toString(),"",Modifier.weight(1f)){}
-            }
-        }
-        item{ProtoMetricCard("Сумма заказов",protoMoney(total),"за весь период",Modifier.fillMaxWidth()){}}
-        item{ProtoClientFinanceBlock("",shipments,"Мои расчёты","К оплате по отсрочке",true)}
-        item{ProtoClientAnalyticsBlock(orders,typeOf,"Что я заказывал")}
-        item{Text("Подробная история",color=ProtoText,fontSize=20.sp,fontWeight=FontWeight.Bold)}
-        items(orders.sortedByDescending{it.dateTime},key={it.id}){order->ProtoOrderRow(order){}}
-    }
-}
-
-@Composable
 internal fun ProtoClientSettingsScreen(notificationsEnabled:Boolean,onNotifications:(Boolean)->Unit,onBack:()->Unit){
     ProtoScaffold("Настройки","Параметры клиентского приложения",onBack){
         item{ProtoSectionCard{ProtoSwitchRow("Уведомления о заказах",notificationsEnabled,onNotifications);Text("Уведомления о смене статуса отображаются на колокольчике главного экрана.",color=ProtoMuted,fontSize=12.sp)}}
@@ -2647,48 +2728,12 @@ internal fun ProtoClientSettingsScreen(notificationsEnabled:Boolean,onNotificati
 }
 
 @Composable
-internal fun ProtoAgentClientsScreen(
-    customers:List<SansaraAgentCustomer>,
-    settings:SansaraAgentSettings,
-    onBack:()->Unit,
-    onSaveSettings:(Boolean,Int)->Unit,
-    onAdd:(String,String,String,String,String,String)->Unit,
-    onOpen:(SansaraAgentCustomer)->Unit
-){
-    var enabled by remember(settings.ownerClientId,settings.generalMarkupEnabled){mutableStateOf(settings.generalMarkupEnabled)}
-    var pctText by remember(settings.ownerClientId,settings.generalMarkupPct){mutableStateOf(settings.generalMarkupPct.toString())}
-    var showAdd by remember{mutableStateOf(false)}
-    ProtoScaffold("Для клиентов","Частные клиенты и розничная наценка",onBack){
-        item{
-            ProtoSectionCard{
-                ProtoSwitchRow("Общая наценка",enabled){enabled=it}
-                ProtoField(pctText,{pctText=it.filter(Char::isDigit).take(3)},"Наценка, %",KeyboardType.Number)
-                ProtoPrimaryButton("Сохранить наценку",{onSaveSettings(enabled,pctText.toIntOrNull()?:0)})
-            }
-        }
-        item{ProtoPrimaryButton("Добавить частного клиента",{showAdd=true})}
-        if(customers.isEmpty())item{ProtoSectionCard{Text("Частных клиентов пока нет",color=ProtoMuted)}}
-        items(customers,key={it.id}){c->
-            ProtoSectionCard(Modifier.clickable{onOpen(c)}){
-                Row(verticalAlignment=Alignment.CenterVertically){
-                    Box(Modifier.size(44.dp).background(ProtoPanel2,CircleShape),contentAlignment=Alignment.Center){Text(c.fullName.take(1).uppercase(),color=ProtoGold,fontWeight=FontWeight.Bold)}
-                    Spacer(Modifier.width(10.dp))
-                    Column(Modifier.weight(1f)){Text(c.fullName,color=ProtoText,fontWeight=FontWeight.Bold);Text(protoPhone(c.phone),color=ProtoMuted,fontSize=12.sp);if(c.comment.isNotBlank())Text(c.comment,color=ProtoGoldSoft,fontSize=12.sp,maxLines=1,overflow=TextOverflow.Ellipsis)}
-                    Icon(Icons.Outlined.ChevronRight,null,tint=ProtoGold)
-                }
-            }
-        }
-    }
-    if(showAdd)ProtoAgentCustomerDialog(onDismiss={showAdd=false},onSave={n,p,e,c,a,comment->onAdd(n,p,e,c,a,comment);showAdd=false})
-}
-
-@Composable
 internal fun ProtoAgentCustomerDialog(onDismiss:()->Unit,onSave:(String,String,String,String,String,String)->Unit){
     var name by remember{mutableStateOf("")};var phone by remember{mutableStateOf("")};var email by remember{mutableStateOf("")};var city by remember{mutableStateOf("")};var address by remember{mutableStateOf("")};var comment by remember{mutableStateOf("")}
     Dialog(onDismissRequest=onDismiss){
         Surface(color=ProtoPanel,shape=RoundedCornerShape(20.dp),border=BorderStroke(1.dp,ProtoBorder)){
             Column(Modifier.padding(16.dp).heightIn(max=620.dp)){
-                Row(verticalAlignment=Alignment.CenterVertically){Text("Новый частный клиент",color=ProtoText,fontSize=20.sp,fontWeight=FontWeight.Bold,modifier=Modifier.weight(1f));IconButton(onClick=onDismiss){Icon(Icons.Outlined.Close,null,tint=ProtoGold)}}
+                Row(verticalAlignment=Alignment.CenterVertically){Text("Новый клиент",color=ProtoText,fontSize=20.sp,fontWeight=FontWeight.Bold,modifier=Modifier.weight(1f));IconButton(onClick=onDismiss){Icon(Icons.Outlined.Close,null,tint=ProtoGold)}}
                 LazyColumn(Modifier.weight(1f,false)){
                     item{ProtoField(name,{name=it},"ФИО")}
                     item{ProtoField(phone,{phone=it},"Телефон",KeyboardType.Phone)}
@@ -2713,8 +2758,13 @@ internal fun ProtoAgentClientDetailScreen(
     onSaveComment:(String)->Unit,
     onMarkup:(String,Int)->Unit,
     onReminder:(Long,String)->Unit,
-    onRetail:()->Unit
+    onRetail:()->Unit,
+    discount:Int=0,
+    onDiscount:(Int)->Unit={},
+    ordersCount:Int=0,
+    onOrders:()->Unit={}
 ){
+    val haptic=androidx.compose.ui.platform.LocalHapticFeedback.current
     val c=customer
     if(c==null){ProtoSimpleMessageScreen("Клиент","Клиент не найден",onBack);return}
     val context=LocalContext.current
@@ -2723,9 +2773,21 @@ internal fun ProtoAgentClientDetailScreen(
     var reminderNote by remember{mutableStateOf("")}
     val categories=protoWreathGroupsOrdered
     ProtoScaffold(c.fullName,"Карточка частного клиента",onBack){
-        item{ProtoSectionCard{ProtoInfoRow("Телефон",protoPhone(c.phone));if(c.email.isNotBlank())ProtoInfoRow("E-mail",c.email);if(c.city.isNotBlank())ProtoInfoRow("Город",c.city);if(c.address.isNotBlank())ProtoInfoRow("Адрес",c.address)}}
+        item{ProtoSectionCard{ProtoInfoRow("Телефон",protoPhone(c.phone));if(c.email.isNotBlank())ProtoInfoRow("E-mail",c.email);if(c.city.isNotBlank())ProtoInfoRow("Город",c.city);if(c.address.isNotBlank())ProtoInfoRow("Адрес",c.address);Row(Modifier.fillMaxWidth().clickable{onOrders()}.padding(vertical=4.dp)){Text("Заказы клиента",color=ProtoMuted);Spacer(Modifier.weight(1f));Text(ordersCount.toString()+" ›",color=ProtoGold,fontWeight=FontWeight.SemiBold)}}}
+        item{ProtoPrimaryButton("Перейти к заказу",onRetail)}
+        item{
+            ProtoSectionCard{
+                Text("Скидка клиенту",color=ProtoGoldSoft,fontSize=17.sp,fontWeight=FontWeight.Bold)
+                Text("Применяется к цене с наценкой во всём каталоге этого клиента.",color=ProtoMuted,fontSize=12.sp)
+                Row(Modifier.fillMaxWidth().padding(vertical=8.dp),verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.Center){
+                    ProtoQtyButton(Icons.Outlined.Remove,{onDiscount((discount-1).coerceAtLeast(0));haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.TextHandleMove)},46.dp)
+                    Text("$discount%",color=if(discount>0)ProtoGold else ProtoText,fontSize=28.sp,fontWeight=FontWeight.Bold,textAlign=androidx.compose.ui.text.style.TextAlign.Center,modifier=Modifier.width(100.dp))
+                    ProtoQtyButton(Icons.Outlined.Add,{onDiscount((discount+1).coerceAtMost(90));haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.TextHandleMove)},46.dp)
+                }
+            }
+        }
         item{OutlinedTextField(value=comment,onValueChange={comment=it},label={Text("Комментарий")},modifier=Modifier.fillMaxWidth(),minLines=3,maxLines=5,colors=protoFieldColors());Spacer(Modifier.height(8.dp));ProtoPrimaryButton("Сохранить комментарий",{onSaveComment(comment)})}
-        item{Text("Индивидуальная наценка",color=ProtoText,fontSize=19.sp,fontWeight=FontWeight.Bold)}
+        item{Text("Изменить наценку индивидуально",color=ProtoText,fontSize=19.sp,fontWeight=FontWeight.Bold);Text("Пусто или 0 — действует наценка на позицию или общая.",color=ProtoMuted,fontSize=12.sp)}
         items(categories){category->
             var value by remember(c.id,category,markups){mutableStateOf((markups.firstOrNull{it.category==category}?.markupPct?:0).toString())}
             ProtoSectionCard{
@@ -2776,7 +2838,6 @@ internal fun ProtoAgentClientDetailScreen(
                 reminders.filter{it.active}.take(3).forEach{r->Text("• "+protoReminderTime(r.remindAtEpochMs)+" · "+r.note,color=ProtoMuted,fontSize=12.sp,modifier=Modifier.padding(top=4.dp))}
             }
         }
-        item{ProtoPrimaryButton("Открыть режим «Для клиентов»",onRetail)}
     }
 }
 
@@ -2908,9 +2969,10 @@ internal fun ProtoChatScreen(
         Column(Modifier.fillMaxSize()){
             ProtoTopBar(title=title,subtitle=subtitle,onBack=onBack,action=if(onCall!=null){{IconButton(onClick=onCall){Icon(Icons.Outlined.Call,contentDescription="Позвонить",tint=ProtoGold)}}}else null)
             if(!banner.isNullOrBlank())Text(banner,color=ProtoMuted,fontSize=12.sp,lineHeight=16.sp,modifier=Modifier.fillMaxWidth().padding(horizontal=16.dp).background(ProtoPanel2,RoundedCornerShape(12.dp)).padding(horizontal=12.dp,vertical=8.dp))
+            // Переписка — в рамке, поле серое, как нижняя панель ввода.
             LazyColumn(
                 state=listState,
-                modifier=Modifier.weight(1f),
+                modifier=Modifier.weight(1f).padding(start=12.dp,end=12.dp,top=8.dp,bottom=8.dp).clip(RoundedCornerShape(18.dp)).background(ProtoPanel).border(1.dp,ProtoBorder,RoundedCornerShape(18.dp)),
                 contentPadding=PaddingValues(horizontal=16.dp,vertical=12.dp),
                 verticalArrangement=Arrangement.spacedBy(8.dp)
             ){
@@ -2919,7 +2981,7 @@ internal fun ProtoChatScreen(
                     val mine=msg.senderRole==currentRole
                     Row(Modifier.fillMaxWidth(),horizontalArrangement=if(mine)Arrangement.End else Arrangement.Start){
                         Surface(
-                            color=if(mine)ProtoGold.copy(alpha=.20f) else ProtoPanel,
+                            color=if(mine)ProtoGold.copy(alpha=.20f) else ProtoPanel2,
                             border=BorderStroke(1.dp,if(mine)ProtoGold.copy(alpha=.55f) else ProtoBorder),
                             shape=RoundedCornerShape(16.dp),
                             modifier=Modifier.fillMaxWidth(.82f)
