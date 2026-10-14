@@ -427,7 +427,7 @@ fun SansaraVisualPrototype() {
         }
     }
 
-    fun toast(message: String) = Toast.makeText(context, message, Toast.LENGTH_SHORT).show()
+    fun toast(message: String) { android.os.Handler(android.os.Looper.getMainLooper()).post { Toast.makeText(context, message, Toast.LENGTH_SHORT).show() } }
     fun persistNotifications() = protoSaveNotifications(prefs, notifications)
     fun addNotification(audienceRole:String,audienceKey:String,title:String,message:String,orderId:String="") {
         notifications.add(
@@ -1582,8 +1582,7 @@ fun SansaraVisualPrototype() {
                         runCatching { repository.approve(reg, status, discount, session?.firstName ?: "Администратор") }
                             .onSuccess { approval ->
                                 applySnapshot(repository.snapshot())
-                                val second = approval.secondaryCode?.let { " · второй контакт: $it" }.orEmpty()
-                                toast("Клиент создан. Код: " + approval.primaryCode + second + (if (approval.secondaryCode != null) " — второй код отправьте из карточки" else ""))
+                                toast("Клиент создан со статусом «Активный»")
                                 openAdminClient(approval.client.id)
                                 // Каждому контакту — свой код отдельным SMS.
                                 approvedCodes = listOfNotNull(
