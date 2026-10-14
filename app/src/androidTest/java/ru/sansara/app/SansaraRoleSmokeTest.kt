@@ -123,8 +123,12 @@ class SansaraRoleSmokeTest {
         login("1024")                              // демо-клиент со скидкой 10 %
         waitText("Наш ассортимент")
         scrollTo("В корзину")
-        click("В корзину", substring = true)
+        compose.onAllNodes(hasScrollToNodeAction()).onFirst().performTouchInput { swipeUp(startY = centerY, endY = top) }
+        compose.waitForIdle()
+        compose.onAllNodes(hasText("В корзину") and hasClickAction()).onFirst().performClick()
+        waitText("1 шт.")                          // товар добавлен — на карточке счётчик вместо кнопки
         click("Корзина")
+        waitText("Оформить заказ")
         waitText("уже в ценах")
     }
 

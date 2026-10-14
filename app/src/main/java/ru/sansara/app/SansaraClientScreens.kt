@@ -909,7 +909,7 @@ internal fun ProtoCartScreen(
                                     Text(q.toString(), color = ProtoText, fontWeight = FontWeight.Bold, fontSize = 16.sp, modifier = Modifier.padding(horizontal = 14.dp))
                                     ProtoQtyButton(Icons.Outlined.Add, { onPlus(p) }, 38.dp)
                                     Spacer(Modifier.weight(1f))
-                                    Text(protoMoney(p.price * q), color = ProtoGoldSoft, fontWeight = FontWeight.Bold, fontSize = 16.sp)
+                                    Text(protoMoney(protoLineTotal(p.price, q, discount)), color = ProtoGoldSoft, fontWeight = FontWeight.Bold, fontSize = 16.sp)
                                 }
                             }
                         }
