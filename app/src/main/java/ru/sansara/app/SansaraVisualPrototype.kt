@@ -1531,8 +1531,10 @@ fun SansaraVisualPrototype() {
                             .onSuccess { approval ->
                                 applySnapshot(repository.snapshot())
                                 val second = approval.secondaryCode?.let { " · второй контакт: $it" }.orEmpty()
-                                toast("Клиент создан. Код: " + approval.primaryCode + second)
+                                toast("Клиент создан. Код: " + approval.primaryCode + second + (if (approval.secondaryCode != null) " — второй код отправьте из карточки" else ""))
                                 openAdminClient(approval.client.id)
+                                // Код сразу уходит заявителю: открываем SMS с готовым текстом на его номер.
+                                protoSms(context, reg.phone1, "SANSARA: ваша заявка одобрена. Вход в приложение: телефон " + protoPhone(reg.phone1) + ", код " + approval.primaryCode + ".")
                             }
                             .onFailure { toast(it.message ?: "Не удалось одобрить заявку") }
                     }
@@ -1542,6 +1544,7 @@ fun SansaraVisualPrototype() {
                         repository.reject(reg, reason)
                         applySnapshot(repository.snapshot())
                         toast("Заявка отклонена")
+                        protoSms(context, reg.phone1, "SANSARA: " + PROTO_REJECT_TEXT)
                     }
                 },
                 onLowStock = { go(ProtoScreen.LowStockList) }
@@ -2283,6 +2286,8 @@ fun SansaraVisualPrototype() {
                             history.clear()
                             screen = startScreenForRole(result.session!!.role)
                             onSignedIn()
+                        } else if (registrations.any { it.status == "Отклонена" && protoPhoneDigits(it.phone1) == protoPhoneDigits(phone) }) {
+                            Toast.makeText(context, PROTO_REJECT_TEXT, Toast.LENGTH_LONG).show()
                         } else {
                             val fails = prefs.getInt("login_fails", 0) + 1
                             if (fails >= 5) {
@@ -3618,6 +3623,12 @@ internal fun protoExportCsv(
 
 internal fun protoDialNumber(context:Context,phone:String){val normalized=phone.filter{it.isDigit()||it=='+'};context.startActivity(Intent(Intent.ACTION_DIAL,Uri.parse("tel:$normalized")))}
 internal fun protoDial(context:Context){protoDialNumber(context,BuildConfig.ADMIN_PHONE)}
+/** Открывает SMS-приложение телефона с готовым текстом. Отправка — одним нажатием, без платного SMS-сервиса. */
+internal fun protoSms(context:Context,phone:String,body:String){
+    val digits=phone.filter{it.isDigit()||it=='+'}
+    runCatching{context.startActivity(Intent(Intent.ACTION_SENDTO,Uri.parse("smsto:$digits")).putExtra("sms_body",body).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))}
+}
+internal const val PROTO_REJECT_TEXT = "К сожалению, вы не прошли проверку компании, вам отказано в доступе. Свяжитесь с администратором."
 internal fun protoMessage(context:Context){context.startActivity(Intent(Intent.ACTION_SENDTO,Uri.parse("smsto:${BuildConfig.ADMIN_PHONE}")))}
 
 // ───────────── Продажи: отгрузки, оплаты, клиенты ─────────────

@@ -14,7 +14,7 @@ adb shell am start -n ru.sansara.app/.MainActivity >/dev/null; sleep ${WARM:-15}
 n=0
 run() { code=$1; shift; for s in "$@"; do n=$((n+1)); shot "$code" "$s" "$(printf %02d $n)"; done; }
 run "" Welcome Login Registration RegistrationSent
-run 1024 Home Catalog Filter ProductList ProductDetail Cart Checkout OrderSent OrderList OrderDetail Notifications ClientChat ClientReports ClientSettings AgentClients AgentClientDetail RetailHome RetailCatalog RetailFilter RetailProductList RetailProductDetail RetailCart RetailCheckout RetailOrderSent RetailOrderList RetailOrderDetail RetailNotifications Profile Suspended
+run 1024 Home Catalog Filter ProductList ProductDetail Cart Checkout OrderSent OrderList OrderDetail Notifications ClientChat ClientReports ClientSettings AgentClients AgentClientDetail RetailHome RetailCatalog RetailFilter RetailProductList RetailProductDetail RetailCart RetailCheckout RetailOrderSent RetailOrderList RetailOrderDetail RetailNotifications Profile Suspended AgentBase AgentMarkup AgentProductMarkup AgentOrders
 run 9001 AdminHome AdminSearch AdminClients AdminClient AdminOrders AdminOrderDetail AdminNotifications AdminCatalog AdminSettings AdminSettingsDetail AdminAttention OnlineController LowStockList AdminChats AdminChat AdminProductionChat AdminReports AdminWorkshop AdminAdmins AdminAttendance Server StockList ReserveList NewClients Export AdminAssemblers
 run 9002 Production ProductionCategory ProductionCatalog ProductionEntry ProductionHistory ProductionReport ProductionPayments ProductionProfile ProductionWorkshop ProductionAttendance ProductionChat
 run 9003 SalesHome SalesShipmentNew SalesShipments SalesClients SalesClient SalesProfile
