@@ -166,7 +166,9 @@ class SansaraRoleSmokeTest {
         assertEquals("у каждого контакта свой код", 2, codes.size)
         click("Готово")
 
-        // Выход администратора.
+        // Выход администратора: назад к главной (карточка клиента → заявки → главная), вкладка «Профиль».
+        repeat(2) { compose.activityRule.scenario.onActivity { it.onBackPressedDispatcher.onBackPressed() }; compose.waitForIdle() }
+        waitText("Сегодня")
         click("Профиль")
         scrollTo("Выйти из аккаунта")
         click("Выйти из аккаунта")

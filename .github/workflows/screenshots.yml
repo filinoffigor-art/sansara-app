@@ -41,19 +41,48 @@ jobs:
           echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
           sudo udevadm control --reload-rules
           sudo udevadm trigger --name-match=kvm
-      - name: Screenshots on emulator
+      - name: UI tests on emulator (S24 Ultra screen)
+        if: ${{ inputs.skip_tests != '1' }}
+        timeout-minutes: 35
+        continue-on-error: true
         uses: reactivecircus/android-emulator-runner@v2
         with:
           api-level: 34
           arch: x86_64
           profile: pixel_6
           disable-animations: true
-          script: ONLY="${{ inputs.only }}" SKIP_TESTS="${{ inputs.skip_tests }}" bash .github/scripts/uitests.sh
+          script: bash .github/scripts/uitests.sh
+      - name: Collect UI test report
+        if: always()
+        run: |
+          mkdir -p shots
+          {
+            echo "UI-тесты (экран 1080x2340, 450 dpi):"
+            for f in $(find app/build/outputs/androidTest-results -name '*.xml' 2>/dev/null); do
+              grep -o '<testcase [^>]*' "$f" | sed -n 's/.*name="\([^"]*\)".*time="\([^"]*\)".*/\1 \2s/p'
+              grep -c '<failure' "$f" | sed 's/^/провалов: /'
+              grep -o '<failure[^>]*message="[^"]*' "$f" | sed 's/<failure[^>]*message="/  причина: /' | cut -c1-500
+            done
+            echo "---- хвост журнала ----"; tail -80 uitests.log 2>/dev/null || echo "журнала нет"
+          } > shots/00_tests.txt
+          cat shots/00_tests.txt | head -120
+      - name: Screenshots on emulator
+        if: always()
+        timeout-minutes: 30
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 34
+          arch: x86_64
+          profile: pixel_6
+          disable-animations: true
+          script: ONLY="${{ inputs.only }}" bash .github/scripts/shots.sh
       - uses: actions/upload-artifact@v4
+        if: always()
         with:
           name: SANSARA-screens
           path: shots/
       - name: Publish shots to branch ci-screens
+        if: always()
         run: |
           mkdir -p "$RUNNER_TEMP/s" && cp shots/* "$RUNNER_TEMP/s/"
           rm -f shots_old_tests 2>/dev/null || true

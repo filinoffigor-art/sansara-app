@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
 mkdir -p shots
+adb shell wm size 1080x2340 || true
+adb shell wm density 450 || true
 adb shell settings put secure immersive_mode_confirmations confirmed || true
 adb install -r app/build/outputs/apk/debug/app-debug.apk
 adb shell pm grant ru.sansara.app android.permission.POST_NOTIFICATIONS || true
