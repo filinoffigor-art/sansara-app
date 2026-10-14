@@ -260,6 +260,7 @@ internal fun ProtoAdminClientScreen(
     var confirmReissue by remember { mutableStateOf(false) }
     var suspendDialog by remember { mutableStateOf(false) }
     var suspendReason by remember { mutableStateOf("") }
+    var drill by remember(c.id) { mutableStateOf<String?>(null) }
     val suspended = c.status == "Приостановлен"
     val lastSuspend = history.firstOrNull { it.text.startsWith("Приостановлен") }
     if (confirmReissue) AlertDialog(
@@ -304,9 +305,34 @@ internal fun ProtoAdminClientScreen(
         }
         item {
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                ProtoMetricCard("Оборот", protoMoney(stats.turnover), "этот месяц", Modifier.weight(1f)) {}
-                ProtoMetricCard("Заказов", stats.orders.toString(), "всего", Modifier.weight(1f)) {}
-                ProtoMetricCard("Долг", protoMoney(stats.debt), if (stats.debt > 0) "не оплачено" else "нет", Modifier.weight(1f)) {}
+                ProtoMetricCard("Оборот", protoMoney(stats.turnover), if (drill == "turnover") "скрыть" else "этот месяц ›", Modifier.weight(1f)) { drill = if (drill == "turnover") null else "turnover" }
+                ProtoMetricCard("Заказов", stats.orders.toString(), if (drill == "orders") "скрыть" else "всего ›", Modifier.weight(1f)) { drill = if (drill == "orders") null else "orders" }
+                ProtoMetricCard("Долг", protoMoney(stats.debt), if (drill == "debt") "скрыть" else if (stats.debt > 0) "не оплачено ›" else "нет", Modifier.weight(1f)) { drill = if (drill == "debt") null else "debt" }
+            }
+        }
+        // Раскрытие показателя до первичных записей: заказы или отгрузки, из которых он посчитан.
+        when (drill) {
+            "turnover", "orders" -> {
+                val monthKey = currentDateShort().substringAfter('.')
+                val list = clientOrders.filter { it.status != "Отменён" && (drill == "orders" || protoMonthKey(it.dateTime.substringBefore(" ")) == monthKey) }.sortedByDescending { protoOrderEpoch(it.dateTime) }
+                item { Text(if (drill == "orders") "Все заказы (без отменённых): " + list.size else "Заказы этого месяца: " + list.size + " · " + protoMoney(list.sumOf { it.total }), color = ProtoGoldSoft, fontWeight = FontWeight.SemiBold) }
+                if (list.isEmpty()) item { Text("Записей нет", color = ProtoMuted) }
+                items(list, key = { "d-" + it.id }) { o -> ProtoOrderRow(o) { onOpenOrder(o) } }
+            }
+            "debt" -> {
+                val open = shipments.filter { it.clientId == c.id && it.moneyStatus != "CONFIRMED" }.sortedBy { protoParseDate(it.dueDate) ?: LocalDate.MAX }
+                item { Text("Неоплаченные отгрузки: " + open.size + " · " + protoMoney(open.sumOf { it.amount }), color = ProtoGoldSoft, fontWeight = FontWeight.SemiBold) }
+                if (open.isEmpty()) item { Text("Записей нет", color = ProtoMuted) }
+                items(open, key = { "s-" + it.id }) { sh ->
+                    val order = clientOrders.firstOrNull { it.id == sh.orderId }
+                    Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(ProtoPanel).clickable(enabled = order != null) { order?.let(onOpenOrder) }.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Column(Modifier.weight(1f)) {
+                            Text("Отгрузка " + sh.shipDate + " · заказ " + sh.orderId, color = ProtoText, fontSize = 14.sp)
+                            Text((if (sh.paymentType == "DEFERRED") "отсрочка до " + sh.dueDate else "оплата при отгрузке") + " · " + protoMoneyLabel(sh), color = ProtoMuted, fontSize = 12.sp)
+                        }
+                        Text(protoMoney(sh.amount), color = ProtoRed, fontWeight = FontWeight.Bold)
+                    }
+                }
             }
         }
         if (suspended) item {
@@ -348,7 +374,7 @@ internal fun ProtoAdminClientScreen(
                 Text("Изменения сохраняются сразу и попадают в историю.", color = ProtoMuted, fontSize = 12.sp)
             }
         }
-        item { ProtoSectionTitle("Пользователи и коды входа", "Вход: телефон пользователя + код") }
+        item { ProtoSectionTitle("Контакты и коды входа", "У каждого контакта свой код, права в кабинете компании одинаковые") }
         if (users.isEmpty()) item { ProtoSectionCard { Text("Пользователей пока нет", color = ProtoMuted) } }
         items(users, key = { it.first.userId }) { (u, code) ->
             ProtoSectionCard {
@@ -359,9 +385,12 @@ internal fun ProtoAdminClientScreen(
                     }
                     Text(code.ifBlank { "отключён" }, color = if (code.isBlank()) ProtoMuted else ProtoText, fontSize = 22.sp, fontWeight = FontWeight.Bold, letterSpacing = 3.sp)
                 }
-                if (code.isNotBlank()) TextButton(onClick = {
-                    protoShare(context, "SANSARA: вход в приложение — телефон " + protoPhone(u.phone) + ", код " + code + ". Откройте приложение и нажмите «Войти».", "Отправить код")
-                }) { Icon(Icons.Outlined.Share, null, tint = ProtoGold); Spacer(Modifier.width(6.dp)); Text("Отправить код", color = ProtoGold) }
+                Row {
+                    if (code.isNotBlank()) TextButton(onClick = {
+                        protoSms(context, u.phone, "SANSARA: ваш код доступа $code. Откройте приложение и нажмите «Войти».")
+                    }) { Icon(Icons.Outlined.Sms, null, tint = ProtoGold); Spacer(Modifier.width(6.dp)); Text("Отправить код по SMS", color = ProtoGold) }
+                    if (u.phone.isNotBlank()) TextButton(onClick = { protoDialNumber(context, u.phone) }) { Icon(Icons.Outlined.Call, null, tint = ProtoGold); Spacer(Modifier.width(6.dp)); Text("Позвонить", color = ProtoGold) }
+                }
             }
         }
         item { OutlinedButton(onClick = { confirmReissue = true }, modifier = Modifier.fillMaxWidth(), border = BorderStroke(1.dp, ProtoBorder)) { Text("Выдать новый код основному пользователю", color = ProtoText) } }
@@ -580,6 +609,7 @@ internal fun ProtoAdminProductScreen(
 internal fun ProtoAdminSettingsMenuScreen(syncStatus: String, lastSync: String, lowStockThreshold: Int, pickupCount: Int, onBack: () -> Unit, onOpen: (String) -> Unit, onCall: () -> Unit, onLogout: () -> Unit) {
     val rows = listOf(
         Triple("Профиль компании", Icons.Outlined.Business, "Данные SANSARA и контакты"),
+        Triple("Приветственный экран", Icons.Outlined.Campaign, "Рекламный текст при запуске приложения"),
         Triple("Администраторы", Icons.Outlined.AdminPanelSettings, "Личные коды входа администраторов"),
         Triple("Сборщицы", Icons.Outlined.Badge, "Справочник производства"),
         Triple("Ставки сборки", Icons.Outlined.Payments, "Оплата сборщицам за штуку"),
@@ -644,10 +674,24 @@ internal fun ProtoAdminSettingsDetailScreen(
     onTildaUrl: (String) -> Unit, onSync: () -> Unit,
     onTelegramSave: (Boolean, Boolean, String, String) -> Unit,
     onPickupSave: (List<String>) -> Unit,
-    onRate: (List<String>, Int) -> Unit
+    onRate: (List<String>, Int) -> Unit,
+    promoTitle: String = "",
+    promoText: String = "",
+    onPromoSave: (String, String) -> Unit = { _, _ -> }
 ) {
     ProtoScaffold(section, null, onBack) {
         when (section) {
+            "Приветственный экран" -> item {
+                var title by remember(promoTitle) { mutableStateOf(promoTitle) }
+                var text by remember(promoText) { mutableStateOf(promoText) }
+                ProtoSectionCard {
+                    Text("Текст на фото экрана «Добро пожаловать». Пусто — «Уважение в каждой детали».", color = ProtoMuted, fontSize = 13.sp)
+                    OutlinedTextField(value = title, onValueChange = { title = it.take(60) }, label = { Text("Заголовок (до 3 строк)") }, modifier = Modifier.fillMaxWidth().padding(top = 8.dp), minLines = 2, maxLines = 3, colors = protoFieldColors())
+                    OutlinedTextField(value = text, onValueChange = { text = it.take(140) }, label = { Text("Акция или новость") }, modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp), minLines = 2, maxLines = 4, colors = protoFieldColors())
+                    ProtoPrimaryButton("Сохранить", { onPromoSave(title.trim(), text.trim()) })
+                    Text("Без сервера текст меняется только на этом телефоне.", color = ProtoOrange, fontSize = 12.sp, modifier = Modifier.padding(top = 6.dp))
+                }
+            }
             "Профиль компании" -> item {
                 ProtoSectionCard {
                     ProtoInfoRow("Компания", "SANSARA")
@@ -779,7 +823,8 @@ internal fun ProtoAttentionScreen(
                 Text(listOf(r.lastName, r.firstName, r.middleName).filter { it.isNotBlank() }.joinToString(" ").ifBlank { r.contact1 } + " · " + protoPhone(r.phone1), color = ProtoText, fontSize = 13.sp, modifier = Modifier.padding(top = 4.dp))
                 if (r.email.isNotBlank()) Text(r.email, color = ProtoMuted, fontSize = 12.sp)
                 if (r.address.isNotBlank()) Text(r.address, color = ProtoMuted, fontSize = 12.sp)
-                if (r.contact2.isNotBlank()) Text("Второй контакт: " + r.contact2 + " · " + protoPhone(r.phone2), color = ProtoMuted, fontSize = 12.sp)
+                if (r.monthlyVolume > 0) Text("Объём продаж ≈ " + protoMoneyLong(r.monthlyVolume) + " в месяц", color = ProtoGoldSoft, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                if (r.contact2.isNotBlank()) Text("Второй контакт: " + r.contact2 + " · " + protoPhone(r.phone2) + if (r.email2.isNotBlank()) " · " + r.email2 else "", color = ProtoMuted, fontSize = 12.sp)
                 Text("Заявка от " + r.createdAt, color = ProtoMuted, fontSize = 12.sp)
                 Row(Modifier.padding(top = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     Button(onClick = { approveReg = r; status = "Активный"; discount = 0 }, colors = ButtonDefaults.buttonColors(containerColor = ProtoGold), modifier = Modifier.weight(1f)) { Text("Одобрить…", color = Color.Black) }

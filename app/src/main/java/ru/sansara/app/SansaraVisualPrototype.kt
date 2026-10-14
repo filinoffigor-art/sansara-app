@@ -89,7 +89,7 @@ internal val ProtoOrange = Warning
 
 internal enum class ProtoScreen {
     Welcome, Login, Registration, RegistrationSent,
-    Home, Catalog, Filter, ProductList, ProductDetail, Cart, Checkout, OrderSent, OrderList, OrderDetail, Notifications, ClientChat, ClientReports, ClientSettings, AgentClients, AgentClientDetail, RetailHome, RetailCatalog, RetailFilter, RetailProductList, RetailProductDetail, RetailCart, RetailCheckout, RetailOrderSent, RetailOrderList, RetailOrderDetail, RetailNotifications, Profile, Suspended,
+    Home, Popular, Catalog, Filter, ProductList, ProductDetail, Cart, Checkout, OrderSent, OrderList, OrderDetail, Notifications, ClientChat, ClientReports, ClientSettings, AgentClients, AgentClientDetail, RetailHome, RetailCatalog, RetailFilter, RetailProductList, RetailProductDetail, RetailCart, RetailCheckout, RetailOrderSent, RetailOrderList, RetailOrderDetail, RetailNotifications, Profile, Suspended,
     AdminHome, AdminSearch, AdminClients, AdminClient, AdminOrders, AdminOrderDetail, AdminNotifications, AdminCatalog, AdminSettings, AdminSettingsDetail, AdminAttention, OnlineController, LowStockList, AdminChats, AdminChat, AdminProductionChat, AdminReports, AdminWorkshop, AdminAdmins, AdminAttendance, AdminProduct, AgentBase, AgentMarkup, AgentProductMarkup, AgentOrders,
     Production, ProductionCategory, ProductionCatalog, ProductionEntry, ProductionHistory, ProductionReport, ProductionPayments, ProductionProfile, ProductionWorkshop, ProductionAttendance, ProductionChat,
     Server, StockList, ReserveList, NewClients, Export, AdminAssemblers,
@@ -172,7 +172,10 @@ data class ProtoOrderLine(
 }
 
 /** Единая формула суммы строки: цена × количество − скидка, округление вниз по строке. Ею считают карточка, корзина, оформление, заказ и отчёты. */
-fun protoLineTotal(price: Int, qty: Int, discountPct: Int): Int = qty * price * (100 - discountPct) / 100
+fun protoLineTotal(price: Int, qty: Int, discountPct: Int): Int = qty * protoUnitPrice(price, discountPct)
+
+/** Цена за штуку со скидкой партнёра — её клиент видит в каталоге; сумма строки = цена × количество. */
+fun protoUnitPrice(price: Int, discountPct: Int): Int = price * (100 - discountPct.coerceIn(0, 100)) / 100
 data class ProtoOrderEvent(val status: String, val dateTime: String, val actor: String)
 
 data class ProtoOrder(
@@ -253,7 +256,9 @@ data class ProtoRegistration(
     val lastName: String = "",
     val firstName: String = "",
     val middleName: String = "",
-    val rejectReason: String = ""
+    val rejectReason: String = "",
+    /** Примерный общий объём продаж клиента в месяц, ₽ — из анкеты. */
+    val monthlyVolume: Long = 0L
 )
 
 internal val ruLocale = Locale("ru", "RU")
@@ -296,6 +301,12 @@ fun SansaraVisualPrototype() {
     var focusSearch by remember { mutableStateOf(false) }
     var orderSendState by remember { mutableStateOf("ok") }
     var loginLockedUntil by remember { mutableLongStateOf(0L) }
+    var loginError by remember { mutableStateOf<String?>(null) }
+    var rejectionNotice by remember { mutableStateOf<String?>(null) }
+    var homeFilter by remember { mutableStateOf(protoLoadFilter(context.getSharedPreferences("sansara", Context.MODE_PRIVATE), "home_filter")) }
+    var filterTarget by remember { mutableStateOf("catalog") }
+    var approvedCodes by remember { mutableStateOf<List<Triple<String, String, String>>?>(null) }
+    val smsSent = remember { mutableStateListOf<String>() }
     var adminOrdersStatus by remember { mutableStateOf("Все") }
     var adminOrdersDate by remember { mutableStateOf("Все даты") }
     val adminClientHistory = remember { mutableStateListOf<ClientHistoryEntity>() }
@@ -514,8 +525,12 @@ fun SansaraVisualPrototype() {
         productListIndex = 0; productListOffset = 0
         go(target)
     }
-    fun popularity(): Map<String, Int> = orders.filter { it.status != "Отменён" }
-        .flatMap { it.lines }.groupBy { it.sku }.mapValues { (_, l) -> l.sumOf { it.qty } }
+    /** Популярность: продано единиц по всей SANSARA за 30 дней — только завершённые (доставленные) заказы. Возвратов в системе пока нет. */
+    fun popularity(): Map<String, Int> {
+        val since = System.currentTimeMillis() - 30L * 24 * 60 * 60_000L
+        return orders.filter { it.status == "Доставлен" && protoOrderEpoch(it.dateTime) >= since }
+            .flatMap { it.lines }.groupBy { it.sku }.mapValues { (_, l) -> l.sumOf { it.qty } }
+    }
     fun ordersOf(c: ProtoClient): List<ProtoOrder> =
         orders.filter { (it.clientId == c.id || (it.clientId.isBlank() && it.clientName == c.name)) && it.retailCustomerId.isBlank() }
     fun isClientNotification(n: ProtoNotification, c: ProtoClient): Boolean =
@@ -848,7 +863,9 @@ fun SansaraVisualPrototype() {
                 companyContacts.clear()
                 companyContacts.addAll(repository.contactsForClient(clientId))
             }
-            screen = startScreenForRole(saved.role)
+            // Авторизация сохраняется, но каждый запуск начинается с приветственного экрана;
+            // «Войти» у вошедшего пользователя сразу открывает его главный экран.
+            screen = ProtoScreen.Welcome
             onSignedIn()
         }
         if (BuildConfig.DEBUG) {
@@ -878,6 +895,9 @@ fun SansaraVisualPrototype() {
             }
         }
         dataReady = true
+        prefs.getString("my_registration_id", null)?.let { myId ->
+            if (registrations.any { it.id == myId && it.status == "Отклонена" } && !prefs.getBoolean("reject_seen_$myId", false)) rejectionNotice = myId
+        }
         if (tildaFeedUrl.isNotBlank()) syncTildaCatalog(showToast = false)
     }
 
@@ -955,7 +975,11 @@ fun SansaraVisualPrototype() {
                 unreadCount = notifications.count { isClientNotification(it, client) && !it.read },
                 onNotifications = { go(ProtoScreen.Notifications) },
                 onSearch = { q -> openProductList(query = q, focus = q.isBlank()) },
-                onFilter = { resetFilters(); searchQuery = ""; go(ProtoScreen.Filter) },
+                onFilter = { filterTarget = "home"; go(ProtoScreen.Filter) },
+                greetingName = session?.firstName?.takeIf { it.isNotBlank() && session?.clientId == client.id } ?: client.firstName,
+                discount = client.discount,
+                homeFilter = homeFilter,
+                onPopular = { go(ProtoScreen.Popular) },
                 onGroup = { g -> openProductList(type = g) },
                 onOpenProduct = { openProduct(it) },
                 onSetQty = { p, q -> setCartQty(p, q) },
@@ -973,7 +997,19 @@ fun SansaraVisualPrototype() {
                 onAvailability = { st -> openProductList(availability = st.takeIf { it != "Все" }) },
                 onHome = goHome, onCart = goCart, onOrders = goOrders, onProfile = goChat
             )
-            ProtoScreen.Filter -> ProtoFilterScreen(
+            ProtoScreen.Filter -> if (filterTarget == "home") ProtoFilterScreen(
+                products = catalogProducts.filter { it.type in protoWreathGroups },
+                filter = homeFilter,
+                availableStock = { availableStock(it) },
+                onApply = { f ->
+                    // Фильтр главной независим от каталога и сохраняется между запусками.
+                    homeFilter = f.copy(query = "")
+                    protoSaveFilter(prefs, "home_filter", homeFilter)
+                    filterTarget = "catalog"
+                    back()
+                },
+                onBack = { filterTarget = "catalog"; back() }
+            ) else ProtoFilterScreen(
                 products = catalogProducts.filter { it.type in protoWreathGroups },
                 filter = currentFilter(),
                 availableStock = { availableStock(it) },
@@ -1009,9 +1045,21 @@ fun SansaraVisualPrototype() {
                     onSetQty = { p, q -> setCartQty(p, q) },
                     onHome = goHome,
                     onCatalog = { history.clear(); history.add(ProtoScreen.Home); screen = ProtoScreen.Catalog },
-                    onCart = goCart, onOrders = goOrders, onProfile = goChat
+                    onCart = goCart, onOrders = goOrders, onProfile = goChat,
+                    discount = client.discount
                 )
             }
+            ProtoScreen.Popular -> ProtoPopularScreen(
+                products = catalogProducts,
+                soldUnits = popularity(),
+                cart = cart,
+                availableStock = { availableStock(it) },
+                discount = client.discount,
+                onBack = { back() },
+                onOpenProduct = { openProduct(it) },
+                onSetQty = { p, q -> setCartQty(p, q) },
+                onHome = goHome, onCatalog = goCatalog, onCart = goCart, onOrders = goOrders, onProfile = goChat
+            )
             ProtoScreen.ProductDetail -> {
                 val p = selectedProduct
                 ProtoProductDetailScreen(
@@ -1516,6 +1564,9 @@ fun SansaraVisualPrototype() {
                     toast("Настройки Telegram сохранены")
                 },
                 onPickupSave = { list -> prefs.edit().putString("pickup_points", list.joinToString("\n")).apply(); toast("Точки самовывоза сохранены: " + list.size); back() },
+                promoTitle = prefs.getString("welcome_promo_title", "").orEmpty(),
+                promoText = prefs.getString("welcome_promo_text", "").orEmpty(),
+                onPromoSave = { t, x -> prefs.edit().putString("welcome_promo_title", t).putString("welcome_promo_text", x).apply(); toast("Приветственный экран обновлён"); back() },
                 onRate = { skus, rate ->
                     skus.forEach { productionRates[it] = rate }
                     scope.launch { skus.forEach { repository.setProductionRate(it, rate) } }
@@ -1533,8 +1584,11 @@ fun SansaraVisualPrototype() {
                                 val second = approval.secondaryCode?.let { " · второй контакт: $it" }.orEmpty()
                                 toast("Клиент создан. Код: " + approval.primaryCode + second + (if (approval.secondaryCode != null) " — второй код отправьте из карточки" else ""))
                                 openAdminClient(approval.client.id)
-                                // Код сразу уходит заявителю: открываем SMS с готовым текстом на его номер.
-                                protoSms(context, reg.phone1, "SANSARA: ваша заявка одобрена. Вход в приложение: телефон " + protoPhone(reg.phone1) + ", код " + approval.primaryCode + ".")
+                                // Каждому контакту — свой код отдельным SMS.
+                                approvedCodes = listOfNotNull(
+                                    Triple(reg.contact1.ifBlank { reg.organization }, reg.phone1, approval.primaryCode),
+                                    approval.secondaryCode?.let { Triple(reg.contact2, reg.phone2, it) }
+                                )
                             }
                             .onFailure { toast(it.message ?: "Не удалось одобрить заявку") }
                     }
@@ -2264,18 +2318,25 @@ fun SansaraVisualPrototype() {
         Box(Modifier.weight(1f)) {
         when (screen) {
             ProtoScreen.Welcome -> ProtoWelcomeScreen(
-                onLogin = { go(ProtoScreen.Login) },
+                onLogin = {
+                    val active = session
+                    if (active != null) { history.clear(); screen = startScreenForRole(active.role) } else { loginError = null; go(ProtoScreen.Login) }
+                },
                 onRegister = { go(ProtoScreen.Registration) },
-                onRole = { if (BuildConfig.DEBUG) showRolePicker = true }
+                onRole = { if (BuildConfig.DEBUG) showRolePicker = true },
+                promoTitle = prefs.getString("welcome_promo_title", "").orEmpty(),
+                promoText = prefs.getString("welcome_promo_text", "").orEmpty(),
+                signedIn = session != null
             )
             ProtoScreen.Login -> {
                 val lockedMessage = if (loginLockedUntil > System.currentTimeMillis())
                     "Слишком много неверных попыток. Повторите через " + ((loginLockedUntil - System.currentTimeMillis()) / 60_000 + 1) + " мин или позвоните менеджеру."
                 else null
-                ProtoLoginScreen(onBack = { back() }, lockedMessage = lockedMessage, onLogin = { phone, code ->
+                ProtoLoginScreen(onBack = { back() }, lockedMessage = lockedMessage, error = loginError, onCodeChange = { loginError = null }, onLogin = { code ->
                     scope.launch {
-                        val result = authProvider.signIn(phone, code)
+                        val result = authProvider.signInWithAccessCode(code)
                         if (result.ok) {
+                            loginError = null
                             prefs.edit().putInt("login_fails", 0).putLong("login_locked_until", 0L).apply()
                             session = result.session
                             result.session?.clientId?.let { clientId ->
@@ -2286,28 +2347,29 @@ fun SansaraVisualPrototype() {
                             history.clear()
                             screen = startScreenForRole(result.session!!.role)
                             onSignedIn()
-                        } else if (registrations.any { it.status == "Отклонена" && protoPhoneDigits(it.phone1) == protoPhoneDigits(phone) }) {
-                            Toast.makeText(context, PROTO_REJECT_TEXT, Toast.LENGTH_LONG).show()
                         } else {
                             val fails = prefs.getInt("login_fails", 0) + 1
                             if (fails >= 5) {
                                 loginLockedUntil = System.currentTimeMillis() + 15 * 60_000L
                                 prefs.edit().putInt("login_fails", 0).putLong("login_locked_until", loginLockedUntil).apply()
+                                loginError = "Неверный код. Вход заблокирован на 15 минут."
                             } else {
                                 prefs.edit().putInt("login_fails", fails).apply()
-                                toast(result.message + " · осталось попыток: " + (5 - fails))
+                                loginError = "Неверный код. Проверьте код из SMS. Осталось попыток: " + (5 - fails)
                             }
                         }
                     }
                 })
             }
             ProtoScreen.Registration -> ProtoRegistrationScreen(onBack = { back() }, onSubmit = { reg ->
+                // Запоминаем заявку этого телефона, чтобы показать результат проверки на приветственном экране.
+                prefs.edit().putString("my_registration_id", reg.id).putString("my_registration_phone", reg.phone1).apply()
                 registrations.add(0, reg)
                 lastRegistration = reg
                 registrationsTotalThisMonth += 1
                 persistAll()
                 sendRegistrationEvent(reg)
-                addNotification("ADMIN", "ADMIN", "Новая заявка на регистрацию", reg.organization + " · " + reg.city)
+                addNotification("ADMIN", "ADMIN", "Новая заявка на регистрацию", reg.organization + " · " + reg.city + if (reg.monthlyVolume > 0) " · ≈" + protoMoney(reg.monthlyVolume.coerceAtMost(Int.MAX_VALUE.toLong()).toInt()) + "/мес" else "")
                 history.clear(); history.add(ProtoScreen.Welcome)
                 screen = ProtoScreen.RegistrationSent
             })
@@ -2315,7 +2377,7 @@ fun SansaraVisualPrototype() {
                 onBack = { history.clear(); screen = ProtoScreen.Welcome },
                 onHaveCode = { history.clear(); history.add(ProtoScreen.Welcome); screen = ProtoScreen.Login })
 
-            ProtoScreen.Home, ProtoScreen.Catalog, ProtoScreen.Filter, ProtoScreen.ProductList, ProtoScreen.ProductDetail, ProtoScreen.Cart, ProtoScreen.Checkout, ProtoScreen.OrderSent, ProtoScreen.OrderList, ProtoScreen.OrderDetail -> protoGroupA()
+            ProtoScreen.Home, ProtoScreen.Popular, ProtoScreen.Catalog, ProtoScreen.Filter, ProtoScreen.ProductList, ProtoScreen.ProductDetail, ProtoScreen.Cart, ProtoScreen.Checkout, ProtoScreen.OrderSent, ProtoScreen.OrderList, ProtoScreen.OrderDetail -> protoGroupA()
             ProtoScreen.Notifications, ProtoScreen.ClientChat, ProtoScreen.ClientReports, ProtoScreen.ClientSettings, ProtoScreen.Profile, ProtoScreen.Suspended -> protoGroupB()
             ProtoScreen.AdminHome, ProtoScreen.AdminSearch, ProtoScreen.AdminClients, ProtoScreen.AdminClient, ProtoScreen.AdminOrders, ProtoScreen.AdminOrderDetail, ProtoScreen.AdminChats, ProtoScreen.AdminChat, ProtoScreen.AdminProductionChat, ProtoScreen.AdminNotifications, ProtoScreen.AdminCatalog, ProtoScreen.AdminSettings, ProtoScreen.AdminSettingsDetail, ProtoScreen.AdminAttention, ProtoScreen.OnlineController, ProtoScreen.LowStockList, ProtoScreen.AdminAssemblers, ProtoScreen.AdminAdmins, ProtoScreen.AdminWorkshop, ProtoScreen.AdminAttendance, ProtoScreen.AdminProduct -> protoGroupC()
             ProtoScreen.SalesHome, ProtoScreen.SalesShipmentNew, ProtoScreen.SalesShipments, ProtoScreen.AdminPayments, ProtoScreen.SalesClients, ProtoScreen.SalesClient, ProtoScreen.AdminReports, ProtoScreen.AdminDashboard, ProtoScreen.SalesProfile -> protoGroupD()
@@ -2337,6 +2399,40 @@ fun SansaraVisualPrototype() {
                 onCustomers = { showClientMenu=false; refreshAgentData(); go(ProtoScreen.AgentClients) },
                 onReports = { showClientMenu=false; go(ProtoScreen.ClientReports) },
                 onSettings = { showClientMenu=false; go(ProtoScreen.ClientSettings) }
+            )
+        }
+
+        approvedCodes?.let { codes ->
+            AlertDialog(
+                onDismissRequest = {}, containerColor = ProtoPanel,
+                title = { Text("Клиент создан — отправьте коды", color = ProtoText) },
+                text = {
+                    Column {
+                        Text("Каждому контакту — свой код. Нажмите «SMS»: откроется SMS-приложение телефона с готовым текстом, останется нажать «Отправить».", color = ProtoMuted, fontSize = 13.sp)
+                        codes.forEach { (name, phone, code) ->
+                            Row(Modifier.fillMaxWidth().padding(top = 10.dp), verticalAlignment = Alignment.CenterVertically) {
+                                Column(Modifier.weight(1f)) {
+                                    Text(name, color = ProtoText, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                    Text(protoPhone(phone) + " · код " + code, color = ProtoGoldSoft, fontSize = 13.sp)
+                                }
+                                TextButton(onClick = { protoSms(context, phone, "SANSARA: ваша заявка одобрена. Ваш код доступа: $code. Откройте приложение и нажмите «Войти»."); smsSent.add(code) }) {
+                                    Text(if (code in smsSent) "SMS ✓" else "SMS", color = ProtoGold, fontWeight = FontWeight.Bold)
+                                }
+                            }
+                        }
+                    }
+                },
+                confirmButton = { TextButton(onClick = { approvedCodes = null; smsSent.clear() }) { Text("Готово", color = ProtoGold) } }
+            )
+        }
+
+        rejectionNotice?.let { regId ->
+            AlertDialog(
+                onDismissRequest = {}, containerColor = ProtoPanel,
+                title = { Text("Заявка не одобрена", color = ProtoText) },
+                text = { Text(PROTO_REJECT_TEXT, color = ProtoMuted, lineHeight = 20.sp) },
+                confirmButton = { TextButton(onClick = { prefs.edit().putBoolean("reject_seen_$regId", true).apply(); rejectionNotice = null }) { Text("Понятно", color = ProtoGold) } },
+                dismissButton = { TextButton(onClick = { protoDial(context) }) { Text("Позвонить администратору", color = ProtoGold) } }
             )
         }
 
@@ -2424,14 +2520,14 @@ internal fun ProtoSecondaryButton(text:String,onClick:()->Unit,modifier:Modifier
 }
 
 @Composable
-internal fun ProtoWelcomeScreen(onLogin:()->Unit,onRegister:()->Unit,onRole:()->Unit) {
+internal fun ProtoWelcomeScreen(onLogin:()->Unit,onRegister:()->Unit,onRole:()->Unit,promoTitle:String="УВАЖЕНИЕ\nВ КАЖДОЙ\nДЕТАЛИ",promoText:String="",signedIn:Boolean=false) {
     val context=LocalContext.current
     Box(Modifier.fillMaxSize()){ProtoLiveBackground();Column(Modifier.fillMaxSize().padding(horizontal=18.dp)){
         Spacer(Modifier.height(18.dp));Image(painterResource(R.drawable.sansara_wordmark_large),"SANSARA",Modifier.fillMaxWidth().height(96.dp).padding(horizontal=6.dp).clickable{onRole()},contentScale=ContentScale.Fit);Spacer(Modifier.height(14.dp))
-        Card(colors=CardDefaults.cardColors(containerColor=ProtoPanel),border=BorderStroke(1.dp,ProtoBorder),shape=RoundedCornerShape(22.dp),modifier=Modifier.fillMaxWidth().weight(1f)){Box(Modifier.fillMaxSize()){Image(painterResource(R.drawable.mock_wreath),null,Modifier.fillMaxSize(),contentScale=ContentScale.Crop);Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha=.38f)));Text("УВАЖЕНИЕ\nВ КАЖДОЙ\nДЕТАЛИ",color=ProtoGoldSoft,fontSize=22.sp,lineHeight=32.sp,fontWeight=FontWeight.Medium,letterSpacing=3.sp,modifier=Modifier.align(Alignment.CenterStart).padding(24.dp))}}
+        Card(colors=CardDefaults.cardColors(containerColor=ProtoPanel),border=BorderStroke(1.dp,ProtoBorder),shape=RoundedCornerShape(22.dp),modifier=Modifier.fillMaxWidth().weight(1f)){Box(Modifier.fillMaxSize()){Image(painterResource(R.drawable.mock_wreath),null,Modifier.fillMaxSize(),contentScale=ContentScale.Crop);Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha=.38f)));Column(Modifier.align(Alignment.CenterStart).padding(24.dp)){Text(promoTitle.ifBlank{"УВАЖЕНИЕ\nВ КАЖДОЙ\nДЕТАЛИ"},color=ProtoGoldSoft,fontSize=22.sp,lineHeight=32.sp,fontWeight=FontWeight.Medium,letterSpacing=3.sp);if(promoText.isNotBlank())Text(promoText,color=ProtoText,fontSize=15.sp,lineHeight=21.sp,modifier=Modifier.padding(top=12.dp))}}}
         Spacer(Modifier.height(18.dp));Text("Добро пожаловать",color=ProtoText,fontSize=31.sp,fontWeight=FontWeight.Bold)
         Text("Работаем с агентами и торговыми организациями. Заказывайте продукцию, отслеживайте наличие и оформляйте поставки в одном приложении.",color=ProtoMuted,fontSize=14.sp,lineHeight=20.sp,modifier=Modifier.padding(top=10.dp,bottom=18.dp))
-        ProtoPrimaryButton("Войти",onLogin);Spacer(Modifier.height(10.dp));ProtoSecondaryButton("Стать партнёром",onRegister)
+        ProtoPrimaryButton(if(signedIn)"Войти в кабинет" else "Войти",onLogin);Spacer(Modifier.height(10.dp));ProtoSecondaryButton("Стать партнёром",onRegister)
         TextButton(onClick={protoDial(context)},modifier=Modifier.align(Alignment.CenterHorizontally).padding(vertical=10.dp)){Icon(Icons.Outlined.HeadsetMic,null,tint=ProtoGold);Spacer(Modifier.width(7.dp));Text("Связаться с менеджером",color=ProtoGoldSoft)};Spacer(Modifier.height(10.dp))
     }}
 }
@@ -3628,7 +3724,7 @@ internal fun protoSms(context:Context,phone:String,body:String){
     val digits=phone.filter{it.isDigit()||it=='+'}
     runCatching{context.startActivity(Intent(Intent.ACTION_SENDTO,Uri.parse("smsto:$digits")).putExtra("sms_body",body).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))}
 }
-internal const val PROTO_REJECT_TEXT = "К сожалению, вы не прошли проверку компании, вам отказано в доступе. Свяжитесь с администратором."
+internal const val PROTO_REJECT_TEXT = "Ваша компания не прошла проверку службы безопасности. Приносим свои извинения. Для уточнения информации свяжитесь с администратором компании САНСАРА."
 internal fun protoMessage(context:Context){context.startActivity(Intent(Intent.ACTION_SENDTO,Uri.parse("smsto:${BuildConfig.ADMIN_PHONE}")))}
 
 // ───────────── Продажи: отгрузки, оплаты, клиенты ─────────────

@@ -263,8 +263,7 @@ internal data class ProtoCatalogFilter(
 internal fun protoAvailabilityLabel(available: Int) = if (available > 0) "В наличии" else "Под заказ"
 
 internal fun protoMatches(p: ProtoCatalogProduct, f: ProtoCatalogFilter, available: Int, except: String = ""): Boolean {
-    val q = f.query.trim()
-    return (q.isBlank() || p.sku.contains(q, true) || p.name.contains(q, true) || protoTitle(p).contains(q, true)) &&
+    return protoSearchMatches(p, f.query) &&
         (except == "type" || f.types.isEmpty() || p.type in f.types) &&
         (except == "quality" || f.qualities.isEmpty() || p.quality in f.qualities) &&
         (except == "size" || f.sizes.isEmpty() || p.size in f.sizes) &&
@@ -469,3 +468,51 @@ internal fun protoCancelRulesText(kind: String): String =
     "Отменить заказ можно в течение " + protoCancelWindowLabel(kind) + " после оформления, пока его не начали собирать.\n\n" +
         "Сроки отмены:\n• весь заказ из наличия — 30 минут;\n• часть в наличии, часть под заказ — 1 час;\n• весь заказ под заказ — 24 часа.\n\n" +
         "Позже отменить не получится: заказ уходит в распределительный центр на доставку или на производство."
+
+internal fun protoMoneyLong(v: Long): String = String.format(java.util.Locale("ru"), "%,d ₽", v).replace(',', ' ').replace(' ', ' ')
+
+// ───────────── Поиск: регистр, ё/е и ошибочная раскладка ─────────────
+
+private const val EN_KEYS = "qwertyuiop[]asdfghjkl;'zxcvbnm,.`"
+private const val RU_KEYS = "йцукенгшщзхъфывапролджэячсмитьбюё"
+
+/** Текст, набранный не в той раскладке: «dtyjr» → «венок», «руддщ» → «hello». */
+internal fun protoSwapLayout(text: String, toRussian: Boolean): String = buildString {
+    text.lowercase().forEach { ch ->
+        val from = if (toRussian) EN_KEYS else RU_KEYS
+        val to = if (toRussian) RU_KEYS else EN_KEYS
+        val i = from.indexOf(ch)
+        append(if (i >= 0) to[i] else ch)
+    }
+}
+
+private fun norm(s: String) = s.lowercase().replace('ё', 'е').trim()
+
+/** Варианты запроса: как набрано, в русской и в латинской раскладке (артикулы бывают латиницей). */
+internal fun protoQueryVariants(query: String): List<String> {
+    val q = norm(query)
+    if (q.isBlank()) return emptyList()
+    return listOf(q, norm(protoSwapLayout(q, true)), norm(protoSwapLayout(q, false))).distinct()
+}
+
+internal fun protoSearchMatches(p: ProtoCatalogProduct, query: String): Boolean {
+    val variants = protoQueryVariants(query)
+    if (variants.isEmpty()) return true
+    val hay = listOf(norm(p.name), norm(protoTitle(p)), norm(p.sku), norm(p.type)).joinToString(" | ")
+    return variants.any { v -> v.split(' ').filter { it.isNotBlank() }.all { word -> hay.contains(word) } }
+}
+
+/** Применённый фильтр главной сохраняется между запусками. */
+internal fun protoSaveFilter(prefs: android.content.SharedPreferences, key: String, f: ProtoCatalogFilter) {
+    val o = org.json.JSONObject()
+        .put("types", org.json.JSONArray(f.types.toList())).put("qualities", org.json.JSONArray(f.qualities.toList()))
+        .put("sizes", org.json.JSONArray(f.sizes.toList())).put("availability", org.json.JSONArray(f.availability.toList()))
+        .put("min", f.minPrice ?: -1).put("max", f.maxPrice ?: -1)
+    prefs.edit().putString(key, o.toString()).apply()
+}
+
+internal fun protoLoadFilter(prefs: android.content.SharedPreferences, key: String): ProtoCatalogFilter = runCatching {
+    val o = org.json.JSONObject(prefs.getString(key, null) ?: return ProtoCatalogFilter())
+    fun set(name: String): Set<String> = o.optJSONArray(name)?.let { a -> (0 until a.length()).map { a.getString(it) }.toSet() } ?: emptySet()
+    ProtoCatalogFilter("", set("types"), set("qualities"), set("sizes"), set("availability"), o.optInt("min", -1).takeIf { it >= 0 }, o.optInt("max", -1).takeIf { it >= 0 })
+}.getOrDefault(ProtoCatalogFilter())

@@ -95,7 +95,8 @@ data class RegistrationEntity(
     val lastName: String = "",
     val firstName: String = "",
     val middleName: String = "",
-    val rejectReason: String = ""
+    val rejectReason: String = "",
+    val monthlyVolume: Long = 0L
 )
 
 @Entity(tableName = "orders")
@@ -637,7 +638,7 @@ interface SansaraDao {
         ExpenseEntity::class,
         ClientHistoryEntity::class
     ],
-    version = 9,
+    version = 10,
     exportSchema = false
 )
 abstract class SansaraDatabase : RoomDatabase() {
@@ -717,6 +718,12 @@ abstract class SansaraDatabase : RoomDatabase() {
             }
         }
 
+        private val MIGRATION_9_10 = object : Migration(9, 10) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE registrations ADD COLUMN monthlyVolume INTEGER NOT NULL DEFAULT 0")
+            }
+        }
+
         fun get(context: Context): SansaraDatabase =
             instance ?: synchronized(this) {
                 instance ?: Room.databaseBuilder(
@@ -724,7 +731,7 @@ abstract class SansaraDatabase : RoomDatabase() {
                     SansaraDatabase::class.java,
                     "sansara.db"
                 )
-                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9)
+                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10)
                     .build()
                     .also { instance = it }
             }
@@ -1594,11 +1601,11 @@ private fun ProtoClient.toEntity()=ClientEntity(
 
 private fun ProtoRegistration.toEntity()=RegistrationEntity(
     id,organization,fio,inn,contact1,phone1,email,city,address,type,contact2,phone2,email2,createdAt,status,
-    lastName=lastName,firstName=firstName,middleName=middleName,rejectReason=rejectReason
+    lastName=lastName,firstName=firstName,middleName=middleName,rejectReason=rejectReason,monthlyVolume=monthlyVolume
 )
 private fun RegistrationEntity.toProto()=ProtoRegistration(
     organization,fio,inn,contact1,phone1,email,city,address,type,contact2,phone2,email2,id,createdAt,status,
-    lastName=lastName,firstName=firstName,middleName=middleName,rejectReason=rejectReason
+    lastName=lastName,firstName=firstName,middleName=middleName,rejectReason=rejectReason,monthlyVolume=monthlyVolume
 )
 
 private fun ProtoOrder.toEntity():OrderEntity {
