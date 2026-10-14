@@ -51,6 +51,14 @@ jobs:
             echo "Using persistent keystore from GitHub Secrets"
           else
             mkdir -p "$HOME/.android"
+            echo "ANDROID_USER_HOME=$HOME/.android" >> "$GITHUB_ENV"
+            if [ ! -f "$HOME/.android/debug.keystore" ]; then
+              keytool -genkeypair -v -keystore "$HOME/.android/debug.keystore" -storepass android -alias androiddebugkey -keypass android \
+                -keyalg RSA -keysize 2048 -validity 10000 -dname "CN=Android Debug,O=Android,C=US"
+              echo "::warning::Создан новый ключ подписи (кэш ключа пуст) — эта сборка не встанет поверх прежних"
+            else
+              echo "::notice::Ключ подписи восстановлен из кэша"
+            fi
             echo "Persistent signing secret not configured; using cached debug keystore"
           fi
 
