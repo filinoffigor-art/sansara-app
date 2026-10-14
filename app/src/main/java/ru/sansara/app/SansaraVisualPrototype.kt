@@ -164,7 +164,9 @@ data class ProtoOrderLine(
     val price: Int,
     val discountPct: Int = 0,
     /** Цена для частного клиента агента (режим «Для клиентов»); 0 — обычный заказ. */
-    val retailPrice: Int = 0
+    val retailPrice: Int = 0,
+    /** Сколько штук было в наличии на момент заказа (−1 — неизвестно, старые заказы). От этого зависит срок отмены. */
+    val stockQty: Int = -1
 ) {
     val lineTotal: Int get() = protoLineTotal(price, qty, discountPct)
 }
@@ -1062,13 +1064,14 @@ fun SansaraVisualPrototype() {
                     earliestDate = earliestDeliveryDate(shortages.map { it.first }),
                     shortages = shortages.map { (p, n) -> protoTitle(p) + ": " + n + " шт. под заказ · " + protoReadyLabel(p.productionDays) },
                     pickupPoints = pickupPoints(),
+                    cancelKind = protoOrderKind(cartLines.map { (p, q) -> ProtoOrderLine(p.sku, p.name, q, p.price, stockQty = availableStock(p).coerceAtMost(q)) }),
                     onBack = { back() },
                     onSubmit = { method, address, comment, recipient, contactPhone, deliveryDate, deliveryTime ->
                         if (orderingBlocked()) {
                             go(ProtoScreen.Suspended)
                         } else {
                             scope.launch {
-                                val lines = cartLines.map { (p, q) -> ProtoOrderLine(p.sku, p.name, q, p.price, client.discount) }
+                                val lines = cartLines.map { (p, q) -> ProtoOrderLine(p.sku, p.name, q, p.price, client.discount, stockQty = availableStock(p).coerceAtMost(q)) }
                                 val id = repository.nextOrderId()
                                 val now = nowStamp()
                                 val newOrder = ProtoOrder(
@@ -1117,7 +1120,9 @@ fun SansaraVisualPrototype() {
                 onBack = { back() },
                 onOpen = { selectedOrderId = it.id; go(ProtoScreen.OrderDetail) },
                 onHome = goHome, onCatalog = goCatalog, onCart = goCart, onProfile = goChat,
-                cartCount = cart.size
+                cartCount = cart.size,
+                clientOrders = orders.filter { it.clientId == client.id && it.retailCustomerId.isNotBlank() }.takeIf { it.isNotEmpty() || client.clientType.contains("Агент", true) },
+                onOpenClientOrder = { o -> selectedAgentCustomerId = o.retailCustomerId; selectedOrderId = o.id; go(ProtoScreen.RetailOrderDetail) }
             )
             ProtoScreen.OrderDetail -> ProtoOrderDetailScreen(
                 order = orders.firstOrNull { it.id == selectedOrderId },
@@ -1129,7 +1134,7 @@ fun SansaraVisualPrototype() {
                 onEditRepeat = { orders.firstOrNull { it.id == selectedOrderId }?.let { repeatOrder(it, edit = true) } },
                 onCancel = {
                     val idx = orders.indexOfFirst { it.id == selectedOrderId }
-                    if (idx >= 0 && orders[idx].status == "Получен") {
+                    if (idx >= 0 && protoCancelState(orders[idx]).allowed) {
                         val old = orders[idx]
                         orders[idx] = old.copy(status = "Отменён", history = old.history + ProtoOrderEvent("Отменён", nowStamp(), client.contact))
                         addNotification("ADMIN", "ADMIN", "Заказ " + old.id + " отменён клиентом", client.name + " · " + protoMoney(old.total), orderId = old.id)
@@ -2025,13 +2030,14 @@ fun SansaraVisualPrototype() {
                     earliestDate = earliestDeliveryDate(shortItems),
                     shortages = shortItems.map { rp -> protoTitle(rp) + ": под заказ · " + protoReadyLabel(rp.productionDays) },
                     pickupPoints = pickupPoints(),
+                    cancelKind = protoOrderKind(cartLines.map { (rp, q) -> ProtoOrderLine(rp.sku, rp.name, q, rp.price, stockQty = retailStock(rp).coerceAtMost(q)) }),
                     onBack = { back() },
                     onSubmit = { method, address, comment, recipient, phone, date, time ->
                         if (orderingBlocked()) go(ProtoScreen.Suspended) else scope.launch {
                             val id = repository.nextOrderId()
                             val now = nowStamp()
                             // В заказ — закупочная цена агента (базовая цена со скидкой агента), розничная цена — справочно.
-                            val lines = cartLines.mapNotNull { (rp, q) -> baseOf(rp)?.let { base -> ProtoOrderLine(base.sku, base.name, q, base.price, owner.discount, retailPrice = rp.price) } }
+                            val lines = cartLines.mapNotNull { (rp, q) -> baseOf(rp)?.let { base -> ProtoOrderLine(base.sku, base.name, q, base.price, owner.discount, retailPrice = rp.price, stockQty = availableStock(base).coerceAtMost(q)) } }
                             val order = ProtoOrder(
                                 id = id,
                                 clientName = owner.name + " / " + customerName,
@@ -2091,7 +2097,7 @@ fun SansaraVisualPrototype() {
                 },
                 onCancel = {
                     val idx = orders.indexOfFirst { it.id == selectedOrderId }
-                    if (idx >= 0 && orders[idx].status == "Получен") {
+                    if (idx >= 0 && protoCancelState(orders[idx]).allowed) {
                         val old = orders[idx]
                         orders[idx] = old.copy(status = "Отменён", history = old.history + ProtoOrderEvent("Отменён", nowStamp(), owner.contact))
                         addNotification("ADMIN", "ADMIN", "Заказ " + old.id + " отменён клиентом", old.clientName, orderId = old.id)
@@ -2337,15 +2343,21 @@ internal fun ProtoOrderListScreen(
     onProfile: () -> Unit,
     retailMode:Boolean=false,
     onRetailExit:()->Unit={},
-    cartCount:Int=0
+    cartCount:Int=0,
+    clientOrders: List<ProtoOrder>? = null,
+    onOpenClientOrder: (ProtoOrder)->Unit = {}
 ) {
-    var tab by remember { mutableStateOf("Текущие") }
+    var tab by remember { mutableStateOf("Мои заказы") }
+    var search by remember { mutableStateOf("") }
+    val qn = search.trim()
+    fun matches(o: ProtoOrder) = qn.isBlank() || o.id.contains(qn, true) || o.id.filter(Char::isDigit).endsWith(qn.filter(Char::isDigit).ifBlank { "§" }) || o.retailCustomerName.contains(qn, true)
     var historyFilterOpen by remember { mutableStateOf(false) }
     var historyPeriod by remember { mutableStateOf("Все") }
     var expandedMonths by remember { mutableStateOf(setOf<String>()) }
 
-    val currentOrders=orders.filter { it.status !in setOf("Доставлен","Отменён") }
-    val allHistory=orders.filter { it.status in setOf("Доставлен","Отменён") }
+    val currentOrders=orders.filter { it.status !in setOf("Доставлен","Отменён") && matches(it) }
+    val allHistory=orders.filter { it.status in setOf("Доставлен","Отменён") && matches(it) }
+    val clientList=clientOrders.orEmpty().filter { matches(it) }.sortedByDescending { protoOrderEpoch(it.dateTime) }
     val history=protoFilterOrdersByPeriod(allHistory,historyPeriod)
     val grouped=history.groupBy { protoOrderMonthKey(it.dateTime) }
         .toList()
@@ -2395,9 +2407,10 @@ internal fun ProtoOrderListScreen(
                     contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
                     verticalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
+                    item { ProtoSearchField(search, { search = it }, {}, "Номер заказа, например 2384") }
                     item {
                         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            listOf("Текущие", "История").forEach { label ->
+                            (if (clientOrders != null) listOf("Мои заказы", "Клиентские", "История") else listOf("Мои заказы", "История")).forEach { label ->
                                 val selected = tab == label
                                 Box(
                                     Modifier.weight(1f).height(42.dp)
@@ -2412,9 +2425,12 @@ internal fun ProtoOrderListScreen(
                             }
                         }
                     }
-                    if(tab=="Текущие"){
+                    if(tab=="Клиентские"){
+                        if(clientList.isEmpty()) item{ProtoEmptyState(Icons.Outlined.People,"Клиентских заказов пока нет","Сюда попадают заказы, оформленные в режиме «Для клиентов»")}
+                        else items(clientList,key={"c-"+it.id}){order->ProtoOrderRow(order.copy(clientName=order.retailCustomerName.ifBlank{order.clientName})){onOpenClientOrder(order)}}
+                    }else if(tab=="Мои заказы"){
                         if(currentOrders.isEmpty()){
-                            item{ProtoSectionCard{Text("Текущих заказов пока нет",color=ProtoMuted)}}
+                            item{ProtoSectionCard{Text(if(qn.isBlank())"Текущих заказов пока нет" else "Заказ с номером «$qn» не найден",color=ProtoMuted)}}
                         }else{
                             items(currentOrders,key={it.id}){order->ProtoOrderRow(order){onOpen(order)}}
                         }

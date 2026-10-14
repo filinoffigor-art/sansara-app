@@ -1611,6 +1611,7 @@ private fun ProtoOrder.toEntity():OrderEntity {
                 put("price",line.price)
                 put("discountPct",line.discountPct)
                 put("retailPrice",line.retailPrice)
+                put("stockQty",line.stockQty)
             })
         }
     }
@@ -1648,7 +1649,8 @@ private fun OrderEntity.toProto():ProtoOrder {
                 qty=it.getInt("qty"),
                 price=it.getInt("price"),
                 discountPct=it.optInt("discountPct",0),
-                retailPrice=it.optInt("retailPrice",0)
+                retailPrice=it.optInt("retailPrice",0),
+                stockQty=it.optInt("stockQty",-1)
             )
         }
     }

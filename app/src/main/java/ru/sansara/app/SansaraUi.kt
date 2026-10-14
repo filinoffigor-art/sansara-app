@@ -420,3 +420,52 @@ internal fun ProtoRoundIconButton(icon: ImageVector, description: String, onClic
         Icon(icon, contentDescription = description, tint = if (active) Color.Black else ProtoGold, modifier = Modifier.size(22.dp))
     }
 }
+
+// ───────────── Правила отмены заказа клиентом ─────────────
+// Из наличия — 30 минут, полностью под заказ — 24 часа, смешанный — 1 час с момента оформления.
+// После передачи в сборку («Собирается» и дальше) отменить нельзя в любом случае.
+
+internal fun protoOrderKind(lines: List<ProtoOrderLine>): String {
+    if (lines.isEmpty() || lines.any { it.stockQty < 0 }) return "stock"
+    return when {
+        lines.all { it.stockQty >= it.qty } -> "stock"
+        lines.all { it.stockQty <= 0 } -> "order"
+        else -> "mixed"
+    }
+}
+
+internal fun protoCancelWindowMs(kind: String): Long = when (kind) {
+    "order" -> 24 * 60 * 60_000L
+    "mixed" -> 60 * 60_000L
+    else -> 30 * 60_000L
+}
+
+internal fun protoCancelWindowLabel(kind: String): String = when (kind) {
+    "order" -> "24 часа"
+    "mixed" -> "1 час"
+    else -> "30 минут"
+}
+
+internal fun protoCancelRefusal(kind: String): String =
+    if (kind == "stock") "Отменить заказ не получится: ваш заказ отправлен в распределительный центр для осуществления доставки."
+    else "Отменить заказ не получится: заказ частично собран и отправлен на производство — проделана большая работа."
+
+/** Можно ли сейчас отменить заказ и что сказать клиенту. */
+internal data class ProtoCancelState(val allowed: Boolean, val deadline: Long, val kind: String, val message: String)
+
+internal fun protoCancelState(order: ProtoOrder, now: Long = System.currentTimeMillis()): ProtoCancelState {
+    val kind = protoOrderKind(order.lines)
+    val deadline = protoOrderEpoch(order.dateTime) + protoCancelWindowMs(kind)
+    val inWork = order.status !in setOf("Получен", "Подтверждён")
+    return when {
+        order.status == "Отменён" || order.status == "Доставлен" -> ProtoCancelState(false, deadline, kind, "")
+        inWork || now > deadline -> ProtoCancelState(false, deadline, kind, protoCancelRefusal(kind))
+        else -> ProtoCancelState(true, deadline, kind, "Отменить можно до " + java.time.Instant.ofEpochMilli(deadline).atZone(java.time.ZoneId.systemDefault()).toLocalDateTime().format(DateTimeFormatter.ofPattern("HH:mm, d MMMM", java.util.Locale("ru"))))
+    }
+}
+
+/** Текст предупреждения перед отправкой заказа. */
+internal fun protoCancelRulesText(kind: String): String =
+    "Отменить заказ можно в течение " + protoCancelWindowLabel(kind) + " после оформления, пока его не начали собирать.\n\n" +
+        "Сроки отмены:\n• весь заказ из наличия — 30 минут;\n• часть в наличии, часть под заказ — 1 час;\n• весь заказ под заказ — 24 часа.\n\n" +
+        "Позже отменить не получится: заказ уходит в распределительный центр на доставку или на производство."

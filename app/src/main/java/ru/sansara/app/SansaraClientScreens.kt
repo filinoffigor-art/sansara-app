@@ -870,6 +870,7 @@ internal fun ProtoCheckoutScreen(
     earliestDate: LocalDate,
     shortages: List<String>,
     pickupPoints: List<String>,
+    cancelKind: String = "stock",
     onBack: () -> Unit,
     onSubmit: (String, String, String, String, String, String, String) -> Unit,
     onHome: () -> Unit,
@@ -891,6 +892,7 @@ internal fun ProtoCheckoutScreen(
     var selectedTime by remember { mutableStateOf("до 12:00") }
     var showCalendar by remember { mutableStateOf(false) }
     var submitting by remember { mutableStateOf(false) }
+    var showRules by remember { mutableStateOf(false) }
     val destination = when (method) {
         "Самовывоз" -> pickup.trim()
         "ТК" -> listOf(tk.trim(), tkCity.trim()).filter { it.isNotBlank() }.joinToString(", ")
@@ -993,20 +995,30 @@ internal fun ProtoCheckoutScreen(
                 }
                 ProtoPrimaryButton(
                     "Отправить заказ · " + protoMoney(finalTotal),
-                    {
-                        val contact = selectedContact
-                        // Защита от двойного нажатия: второй тап создавал второй заказ.
-                        if (contact != null && canSubmit) {
-                            submitting = true
-                            onSubmit(method, destination, comment, contact.name, contact.phone, selectedDate.format(DateTimeFormatter.ofPattern("dd.MM.yyyy")), selectedTime)
-                        }
-                    },
+                    { if (selectedContact != null && canSubmit) showRules = true },
                     enabled = canSubmit,
                     modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
                 )
             }
         }
     }
+    if (showRules) AlertDialog(
+        onDismissRequest = { showRules = false }, containerColor = ProtoPanel,
+        title = { Text("Правила отмены заказа", color = ProtoText) },
+        text = { Text(protoCancelRulesText(cancelKind), color = ProtoMuted, fontSize = 14.sp, lineHeight = 20.sp) },
+        confirmButton = {
+            TextButton(onClick = {
+                showRules = false
+                val contact = selectedContact
+                // Защита от двойного нажатия: второй тап создавал второй заказ.
+                if (contact != null && !submitting) {
+                    submitting = true
+                    onSubmit(method, destination, comment, contact.name, contact.phone, selectedDate.format(DateTimeFormatter.ofPattern("dd.MM.yyyy")), selectedTime)
+                }
+            }) { Text("Согласен, отправить", color = ProtoGold, fontWeight = FontWeight.SemiBold) }
+        },
+        dismissButton = { TextButton(onClick = { showRules = false }) { Text("Назад", color = ProtoMuted) } }
+    )
     if (showCalendar) {
         ProtoProductionCalendarDialog(
             selectedDate = selectedDate, onDismiss = { showCalendar = false },
@@ -1086,6 +1098,19 @@ internal fun ProtoOrderDetailScreen(
     val finished = o.status == "Доставлен" || o.status == "Отменён"
     val next = protoOrderFlow.getOrNull(protoOrderFlow.indexOf(o.status) + 1)
     var confirmCancel by remember(o.id) { mutableStateOf(false) }
+    var refusal by remember(o.id) { mutableStateOf<String?>(null) }
+    var now by remember { mutableLongStateOf(System.currentTimeMillis()) }
+    LaunchedEffect(o.id) { while (true) { kotlinx.coroutines.delay(30_000); now = System.currentTimeMillis() } }
+    val cancelState = protoCancelState(o, now)
+    refusal?.let { msg ->
+        AlertDialog(
+            onDismissRequest = { refusal = null }, containerColor = ProtoPanel,
+            title = { Text("Отмена невозможна", color = ProtoText) },
+            text = { Text(msg, color = ProtoMuted, lineHeight = 20.sp) },
+            confirmButton = { TextButton(onClick = { refusal = null }) { Text("Понятно", color = ProtoGold) } },
+            dismissButton = { if (onChat != null) TextButton(onClick = { refusal = null; onChat() }) { Text("Написать менеджеру", color = ProtoMuted) } }
+        )
+    }
     var confirmRepeat by remember(o.id) { mutableStateOf<(() -> Unit)?>(null) }
     if (confirmCancel && onCancel != null) AlertDialog(
         onDismissRequest = { confirmCancel = false }, containerColor = ProtoPanel,
@@ -1097,9 +1122,9 @@ internal fun ProtoOrderDetailScreen(
     confirmRepeat?.let { action ->
         AlertDialog(
             onDismissRequest = { confirmRepeat = null }, containerColor = ProtoPanel,
-            title = { Text("Заменить корзину?", color = ProtoText) },
-            text = { Text("В корзине уже " + protoPlural(cartCount, "позиция", "позиции", "позиций") + ". Они будут заменены составом заказа по текущим ценам.", color = ProtoMuted) },
-            confirmButton = { TextButton(onClick = { confirmRepeat = null; action() }) { Text("Заменить", color = ProtoGold) } },
+            title = { Text("Добавить к корзине?", color = ProtoText) },
+            text = { Text("В корзине уже " + protoPlural(cartCount, "позиция", "позиции", "позиций") + ". Позиции заказа добавятся к ним по текущим ценам.", color = ProtoMuted) },
+            confirmButton = { TextButton(onClick = { confirmRepeat = null; action() }) { Text("Добавить", color = ProtoGold) } },
             dismissButton = { TextButton(onClick = { confirmRepeat = null }) { Text("Отмена", color = ProtoMuted) } }
         )
     }
@@ -1164,7 +1189,17 @@ internal fun ProtoOrderDetailScreen(
                     if (onEditRepeat != null) ProtoSecondaryButton("Изменить и заказать", { guarded(onEditRepeat) })
                 } else {
                     if (onChat != null) ProtoSecondaryButton("Написать менеджеру", onChat)
-                    if (o.status == "Получен" && onCancel != null) OutlinedButton(onClick = { confirmCancel = true }, modifier = Modifier.fillMaxWidth().height(48.dp), border = BorderStroke(1.dp, ProtoRed), shape = RoundedCornerShape(24.dp)) { Text("Отменить заказ", color = ProtoRed) }
+                    if (onCancel != null) {
+                        OutlinedButton(
+                            onClick = { if (cancelState.allowed) confirmCancel = true else refusal = cancelState.message },
+                            modifier = Modifier.fillMaxWidth().height(48.dp),
+                            border = BorderStroke(1.dp, if (cancelState.allowed) ProtoRed else ProtoBorder), shape = RoundedCornerShape(24.dp)
+                        ) { Text("Отменить заказ", color = if (cancelState.allowed) ProtoRed else ProtoMuted) }
+                        Text(
+                            if (cancelState.allowed) cancelState.message else "Срок отмены (" + protoCancelWindowLabel(cancelState.kind) + ") прошёл",
+                            color = ProtoMuted, fontSize = 12.sp, modifier = Modifier.fillMaxWidth(), textAlign = TextAlign.Center
+                        )
+                    }
                     if (onRepeat != null) TextButton(onClick = { guarded(onRepeat) }, modifier = Modifier.fillMaxWidth()) { Text("Заказать такой же ещё раз", color = ProtoGold) }
                 }
             }
