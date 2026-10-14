@@ -1293,6 +1293,8 @@ class SansaraRepository private constructor(
     }
 
     suspend fun ensureSalesAccount() {
+        // Тестовый код 9003 только в debug-сборке: в рабочей версии он давал доступ к клиентам и деньгам.
+        if (!BuildConfig.DEBUG) return
         if (dao.accountCountByRole(SansaraRole.SALES.name) > 0) return
         val code = "9003"
         if (dao.accountByAccessCodeHash(hashCode(code)) != null) return
@@ -1457,6 +1459,15 @@ class SansaraRepository private constructor(
             dao.deleteRegistration(reg.id)
         }
         return ApprovalResult(client,primaryCode,secondaryCode)
+    }
+
+    /** Новый код доступа основному пользователю клиента; старый перестаёт работать. */
+    suspend fun reissueAccessCode(clientId:String):String {
+        // Тот же пользователь, чей код показывается в карточке клиента (см. snapshot()).
+        val account = dao.accounts().firstOrNull { it.clientId == clientId && it.enabled } ?: error("У клиента нет пользователя для входа")
+        val code = nextUniqueCode()
+        dao.putAccounts(listOf(account.copy(accessCodeHash = hashCode(code), accessCodeEncrypted = vault.encrypt(code), enabled = true)))
+        return code
     }
 
     suspend fun reject(registrationId:String) {

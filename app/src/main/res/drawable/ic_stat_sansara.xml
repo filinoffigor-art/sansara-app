@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Монохромная иконка уведомлений: Android красит её сам, цветной PNG превращался в белый квадрат. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M12,2C7.6,6.2 6,9.6 6,12.6C6,16.1 8.7,19 12,19C15.3,19 18,16.1 18,12.6C18,9.6 16.4,6.2 12,2ZM12,16.8C10,16.8 8.3,15 8.3,12.7C8.3,10.9 9.3,8.6 12,5.6L12,16.8ZM11,20L13,20L13,22L11,22Z" />
+</vector>

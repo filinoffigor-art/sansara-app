@@ -89,6 +89,8 @@ object TildaCatalogSync {
                 size = param(primary.params, "размер")?.let { prettySize(it) } ?: "—",
                 price = primary.price,
                 imageUrl = withPhoto?.picture.orEmpty(),
+                // «Срок производства» из параметров Tilda (первое число: «5 дней» → 5); нет параметра — 3 дня.
+                productionDays = param(primary.params, "срок")?.let { Regex("\\d+").find(it)?.value?.toIntOrNull() }?.coerceIn(1, 60) ?: 3,
                 retailPrice = retail.firstOrNull()?.price ?: 0,
                 colors = colors
             )
@@ -103,7 +105,7 @@ object TildaCatalogSync {
             connectTimeout = 12_000
             readTimeout = 30_000
             instanceFollowRedirects = true
-            setRequestProperty("User-Agent", "SANSARA-App/0.23")
+            setRequestProperty("User-Agent", "SANSARA-App/0.23.1")
         }
         try {
             val code = connection.responseCode

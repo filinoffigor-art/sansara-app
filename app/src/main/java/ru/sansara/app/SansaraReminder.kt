@@ -73,7 +73,7 @@ class SansaraReminderReceiver:BroadcastReceiver(){
         val customer=intent.getStringExtra("customerName").orEmpty()
         val note=intent.getStringExtra("note").orEmpty()
         val notification=NotificationCompat.Builder(context,SansaraReminderScheduler.CHANNEL_ID)
-            .setSmallIcon(R.drawable.sansara_app_icon)
+            .setSmallIcon(R.drawable.ic_stat_sansara)
             .setContentTitle("SANSARA · "+customer)
             .setContentText(note.ifBlank{"Запланированное напоминание по клиенту"})
             .setStyle(NotificationCompat.BigTextStyle().bigText(note.ifBlank{"Запланированное напоминание по клиенту"}))
@@ -128,45 +128,72 @@ object SansaraAdminOpsReminderScheduler {
         }
     }
 
+    /** Напоминания «контроль 08:00» и вечерний отчёт нужны только администратору. */
+    fun isAdminSession(context:Context):Boolean =
+        runCatching { SecureSessionStore(context.applicationContext).load()?.role==SansaraRole.ADMIN }.getOrDefault(false)
+
+    fun isWorkday(date:LocalDate):Boolean =
+        date.dayOfWeek!=java.time.DayOfWeek.SATURDAY && date.dayOfWeek!=java.time.DayOfWeek.SUNDAY
+
+    private fun nextWorkdayAt(from:LocalDate,hour:Int):LocalDateTime {
+        var day=from
+        while(!isWorkday(day)) day=day.plusDays(1)
+        return day.atTime(hour,0)
+    }
+
     fun scheduleAll(context:Context){
+        if(!isAdminSession(context)){
+            cancelAll(context)
+            return
+        }
         ensureChannel(context)
         scheduleNextCheck(context)
         scheduleEvening(context)
     }
 
+    fun cancelAll(context:Context){
+        val alarmManager=context.getSystemService(Context.ALARM_SERVICE) as AlarmManager
+        listOf(ACTION_CHECK to REQUEST_CHECK, ACTION_EVENING to REQUEST_EVENING).forEach { (action,code) ->
+            alarmManager.cancel(pendingFor(context,action,code))
+        }
+    }
+
     fun scheduleNextCheck(context:Context,repeat:Boolean=false){
         val now=LocalDateTime.now()
-        val target=if(repeat){
-            now.plusMinutes(10)
-        }else{
-            val todayAt8=now.toLocalDate().atTime(8,0)
-            when{
-                now.isBefore(todayAt8)->todayAt8
-                now.toLocalTime().isBefore(java.time.LocalTime.of(20,0))->now.plusSeconds(15)
-                else->now.toLocalDate().plusDays(1).atTime(8,0)
-            }
+        val today=now.toLocalDate()
+        val target=when{
+            !isWorkday(today)->nextWorkdayAt(today,8)
+            repeat && now.toLocalTime().isBefore(java.time.LocalTime.of(20,0))->now.plusMinutes(10)
+            repeat->nextWorkdayAt(today.plusDays(1),8)
+            now.isBefore(today.atTime(8,0))->today.atTime(8,0)
+            now.toLocalTime().isBefore(java.time.LocalTime.of(20,0))->now.plusSeconds(15)
+            else->nextWorkdayAt(today.plusDays(1),8)
         }
         schedule(context,ACTION_CHECK,REQUEST_CHECK,target)
     }
 
     fun scheduleTomorrow(context:Context){
-        schedule(context,ACTION_CHECK,REQUEST_CHECK,LocalDate.now().plusDays(1).atTime(8,0))
+        schedule(context,ACTION_CHECK,REQUEST_CHECK,nextWorkdayAt(LocalDate.now().plusDays(1),8))
     }
 
     fun scheduleEvening(context:Context){
         val now=LocalDateTime.now()
-        val today=now.toLocalDate().atTime(19,0)
-        val target=if(now.isBefore(today))today else now.toLocalDate().plusDays(1).atTime(19,0)
+        val today=now.toLocalDate()
+        val target=if(isWorkday(today) && now.isBefore(today.atTime(19,0))) today.atTime(19,0) else nextWorkdayAt(today.plusDays(1),19)
         schedule(context,ACTION_EVENING,REQUEST_EVENING,target)
+    }
+
+    private fun pendingFor(context:Context,action:String,requestCode:Int):PendingIntent {
+        val intent=Intent(context,SansaraAdminOpsReminderReceiver::class.java).apply{this.action=action}
+        return PendingIntent.getBroadcast(
+            context,requestCode,intent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
     }
 
     private fun schedule(context:Context,action:String,requestCode:Int,target:LocalDateTime){
         val alarmManager=context.getSystemService(Context.ALARM_SERVICE) as AlarmManager
-        val intent=Intent(context,SansaraAdminOpsReminderReceiver::class.java).apply{this.action=action}
-        val pending=PendingIntent.getBroadcast(
-            context,requestCode,intent,
-            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
-        )
+        val pending=pendingFor(context,action,requestCode)
         val epoch=target.atZone(ZoneId.systemDefault()).toInstant().toEpochMilli()
         if(Build.VERSION.SDK_INT>=Build.VERSION_CODES.S && !alarmManager.canScheduleExactAlarms()){
             alarmManager.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP,epoch,pending)
@@ -182,6 +209,14 @@ class SansaraAdminOpsReminderReceiver:BroadcastReceiver(){
         val pendingResult=goAsync()
         CoroutineScope(Dispatchers.IO).launch {
             runCatching {
+                if(!SansaraAdminOpsReminderScheduler.isAdminSession(context)){
+                    SansaraAdminOpsReminderScheduler.cancelAll(context)
+                    return@runCatching
+                }
+                if(!SansaraAdminOpsReminderScheduler.isWorkday(LocalDate.now())){
+                    SansaraAdminOpsReminderScheduler.scheduleAll(context)
+                    return@runCatching
+                }
                 val repository=SansaraRepository.get(context)
                 when(intent.action){
                     SansaraAdminOpsReminderScheduler.ACTION_EVENING->{
@@ -189,7 +224,7 @@ class SansaraAdminOpsReminderReceiver:BroadcastReceiver(){
                         val unique=presence.map{it.userId}.distinct().size
                         val minutes=presence.sumOf{it.durationMs}/60_000L
                         val notification=NotificationCompat.Builder(context,SansaraAdminOpsReminderScheduler.CHANNEL_ID)
-                            .setSmallIcon(R.drawable.sansara_app_icon)
+                            .setSmallIcon(R.drawable.ic_stat_sansara)
                             .setContentTitle("SANSARA · вечерний отчёт")
                             .setContentText("Сегодня заходили: "+unique+" · время в приложении: "+minutes+" мин.")
                             .setStyle(NotificationCompat.BigTextStyle().bigText("Сегодня заходили: "+unique+" пользователей. Суммарное время в приложении: "+minutes+" минут. Подробности доступны в разделе «Отчёты»."))
@@ -218,7 +253,7 @@ class SansaraAdminOpsReminderReceiver:BroadcastReceiver(){
                             }else{
                                 val text="Не выполнено: "+missing.joinToString(", ")
                                 val notification=NotificationCompat.Builder(context,SansaraAdminOpsReminderScheduler.CHANNEL_ID)
-                                    .setSmallIcon(R.drawable.sansara_app_icon)
+                                    .setSmallIcon(R.drawable.ic_stat_sansara)
                                     .setContentTitle("SANSARA · контроль 08:00")
                                     .setContentText(text)
                                     .setStyle(NotificationCompat.BigTextStyle().bigText(text+". Напоминание повторится через 10 минут, пока задачи не будут закрыты."))

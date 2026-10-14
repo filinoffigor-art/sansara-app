@@ -206,6 +206,12 @@ private data class ProtoProductGroup(
     val enabled: Boolean
 )
 
+/** Группы, которые сейчас продаются под плиткой «Венки». */
+private val protoWreathGroups = setOf("Венки","Корзины","Флоретки","Полянки")
+
+/** Статус товара, снятого с публикации в Tilda: скрыт из каталога, но остаётся в старых заказах и на складе. */
+const val PRODUCT_UNPUBLISHED = "Снят с публикации"
+
 private val protoProductGroups = listOf(
     ProtoProductGroup("wreaths", "Венки", "Венки", true),
     ProtoProductGroup("coffins", "Гробы", "Гробы", false),
@@ -255,6 +261,8 @@ fun SansaraVisualPrototype() {
     var session by remember { mutableStateOf<SansaraSession?>(null) }
     var dataReady by remember { mutableStateOf(false) }
     val products = remember { mutableStateListOf<ProtoCatalogProduct>() }
+    // Что видит клиент: без товаров, снятых с публикации в Tilda.
+    val catalogProducts by remember { derivedStateOf { products.filter { it.status != PRODUCT_UNPUBLISHED } } }
     val stockOverrides: SnapshotStateMap<String, Int> = remember { mutableStateMapOf() }
     val cart: SnapshotStateMap<String, Int> = remember { mutableStateMapOf() }
     val history: SnapshotStateList<ProtoScreen> = remember { mutableStateListOf() }
@@ -399,7 +407,25 @@ fun SansaraVisualPrototype() {
         persistNotifications()
     }
     fun go(target: ProtoScreen) { if (target != screen) { history.add(screen); screen = target } }
-    fun back() { screen = if (history.isNotEmpty()) history.removeAt(history.lastIndex) else ProtoScreen.Welcome }
+    fun back() {
+        val active = session
+        when {
+            history.isNotEmpty() -> screen = history.removeAt(history.lastIndex)
+            // Вошедший пользователь не попадает на «Добро пожаловать» кнопкой «назад»:
+            // с любого экрана — на главный экран роли, с главного — выход из приложения.
+            active != null && screen != startScreenForRole(active.role) -> screen = startScreenForRole(active.role)
+            active != null -> (context as? android.app.Activity)?.finish()
+            else -> screen = ProtoScreen.Welcome
+        }
+    }
+    fun onSignedIn() { SansaraAdminOpsReminderScheduler.scheduleAll(context) }
+    fun signOut() {
+        authProvider.signOut()
+        session = null
+        SansaraAdminOpsReminderScheduler.cancelAll(context)
+        history.clear()
+        screen = ProtoScreen.Welcome
+    }
     fun resetFilters(type: String? = null, availability: String? = null) {
         selectedTypes = type?.let { setOf(it) } ?: emptySet()
         selectedQualities = emptySet(); selectedSizes = emptySet()
@@ -467,6 +493,7 @@ fun SansaraVisualPrototype() {
             try {
                 val result = TildaCatalogSync.fetchYml(url)
                 val feedSkus = result.items.map { it.sku.lowercase() }.toSet()
+                val publishedBefore = products.count { it.status != PRODUCT_UNPUBLISHED }
                 result.items.forEach { item ->
                     val idx = products.indexOfFirst { it.sku.equals(item.sku, true) }
                     if (idx >= 0) {
@@ -475,7 +502,8 @@ fun SansaraVisualPrototype() {
                             name = item.name, type = item.category, quality = item.quality, size = item.size,
                             price = if (item.price > 0) item.price else old.price, productionDays = item.productionDays,
                             imageUrl = item.imageUrl.ifBlank { old.imageUrl }, externalId = item.externalId,
-                            retailPrice = item.retailPrice
+                            retailPrice = item.retailPrice,
+                            status = if (old.status == PRODUCT_UNPUBLISHED) "Под заказ" else old.status
                         )
                     } else {
                         // Новый артикул: остаток 0 / «Под заказ» до первого прихода. В debug-сборке — демо-остаток, чтобы экраны были живыми.
@@ -487,6 +515,14 @@ fun SansaraVisualPrototype() {
                 if (result.items.size >= 100) {
                     val demoSku = Regex("^(V|VK|KOR|POL|FL|L)-\\d{3}(-\\d{3})?$")
                     products.removeAll { demoSku.matches(it.sku) && it.sku.lowercase() !in feedSkus }
+                }
+                // Снятые с публикации в Tilda товары скрываем из каталога (в заказах и на складе они остаются).
+                // Защита от неполного ответа: скрываем, только если фид не меньше половины прежнего каталога.
+                if (result.items.isNotEmpty() && result.items.size * 2 >= publishedBefore) {
+                    products.indices.forEach { i ->
+                        val p = products[i]
+                        if (p.sku.lowercase() !in feedSkus && p.status != PRODUCT_UNPUBLISHED) products[i] = p.copy(status = PRODUCT_UNPUBLISHED)
+                    }
                 }
                 lastCatalogSync = LocalDateTime.now().format(DateTimeFormatter.ofPattern("dd.MM.yyyy HH:mm"))
                 prefs.edit().putString("last_catalog_sync", lastCatalogSync).apply()
@@ -544,7 +580,7 @@ fun SansaraVisualPrototype() {
     }
 
     fun retailProducts(ownerId:String,customerId:String):List<ProtoCatalogProduct> =
-        products.map { product ->
+        catalogProducts.map { product ->
             val markup=markupForProduct(ownerId,customerId,product)
             product.copy(price=(product.price*(1.0+markup/100.0)).roundToInt())
         }
@@ -664,6 +700,7 @@ fun SansaraVisualPrototype() {
                 companyContacts.addAll(repository.contactsForClient(clientId))
             }
             screen = startScreenForRole(saved.role)
+            onSignedIn()
         }
         if (BuildConfig.DEBUG) {
             val dbgIntent = (context as? android.app.Activity)?.intent
@@ -679,6 +716,7 @@ fun SansaraVisualPrototype() {
                         companyContacts.addAll(repository.contactsForClient(clientId))
                     }
                     screen = startScreenForRole(res.session!!.role)
+                    onSignedIn()
                 }
             }
             runCatching { ProtoScreen.valueOf(dbgScreen) }.getOrNull()?.let { target ->
@@ -743,7 +781,7 @@ fun SansaraVisualPrototype() {
         when (screen) {
             ProtoScreen.Home -> ProtoClientHomeScreen(
                 client = clients.firstOrNull { it.id == selectedClientId } ?: clients.first(),
-                products = products,
+                products = catalogProducts,
                 stockOverrides = stockOverrides,
                 availableStock = { availableStock(it) },
                 cartCount = cart.size,
@@ -780,6 +818,7 @@ fun SansaraVisualPrototype() {
             )
             ProtoScreen.Catalog -> ProtoCatalogHomeScreen(
                 cartCount = cart.size,
+                wreathCount = catalogProducts.count { it.type in protoWreathGroups },
                 onBack = { back() },
                 onSearch = { value -> searchQuery = value; resetFilters(); go(ProtoScreen.ProductList) },
                 onCategory = { type ->
@@ -790,7 +829,7 @@ fun SansaraVisualPrototype() {
                 onHome = { history.clear(); screen = ProtoScreen.Home }, onCart = { go(ProtoScreen.Cart) }, onOrders = { go(ProtoScreen.OrderList) }, onProfile = { go(ProtoScreen.ClientChat) }
             )
             ProtoScreen.Filter -> ProtoFilterScreen(
-                products = products.filter { it.type in setOf("Венки","Корзины","Флоретки","Полянки") },
+                products = catalogProducts.filter { it.type in protoWreathGroups },
                 selectedTypes = selectedTypes,
                 selectedQualities = selectedQualities,
                 selectedSizes = selectedSizes,
@@ -811,7 +850,7 @@ fun SansaraVisualPrototype() {
                 onBack = { back() }
             )
             ProtoScreen.ProductList -> {
-                val filtered = products.filter { p ->
+                val filtered = catalogProducts.filter { p ->
                     (searchQuery.isBlank() || p.sku.contains(searchQuery, true) || p.name.contains(searchQuery, true)) &&
                     (selectedTypes.isEmpty() || p.type in selectedTypes) &&
                     (selectedQualities.isEmpty() || p.quality == "—" || p.quality in selectedQualities) &&
@@ -1064,7 +1103,7 @@ fun SansaraVisualPrototype() {
                 onNotifications = { notificationsOrders = it },
                 onBack = { back() }
             )
-            ProtoScreen.Profile -> ProtoProfileScreen(clients.firstOrNull { it.id == selectedClientId } ?: clients.first(), onBack = { back() }, onCall = { protoDial(context) }, onLogout = { authProvider.signOut(); session = null; history.clear(); screen = ProtoScreen.Welcome }, onHome = { history.clear(); screen = ProtoScreen.Home }, onCatalog = { go(ProtoScreen.Catalog) }, onCart = { go(ProtoScreen.Cart) }, onOrders = { go(ProtoScreen.OrderList) }, onAnalytics = { refreshShipments(); go(ProtoScreen.ClientReports) })
+            ProtoScreen.Profile -> ProtoProfileScreen(clients.firstOrNull { it.id == selectedClientId } ?: clients.first(), onBack = { back() }, onCall = { protoDial(context) }, onLogout = { signOut() }, onHome = { history.clear(); screen = ProtoScreen.Home }, onCatalog = { go(ProtoScreen.Catalog) }, onCart = { go(ProtoScreen.Cart) }, onOrders = { go(ProtoScreen.OrderList) }, onAnalytics = { refreshShipments(); go(ProtoScreen.ClientReports) })
             ProtoScreen.Suspended -> ProtoSuspendedScreen(onCall = { protoDial(context) }, onMessage = { protoMessage(context) }, onBack = { back() }, onCatalog = { go(ProtoScreen.Catalog) }, onHome = { history.clear(); screen = ProtoScreen.Home }, onOrders = { go(ProtoScreen.OrderList) })
 
             else -> Unit
@@ -1099,12 +1138,20 @@ fun SansaraVisualPrototype() {
                 clientOrders = orders.filter { o -> o.clientName == clients.firstOrNull { it.id == selectedClientId }?.name },
                 typeOf = { sku -> products.firstOrNull { it.sku == sku }?.type ?: "Прочее" },
                 onBack = { back() },
-                onStatus = { status -> val i=clients.indexOfFirst{it.id==selectedClientId};if(i>=0){val c=clients[i];clients[i]=c.copy(status=status,orderingEnabled=if(status=="Приостановлен")false else c.orderingEnabled);persistAll()} },
+                onStatus = { status -> val i=clients.indexOfFirst{it.id==selectedClientId};if(i>=0){val c=clients[i];clients[i]=c.copy(status=status,orderingEnabled=when{status=="Приостановлен"->false;c.status=="Приостановлен"->true;else->c.orderingEnabled});persistAll()} },
                 onToggleBlock = { val i=clients.indexOfFirst{it.id==selectedClientId};if(i>=0){val c=clients[i];clients[i]=c.copy(status=if(c.status=="Приостановлен")"Активный" else "Приостановлен",orderingEnabled=c.status=="Приостановлен");persistAll()} },
                 onToggleOrdering = { val i=clients.indexOfFirst{it.id==selectedClientId};if(i>=0){val c=clients[i];clients[i]=c.copy(orderingEnabled=!c.orderingEnabled);persistAll()} },
                 onDiscount = { delta -> val i = clients.indexOfFirst { it.id == selectedClientId }; if (i >= 0) { val c = clients[i]; clients[i] = c.copy(discount = (c.discount + delta).coerceIn(0,50)); persistAll() } },
-                onSave = { toast("Карточка клиента сохранена") },
-                onCall = { protoDialNumber(context, clients.firstOrNull { it.id == selectedClientId }?.phone ?: BuildConfig.ADMIN_PHONE) }
+                onSave = { toast("Изменения сохраняются сразу") },
+                onCall = { protoDialNumber(context, clients.firstOrNull { it.id == selectedClientId }?.phone ?: BuildConfig.ADMIN_PHONE) },
+                onReissueCode = {
+                    val clientId = selectedClientId
+                    scope.launch {
+                        runCatching { repository.reissueAccessCode(clientId) }
+                            .onSuccess { code -> applySnapshot(repository.snapshot()); toast("Новый код доступа: $code") }
+                            .onFailure { toast(it.message ?: "Не удалось выдать код") }
+                    }
+                }
             )
             ProtoScreen.AdminOrders -> ProtoAdminOrdersScreen(orders, onBack = { back() }, onOpen = { selectedOrderId = it.id; go(ProtoScreen.AdminOrderDetail) })
             ProtoScreen.AdminOrderDetail -> ProtoOrderDetailScreen(orders.firstOrNull { it.id == selectedOrderId }, products = products, isAdmin = true, onBack = { back() }, onStatus = { st ->
@@ -1117,7 +1164,7 @@ fun SansaraVisualPrototype() {
                     if (st == oldOrder.status) {
                         toast("Статус уже установлен")
                     } else if (newIndex >= oldIndex && newIndex >= 0) {
-                        if (st == "Собирается" && oldOrder.status in setOf("Получен","Подтверждён")) {
+                        if (newIndex >= 2 && oldIndex in 0..1) {
                             oldOrder.lines.forEach { line ->
                                 products.firstOrNull { it.sku == line.sku }?.let { p ->
                                     stockOverrides[p.sku] = (physicalStock(p) - line.qty).coerceAtLeast(0)
@@ -1134,6 +1181,26 @@ fun SansaraVisualPrototype() {
                         )
                         persistAll()
                     } else toast("Статус заказа нельзя переводить назад")
+                }
+            }, onCancel = {
+                val idx = orders.indexOfFirst { it.id == selectedOrderId }
+                if (idx >= 0) {
+                    val oldOrder = orders[idx]
+                    val statuses = listOf("Получен","Подтверждён","Собирается","Доставляется","Доставлен")
+                    val oldIndex = statuses.indexOf(oldOrder.status)
+                    if (oldIndex in 0..3) {
+                        // Товар уже списан со склада (статус дальше «Подтверждён») — возвращаем его.
+                        if (oldIndex >= 2) {
+                            oldOrder.lines.forEach { line ->
+                                products.firstOrNull { it.sku == line.sku }?.let { p -> stockOverrides[p.sku] = physicalStock(p) + line.qty }
+                            }
+                        }
+                        val now = LocalDateTime.now().format(DateTimeFormatter.ofPattern("dd.MM.yyyy HH:mm"))
+                        orders[idx] = oldOrder.copy(status = "Отменён", history = oldOrder.history + ProtoOrderEvent("Отменён", now, "Администратор"))
+                        addNotification(audienceRole = "CLIENT", audienceKey = oldOrder.clientName, title = "Заказ " + oldOrder.id, message = "Заказ отменён администратором")
+                        persistAll()
+                        toast("Заказ " + oldOrder.id + " отменён")
+                    }
                 }
             })
             ProtoScreen.AdminChats -> ProtoAdminChatsScreen(
@@ -1239,6 +1306,8 @@ fun SansaraVisualPrototype() {
                         applySnapshot(repository.snapshot())
                         val second = approval.secondaryCode?.let { " · второй контакт: " + it }.orEmpty()
                         toast("Клиент подтверждён. Код: " + approval.primaryCode + second)
+                        selectedClientId = approval.client.id
+                        go(ProtoScreen.AdminClient)
                     }
                 },
                 onClose = { reg ->
@@ -1328,7 +1397,7 @@ fun SansaraVisualPrototype() {
                 onNew = { go(ProtoScreen.SalesShipmentNew) },
                 onList = { refreshShipments(); go(ProtoScreen.SalesShipments) },
                 onClients = { go(ProtoScreen.SalesClients) },
-                onLogout = { authProvider.signOut(); session = null; history.clear(); screen = ProtoScreen.Welcome }
+                onLogout = { signOut() }
             )
             ProtoScreen.SalesShipmentNew -> ProtoSalesShipmentForm(
                 clients = clients, orders = orders, shipments = shipments, onBack = { back() },
@@ -1541,7 +1610,7 @@ fun SansaraVisualPrototype() {
                 ProtoProductionReportScreen(selectedProductionDate, productionOps.filter { it.date == productionDateKey }, products, onBack = { back() })
             }
             ProtoScreen.ProductionPayments -> ProtoProductionPaymentsScreen(productionOps,onBack={back()},onExport={go(ProtoScreen.Export)})
-            ProtoScreen.ProductionProfile -> ProtoStaffProfileScreen(role = "Производство", onBack = { back() }, onCall = { protoDial(context) }, onLogout = { authProvider.signOut(); session = null; history.clear(); screen = ProtoScreen.Welcome })
+            ProtoScreen.ProductionProfile -> ProtoStaffProfileScreen(role = "Производство", onBack = { back() }, onCall = { protoDial(context) }, onLogout = { signOut() })
 
             ProtoScreen.ProductionWorkshop -> ProtoWorkshopTasksScreen(
                 tasks=workshopTasks,
@@ -1690,7 +1759,8 @@ fun SansaraVisualPrototype() {
                 )
             }
             ProtoScreen.RetailCatalog -> ProtoCatalogHomeScreen(
-                cartCount=retailCart.size,onBack={back()},onSearch={q->searchQuery=q;resetFilters();go(ProtoScreen.RetailProductList)},
+                cartCount=retailCart.size,
+                wreathCount=catalogProducts.count{it.type in protoWreathGroups},onBack={back()},onSearch={q->searchQuery=q;resetFilters();go(ProtoScreen.RetailProductList)},
                 onCategory={type->if(type!="Венки")toast("Раздел «$type» в разработке") else{resetFilters(type="Венки");go(ProtoScreen.RetailFilter)}},
                 onAvailability={st->searchQuery="";if(st=="Все")resetFilters() else resetFilters(availability=st);go(ProtoScreen.RetailProductList)},
                 onHome={history.clear();screen=ProtoScreen.RetailHome},onCart={go(ProtoScreen.RetailCart)},onOrders={go(ProtoScreen.RetailOrderList)},onProfile={},
@@ -1701,7 +1771,7 @@ fun SansaraVisualPrototype() {
                 val customerId=selectedAgentCustomerId.orEmpty()
                 val retail=retailProducts(ownerId,customerId)
                 ProtoFilterScreen(
-                    products=retail.filter{it.type=="Венки"},selectedTypes=selectedTypes,selectedQualities=selectedQualities,selectedSizes=selectedSizes,
+                    products=retail.filter{it.type in protoWreathGroups},selectedTypes=selectedTypes,selectedQualities=selectedQualities,selectedSizes=selectedSizes,
                     selectedAvailability=selectedAvailability,minPrice=minPriceFilter,maxPrice=maxPriceFilter,
                     availableStock={rp->products.firstOrNull{it.sku==rp.sku}?.let{availableStock(it)}?:0},
                     onApply={types,qualities,sizes,availability,minPrice,maxPrice->selectedTypes=types;selectedQualities=qualities;selectedSizes=sizes;selectedAvailability=availability;minPriceFilter=minPrice;maxPriceFilter=maxPrice;searchQuery="";go(ProtoScreen.RetailProductList)},
@@ -1882,6 +1952,7 @@ fun SansaraVisualPrototype() {
                         }
                         history.clear()
                         screen = startScreenForRole(result.session!!.role)
+                        onSignedIn()
                     } else toast(result.message)
                 }
             })
@@ -2194,11 +2265,11 @@ private fun ProtoClientHomeScreen(
     previewProduct?.let{product->ProtoProductImagePreview(product){previewProduct=null}}
 }
 @Composable
-private fun ProtoCatalogHomeScreen(cartCount:Int,onBack:()->Unit,onSearch:(String)->Unit,onCategory:(String)->Unit,onAvailability:(String)->Unit,onHome:()->Unit,onCart:()->Unit,onOrders:()->Unit,onProfile:()->Unit,retailMode:Boolean=false,onRetailExit:()->Unit={}){
+private fun ProtoCatalogHomeScreen(cartCount:Int,wreathCount:Int=0,onBack:()->Unit,onSearch:(String)->Unit,onCategory:(String)->Unit,onAvailability:(String)->Unit,onHome:()->Unit,onCart:()->Unit,onOrders:()->Unit,onProfile:()->Unit,retailMode:Boolean=false,onRetailExit:()->Unit={}){
     var searchOpen by remember{mutableStateOf(false)};var searchText by remember{mutableStateOf("")};var mode by remember{mutableStateOf("Все")};val cats=listOf("Венки","Гробы","Одежда","Ленты","Цветы","Услуги")
     Box(Modifier.fillMaxSize()){ProtoLiveBackground();Scaffold(containerColor=Color.Transparent,bottomBar={if(retailMode)ProtoRetailBottomBar(ProtoScreen.RetailCatalog,cartCount,onHome,onCatalog={},onCart,onRetailExit,onOrders) else ProtoClientBottomBar(ProtoScreen.Catalog,cartCount,onHome,onCatalog={},onCart,onOrders,onProfile)}){pad->Column(Modifier.fillMaxSize().padding(pad).padding(horizontal=18.dp)){
         ProtoBrandHeader(onBack=onBack,edge=0.dp);Text("Каталог",color=ProtoText,fontSize=32.sp,fontWeight=FontWeight.Bold,modifier=Modifier.padding(vertical=10.dp));ProtoSearchBar(searchText,{searchOpen=true},"Поиск по категориям");Spacer(Modifier.height(12.dp));ProtoAvailabilityChips(mode){mode=it;onAvailability(it)};Spacer(Modifier.height(14.dp))
-        LazyVerticalGrid(columns=GridCells.Fixed(2),modifier=Modifier.weight(1f),horizontalArrangement=Arrangement.spacedBy(10.dp),verticalArrangement=Arrangement.spacedBy(10.dp),contentPadding=PaddingValues(bottom=12.dp)){items(cats){cat->val enabled=cat=="Венки";Card(colors=CardDefaults.cardColors(containerColor=ProtoPanel),border=BorderStroke(1.dp,ProtoBorder),shape=RoundedCornerShape(20.dp),modifier=Modifier.height(205.dp).clickable(enabled=enabled){onCategory(cat)}){Box(Modifier.fillMaxSize()){Image(painterResource(protoPlaceholderForType(cat)),null,Modifier.fillMaxSize(),contentScale=ContentScale.Crop);Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha=.28f)));Column(Modifier.align(Alignment.BottomStart).padding(12.dp)){Text(cat,color=ProtoText,fontSize=18.sp,fontWeight=FontWeight.Bold);Text(if(cat=="Венки")"126 позиций" else "",color=ProtoMuted,fontSize=13.sp)};Icon(Icons.Outlined.ArrowForward,null,tint=ProtoGold,modifier=Modifier.align(Alignment.BottomEnd).padding(10.dp));if(!enabled)Box(Modifier.align(Alignment.CenterEnd).fillMaxHeight().width(34.dp),contentAlignment=Alignment.Center){Text("В разработке",color=ProtoText,fontSize=15.sp,fontWeight=FontWeight.ExtraBold,maxLines=1,softWrap=false,textAlign=androidx.compose.ui.text.style.TextAlign.Center,modifier=Modifier.requiredWidth(160.dp).rotate(-90f))}}}}}
+        LazyVerticalGrid(columns=GridCells.Fixed(2),modifier=Modifier.weight(1f),horizontalArrangement=Arrangement.spacedBy(10.dp),verticalArrangement=Arrangement.spacedBy(10.dp),contentPadding=PaddingValues(bottom=12.dp)){items(cats){cat->val enabled=cat=="Венки";Card(colors=CardDefaults.cardColors(containerColor=ProtoPanel),border=BorderStroke(1.dp,ProtoBorder),shape=RoundedCornerShape(20.dp),modifier=Modifier.height(205.dp).clickable(enabled=enabled){onCategory(cat)}){Box(Modifier.fillMaxSize()){Image(painterResource(protoPlaceholderForType(cat)),null,Modifier.fillMaxSize(),contentScale=ContentScale.Crop);Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha=.28f)));Column(Modifier.align(Alignment.BottomStart).padding(12.dp)){Text(cat,color=ProtoText,fontSize=18.sp,fontWeight=FontWeight.Bold);Text(if(cat=="Венки")protoPlural(wreathCount,"позиция","позиции","позиций") else "",color=ProtoMuted,fontSize=13.sp)};Icon(Icons.Outlined.ArrowForward,null,tint=ProtoGold,modifier=Modifier.align(Alignment.BottomEnd).padding(10.dp));if(!enabled)Box(Modifier.align(Alignment.CenterEnd).fillMaxHeight().width(34.dp),contentAlignment=Alignment.Center){Text("В разработке",color=ProtoText,fontSize=15.sp,fontWeight=FontWeight.ExtraBold,maxLines=1,softWrap=false,textAlign=androidx.compose.ui.text.style.TextAlign.Center,modifier=Modifier.requiredWidth(160.dp).rotate(-90f))}}}}}
     }}}
     if(searchOpen)AlertDialog(onDismissRequest={searchOpen=false},containerColor=ProtoPanel,title={Text("Поиск по каталогу",color=ProtoText)},text={ProtoField(searchText,{searchText=it},"Артикул или название")},confirmButton={TextButton(onClick={if(searchText.isNotBlank()){searchOpen=false;onSearch(searchText.trim())}}){Text("Найти",color=ProtoGold)}},dismissButton={TextButton(onClick={searchOpen=false}){Text("Отмена",color=ProtoMuted)}})
 }
@@ -2661,6 +2732,7 @@ private fun ProtoCheckoutScreen(
     var selectedDate by remember(earliestDate){mutableStateOf(earliestDate)}
     var selectedTime by remember{mutableStateOf("до 12:00")}
     var showCalendar by remember{mutableStateOf(false)}
+    var submitting by remember{mutableStateOf(false)}
 
     Box(Modifier.fillMaxSize()){
         ProtoLiveBackground()
@@ -2752,9 +2824,13 @@ private fun ProtoCheckoutScreen(
                     "Отправить заказ",
                     {
                         val contact=selectedContact
-                        if(contact!=null)onSubmit(method,address,comment,contact.name,contact.phone,selectedDate.format(DateTimeFormatter.ofPattern("dd.MM.yyyy")),selectedTime)
+                        // Защита от двойного нажатия: второй тап создавал второй заказ.
+                        if(contact!=null && !submitting){
+                            submitting=true
+                            onSubmit(method,address,comment,contact.name,contact.phone,selectedDate.format(DateTimeFormatter.ofPattern("dd.MM.yyyy")),selectedTime)
+                        }
                     },
-                    enabled=selectedContact!=null && address.isNotBlank(),
+                    enabled=selectedContact!=null && address.isNotBlank() && !submitting,
                     modifier=Modifier.padding(18.dp)
                 )
             }
@@ -2984,8 +3060,26 @@ private fun ProtoOrderDetailScreen(
     val statuses=listOf("Получен","Подтверждён","Собирается","Доставляется","Доставлен")
     val currentIndex=statuses.indexOf(o.status)
     val latestEvent=o.history.lastOrNull{it.status==o.status} ?: o.history.lastOrNull()
+    var confirmCancel by remember(o.id){mutableStateOf(false)}
+    if(confirmCancel && onCancel!=null){
+        AlertDialog(
+            onDismissRequest={confirmCancel=false},
+            containerColor=ProtoPanel,
+            title={Text("Отменить заказ №"+o.id+"?",color=ProtoText)},
+            text={Text(if(isAdmin)"Резерв снимется, списанный товар вернётся на склад. Клиент получит уведомление." else "Заказ будет отменён. Отменить отмену нельзя.",color=ProtoMuted)},
+            confirmButton={TextButton(onClick={confirmCancel=false;onCancel?.invoke()}){Text("Отменить заказ",color=ProtoRed)}},
+            dismissButton={TextButton(onClick={confirmCancel=false}){Text("Назад",color=ProtoMuted)}}
+        )
+    }
 
     ProtoScaffold("Заказ №"+o.id,o.clientName+" · "+protoMoney(o.total),onBack){
+        if(isAdmin && onCancel!=null && o.status !in setOf("Доставлен","Отменён")){
+            item{
+                OutlinedButton(onClick={confirmCancel=true},modifier=Modifier.fillMaxWidth().height(48.dp),border=BorderStroke(1.dp,ProtoRed),shape=RoundedCornerShape(24.dp)){
+                    Text("Отменить заказ",color=ProtoRed)
+                }
+            }
+        }
         item{
             ProtoSectionCard{
                 Text("Статус",color=ProtoGoldSoft,fontWeight=FontWeight.SemiBold)
@@ -3051,7 +3145,7 @@ private fun ProtoOrderDetailScreen(
                     if(onRepeat!=null)ProtoPrimaryButton("Заказать повторно",onRepeat)
                     if(onEditRepeat!=null)ProtoSecondaryButton("Изменить и заказать",onEditRepeat)
                     if(o.status=="Получен" && onCancel!=null){
-                        OutlinedButton(onClick=onCancel,modifier=Modifier.fillMaxWidth().height(48.dp),border=BorderStroke(1.dp,ProtoRed),shape=RoundedCornerShape(24.dp)){
+                        OutlinedButton(onClick={confirmCancel=true},modifier=Modifier.fillMaxWidth().height(48.dp),border=BorderStroke(1.dp,ProtoRed),shape=RoundedCornerShape(24.dp)){
                             Text("Отменить заказ",color=ProtoRed)
                         }
                     }
@@ -3988,7 +4082,7 @@ private fun ProtoAdminHomeScreen(
                 item{Row(horizontalArrangement=Arrangement.spacedBy(8.dp)){ProtoQuickButton("Задание в цех",Icons.Outlined.Assignment,Modifier.weight(1f),onWorkshop);ProtoQuickButton("Отчёты",Icons.Outlined.Assessment,Modifier.weight(1f),onReports);Spacer(Modifier.weight(1f))}}
                 item{Row(horizontalArrangement=Arrangement.spacedBy(8.dp)){ProtoQuickButton(if(paymentsPending>0)"Оплаты · "+paymentsPending else "Оплаты",Icons.Outlined.Payments,Modifier.weight(1f),onPayments);ProtoQuickButton("Дашборд",Icons.Outlined.Assessment,Modifier.weight(1f),onDashboard);Spacer(Modifier.weight(1f))}}
                 item{ProtoSectionCard(Modifier.clickable{onAttention()}){ProtoInfoRow("Новые регистрации",registrationsTotal.toString());ProtoInfoRow("Заказы на сборке",orders.count{it.status=="Собирается"}.toString());ProtoInfoRow("Низкие остатки",lowCount.toString())}}
-                item{ProtoSectionCard(Modifier.clickable{onOnline()}){ProtoInfoRow("Онлайн сейчас",clients.count{it.online}.toString());ProtoInfoRow("Синхронизация","автоматическая")}}
+                item{ProtoSectionCard(Modifier.clickable{onOnline()}){ProtoInfoRow("Онлайн сейчас",clients.count{it.online}.toString())}}
             }
         }
     }
@@ -4073,9 +4167,22 @@ private fun ProtoAdminClientScreen(
     onToggleOrdering: () -> Unit,
     onDiscount: (Int) -> Unit,
     onSave: () -> Unit,
-    onCall: () -> Unit
+    onCall: () -> Unit,
+    onReissueCode: () -> Unit = {}
 ) {
     val currentClient = client ?: return
+    val context = LocalContext.current
+    var confirmReissue by remember { mutableStateOf(false) }
+    if (confirmReissue) {
+        AlertDialog(
+            onDismissRequest = { confirmReissue = false },
+            containerColor = ProtoPanel,
+            title = { Text("Выдать новый код?", color = ProtoText) },
+            text = { Text("Старый код перестанет работать. Клиенту нужно будет войти с новым кодом.", color = ProtoMuted) },
+            confirmButton = { TextButton(onClick = { confirmReissue = false; onReissueCode() }) { Text("Выдать", color = ProtoGold) } },
+            dismissButton = { TextButton(onClick = { confirmReissue = false }) { Text("Отмена", color = ProtoMuted) } }
+        )
+    }
 
     Box(Modifier.fillMaxSize()) {
         ProtoLiveBackground()
@@ -4139,6 +4246,39 @@ private fun ProtoAdminClientScreen(
                     currentClient.orderingEnabled,
                     { onToggleOrdering() }
                 )
+            }
+
+            item {
+                ProtoSectionCard {
+                    Text("Код доступа", color = ProtoGoldSoft, fontWeight = FontWeight.SemiBold)
+                    Text(
+                        currentClient.accessCode.ifBlank { "не выдан" },
+                        color = ProtoText,
+                        fontSize = 28.sp,
+                        fontWeight = FontWeight.Bold,
+                        letterSpacing = 4.sp,
+                        modifier = Modifier.padding(vertical = 6.dp)
+                    )
+                    Text("Код для входа основного пользователя: " + currentClient.contact.ifBlank { currentClient.name }, color = ProtoMuted, fontSize = 12.sp)
+                    Spacer(Modifier.height(10.dp))
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        OutlinedButton(
+                            onClick = {
+                                val message = "SANSARA: ваш код доступа " + currentClient.accessCode + ". Откройте приложение и нажмите «Войти»."
+                                val send = Intent(Intent.ACTION_SEND).apply { type = "text/plain"; putExtra(Intent.EXTRA_TEXT, message) }
+                                runCatching { context.startActivity(Intent.createChooser(send, "Отправить код")) }
+                            },
+                            enabled = currentClient.accessCode.isNotBlank(),
+                            modifier = Modifier.weight(1f),
+                            border = BorderStroke(1.dp, ProtoGold)
+                        ) { Text("Отправить", color = ProtoGold) }
+                        OutlinedButton(
+                            onClick = { confirmReissue = true },
+                            modifier = Modifier.weight(1f),
+                            border = BorderStroke(1.dp, ProtoBorder)
+                        ) { Text("Новый код", color = ProtoText) }
+                    }
+                }
             }
 
             item {
@@ -4379,7 +4519,7 @@ private fun ProtoAttentionScreen(regs:List<ProtoRegistration>,blocked:List<Proto
 }
 
 @Composable
-private fun ProtoOnlineControllerScreen(clients:List<ProtoClient>,onBack:()->Unit,onClient:(ProtoClient)->Unit){ProtoScaffold("Online controller","Активность приложений",onBack){item{ProtoSectionCard{ProtoInfoRow("Клиенты онлайн","${clients.count{it.online}}");ProtoInfoRow("Администраторы онлайн","1");ProtoInfoRow("Производство онлайн","2");ProtoInfoRow("Синхронизация","автоматическая")}};item{Text("Клиенты сегодня",color=ProtoText,fontSize=19.sp,fontWeight=FontWeight.Bold)};items(clients.sortedByDescending{it.online},key={it.id}){c->ProtoSectionCard(Modifier.clickable{onClient(c)}){Row{Box(Modifier.size(9.dp).background(if(c.online)ProtoGreen else ProtoMuted,CircleShape).align(Alignment.CenterVertically));Spacer(Modifier.width(8.dp));Column(Modifier.weight(1f)){Text(c.name,color=ProtoText);Text("Последняя активность: ${c.lastSeen}",color=ProtoMuted,fontSize=11.sp)};Text("${c.orderCount} заказов",color=ProtoGoldSoft,fontSize=11.sp)}}}}}
+private fun ProtoOnlineControllerScreen(clients:List<ProtoClient>,onBack:()->Unit,onClient:(ProtoClient)->Unit){ProtoScaffold("Кто в сети","Активность клиентов",onBack){item{ProtoSectionCard{ProtoInfoRow("Клиенты онлайн","${clients.count{it.online}}")}};item{Text("Клиенты сегодня",color=ProtoText,fontSize=19.sp,fontWeight=FontWeight.Bold)};items(clients.sortedByDescending{it.online},key={it.id}){c->ProtoSectionCard(Modifier.clickable{onClient(c)}){Row{Box(Modifier.size(9.dp).background(if(c.online)ProtoGreen else ProtoMuted,CircleShape).align(Alignment.CenterVertically));Spacer(Modifier.width(8.dp));Column(Modifier.weight(1f)){Text(c.name,color=ProtoText);Text("Последняя активность: ${c.lastSeen}",color=ProtoMuted,fontSize=11.sp)};Text("${c.orderCount} заказов",color=ProtoGoldSoft,fontSize=11.sp)}}}}}
 
 @Composable
 private fun ProtoProductionHomeScreen(
@@ -4742,7 +4882,7 @@ private fun ProtoStaffProfileScreen(role:String,onBack:()->Unit,onCall:()->Unit,
 @Composable
 private fun ProtoServerScreen(products:List<ProtoCatalogProduct>,stockOverrides:SnapshotStateMap<String,Int>,productionOps:List<ProtoProductionOp>,orders:List<ProtoOrder>,clients:List<ProtoClient>,reservedForSku:(String)->Int,onBack:()->Unit,onProduced:()->Unit,onStock:()->Unit,onReserve:()->Unit,onNewClients:()->Unit,onOnline:()->Unit,onExport:()->Unit){
     val reserve=products.sumOf{reservedForSku(it.sku)};val available=products.sumOf{p->((stockOverrides[p.sku]?:p.stock)-reservedForSku(p.sku)).coerceAtLeast(0)};val monthProduced=productionOps.sumOf{it.qty};val monthKey=LocalDate.now().format(DateTimeFormatter.ofPattern("MM.yyyy"));val newClients=clients.count{it.registeredAt.endsWith(monthKey)}
-    Box(Modifier.fillMaxSize()){ProtoLiveBackground();LazyColumn(Modifier.fillMaxSize(),contentPadding=PaddingValues(horizontal=18.dp,vertical=8.dp),verticalArrangement=Arrangement.spacedBy(12.dp)){item{ProtoBrandHeader(onBack=onBack)};item{Text("Сервер данных",color=ProtoText,fontSize=30.sp,fontWeight=FontWeight.Bold);Text("Учёт по месяцам · "+currentMonthLabel(),color=ProtoMuted,fontSize=13.sp)};item{Row(horizontalArrangement=Arrangement.spacedBy(8.dp)){ProtoMetricCard("Выпуск",monthProduced.toString(),"",Modifier.weight(1f),onProduced);ProtoMetricCard("Резерв",reserve.toString(),"",Modifier.weight(1f),onReserve)}};item{Row(horizontalArrangement=Arrangement.spacedBy(8.dp)){ProtoMetricCard("Доступно",available.toString(),"",Modifier.weight(1f),onStock);ProtoMetricCard("Новые клиенты",newClients.toString(),"",Modifier.weight(1f),onNewClients)}};item{Text("Товары",color=ProtoText,fontSize=21.sp,fontWeight=FontWeight.Bold)};items(products.take(12)){p->val ph=stockOverrides[p.sku]?:p.stock;val rs=reservedForSku(p.sku);ProtoSectionCard{Row{Column(Modifier.weight(1f)){Text(p.name,color=ProtoText,fontWeight=FontWeight.SemiBold);Text(p.sku,color=ProtoMuted,fontSize=10.sp)};Column(horizontalAlignment=Alignment.End){Text("Остаток $ph",color=ProtoText,fontSize=11.sp);Text("Резерв $rs · Доступно "+(ph-rs).coerceAtLeast(0),color=ProtoGoldSoft,fontSize=11.sp)}}}};item{ProtoSectionCard(Modifier.clickable{onOnline()}){ProtoInfoRow("Клиенты онлайн",clients.count{it.online}.toString());ProtoInfoRow("Администратор","Онлайн");ProtoInfoRow("Производство","Онлайн")}};item{Row(horizontalArrangement=Arrangement.spacedBy(8.dp)){ProtoSecondaryButton("Экспорт",onExport,Modifier.weight(1f));ProtoSecondaryButton("Остатки",onStock,Modifier.weight(1f))}}}}
+    Box(Modifier.fillMaxSize()){ProtoLiveBackground();LazyColumn(Modifier.fillMaxSize(),contentPadding=PaddingValues(horizontal=18.dp,vertical=8.dp),verticalArrangement=Arrangement.spacedBy(12.dp)){item{ProtoBrandHeader(onBack=onBack)};item{Text("Сервер данных",color=ProtoText,fontSize=30.sp,fontWeight=FontWeight.Bold);Text("Учёт по месяцам · "+currentMonthLabel(),color=ProtoMuted,fontSize=13.sp)};item{Row(horizontalArrangement=Arrangement.spacedBy(8.dp)){ProtoMetricCard("Выпуск",monthProduced.toString(),"",Modifier.weight(1f),onProduced);ProtoMetricCard("Резерв",reserve.toString(),"",Modifier.weight(1f),onReserve)}};item{Row(horizontalArrangement=Arrangement.spacedBy(8.dp)){ProtoMetricCard("Доступно",available.toString(),"",Modifier.weight(1f),onStock);ProtoMetricCard("Новые клиенты",newClients.toString(),"",Modifier.weight(1f),onNewClients)}};item{Text("Товары",color=ProtoText,fontSize=21.sp,fontWeight=FontWeight.Bold)};items(products.take(12)){p->val ph=stockOverrides[p.sku]?:p.stock;val rs=reservedForSku(p.sku);ProtoSectionCard{Row{Column(Modifier.weight(1f)){Text(p.name,color=ProtoText,fontWeight=FontWeight.SemiBold);Text(p.sku,color=ProtoMuted,fontSize=10.sp)};Column(horizontalAlignment=Alignment.End){Text("Остаток $ph",color=ProtoText,fontSize=11.sp);Text("Резерв $rs · Доступно "+(ph-rs).coerceAtLeast(0),color=ProtoGoldSoft,fontSize=11.sp)}}}};item{ProtoSectionCard(Modifier.clickable{onOnline()}){ProtoInfoRow("Клиенты онлайн",clients.count{it.online}.toString())}};item{Row(horizontalArrangement=Arrangement.spacedBy(8.dp)){ProtoSecondaryButton("Экспорт",onExport,Modifier.weight(1f));ProtoSecondaryButton("Остатки",onStock,Modifier.weight(1f))}}}}
 }
 
 @Composable
@@ -5060,7 +5200,7 @@ private fun ProtoCartRow(p:ProtoCatalogProduct,qty:Int,onMinus:()->Unit,onPlus:(
     }
 }
 @Composable
-private fun ProtoOrderRow(o:ProtoOrder,onClick:()->Unit){ProtoSectionCard(Modifier.clickable(onClick=onClick)){Row{Column(Modifier.weight(1f)){Text(o.id,color=ProtoGoldSoft,fontWeight=FontWeight.Bold);Text(o.clientName,color=ProtoText,fontWeight=FontWeight.SemiBold);Text("${o.pieces} шт. · ${o.dateTime}",color=ProtoMuted,fontSize=11.sp)};Column(horizontalAlignment=Alignment.End){Text(protoMoney(o.total),color=ProtoGoldSoft,fontWeight=FontWeight.Bold);ProtoPill(o.status,ProtoGreen)}}}}
+private fun ProtoOrderRow(o:ProtoOrder,onClick:()->Unit){ProtoSectionCard(Modifier.clickable(onClick=onClick)){Row{Column(Modifier.weight(1f)){Text(o.id,color=ProtoGoldSoft,fontWeight=FontWeight.Bold);Text(o.clientName,color=ProtoText,fontWeight=FontWeight.SemiBold);Text("${o.pieces} шт. · ${o.dateTime}",color=ProtoMuted,fontSize=11.sp)};Column(horizontalAlignment=Alignment.End){Text(protoMoney(o.total),color=ProtoGoldSoft,fontWeight=FontWeight.Bold);ProtoPill(o.status,protoStatusColor(o.status))}}}}
 
 @Composable
 private fun ProtoMetricCard(title:String,value:String,subtitle:String,modifier:Modifier,onClick:()->Unit){Card(colors=CardDefaults.cardColors(containerColor=ProtoPanel),border=BorderStroke(1.dp,ProtoBorder),shape=RoundedCornerShape(14.dp),modifier=modifier.clickable(onClick=onClick)){Column(Modifier.padding(12.dp)){Text(title,color=ProtoMuted,fontSize=11.sp);Text(value,color=ProtoText,fontSize=25.sp,fontWeight=FontWeight.Bold);Text(subtitle,color=ProtoGoldSoft,fontSize=10.sp)}}}
@@ -5113,13 +5253,7 @@ private fun ProtoClientBottomBar(current:ProtoScreen,cartCount:Int,onHome:()->Un
                 }
             },
             label={Text("Корзина",fontSize=9.sp)},
-            colors=NavigationBarItemDefaults.colors(
-                selectedIconColor=ProtoGold,
-                selectedTextColor=ProtoGold,
-                indicatorColor=Color.Black,
-                unselectedIconColor=ProtoMuted,
-                unselectedTextColor=ProtoMuted
-            )
+            colors=protoNavColors()
         )
         ProtoNavItem(orders,"Заказы",Icons.Outlined.ReceiptLong,onOrders)
         ProtoNavItem(chat,"Чат",Icons.Outlined.ChatBubbleOutline,onProfile)
@@ -5150,13 +5284,7 @@ private fun ProtoRetailBottomBar(
                 }
             },
             label={Text("Корзина",fontSize=9.sp)},
-            colors=NavigationBarItemDefaults.colors(
-                selectedIconColor=ProtoGold,
-                selectedTextColor=ProtoGold,
-                indicatorColor=Color.Black,
-                unselectedIconColor=ProtoMuted,
-                unselectedTextColor=ProtoMuted
-            )
+            colors=protoNavColors()
         )
         ProtoNavItem(orders,"Заказы",Icons.Outlined.ReceiptLong,onOrders)
         ProtoNavItem(false,"Выйти",Icons.Outlined.ExitToApp,onExit)
@@ -5201,7 +5329,7 @@ private fun protoOrderMonthKey(value:String):String =
 
 private fun protoMonthLabel(key:String):String {
     val ym=runCatching{YearMonth.parse(key)}.getOrNull() ?: return key
-    val month=ym.month.getDisplayName(java.time.format.TextStyle.FULL,ruLocale)
+    val month=ym.month.getDisplayName(java.time.format.TextStyle.FULL_STANDALONE,ruLocale)
     return month.replaceFirstChar{if(it.isLowerCase())it.titlecase(ruLocale) else it.toString()}+" "+ym.year
 }
 
@@ -5302,6 +5430,14 @@ private fun protoProductCategoryKey(type:String):String = when {
 
 private fun protoToggle(set:Set<String>,value:String)=if(value in set)set-value else set+value
 private fun protoMoney(value:Int)=NumberFormat.getCurrencyInstance(ruLocale).format(value).replace(",00","")
+private fun protoStatusColor(status:String):Color = when(status){
+    "Получен"->ProtoMuted
+    "Подтверждён"->ProtoGold
+    "Собирается","Доставляется"->ProtoOrange
+    "Доставлен"->ProtoGreen
+    "Отменён"->ProtoRed
+    else->ProtoGoldSoft
+}
 private fun protoIconForType(type:String)=when(type){"Венки","Венки круглые"->Icons.Outlined.LocalFlorist;"Корзины"->Icons.Outlined.ShoppingBasket;"Полянки","Флоретки"->Icons.Outlined.Spa;"Ленты"->Icons.Outlined.ReceiptLong;else->Icons.Outlined.Inventory2}
 
 private fun protoLoadProducts(context:Context):List<ProtoCatalogProduct>{return try{val root=JSONObject(context.assets.open("demo_data.json").bufferedReader().use{it.readText()});val arr=root.getJSONArray("products");(0 until arr.length()).map{i->val o=arr.getJSONObject(i);ProtoCatalogProduct(o.getString("sku"),o.getString("name"),o.getString("type"),o.optString("quality","—"),o.getString("size"),o.getInt("price"),o.getInt("stock"),o.getString("status"),o.optInt("productionDays",3),o.optString("imageUrl",""),o.optString("externalId",o.optString("sku","")))}}catch(_:Exception){emptyList()}}
