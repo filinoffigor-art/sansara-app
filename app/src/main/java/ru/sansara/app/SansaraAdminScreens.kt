@@ -1015,7 +1015,7 @@ internal fun ProtoAdminReportsScreen(
     val periodTasks = tasks.filter { inRange(it.taskDate, range) }
     val plan = periodTasks.sumOf { protoWorkshopPlanQty(it.linesJson) }
     val fact = periodTasks.sumOf { it.actualQty }
-    val ops = productionOps.filter { inRange(it.date, range) && it.status != "Удалён" }
+    val ops = productionOps.filter { inRange(it.date, range) && it.status != "Удален" }
     val periodOrders = orders.filter { inRange(it.dateTime, range) && it.status != "Отменён" }
     val worked = attendance.filter { inRange(it.date, range) && it.status == "Работал" }
     var dayOff by remember(dailyStatus?.date, dailyStatus?.dayOff) { mutableStateOf(dailyStatus?.dayOff ?: false) }
@@ -1273,6 +1273,7 @@ internal fun ProtoServerScreen(
     productionOps: List<ProtoProductionOp>,
     clients: List<ProtoClient>,
     canAdjust: Boolean,
+    showClients: Boolean = true,
     onBack: () -> Unit,
     onProduced: () -> Unit,
     onReserve: () -> Unit,
@@ -1293,7 +1294,7 @@ internal fun ProtoServerScreen(
     val totalReserve = live.sumOf { reservedForSku(it.sku) }
     val totalAvailable = live.sumOf { (physicalOf(it) - reservedForSku(it.sku)).coerceAtLeast(0) }
     val monthKey = month.format(DateTimeFormatter.ofPattern("MM.yyyy"))
-    val monthProduced = productionOps.filter { it.date.endsWith(monthKey) && it.status != "Удалён" }.sumOf { it.qty }
+    val monthProduced = productionOps.filter { it.date.endsWith(monthKey) && it.status != "Удален" }.sumOf { it.qty }
     val newClients = clients.count { it.registeredAt.endsWith(monthKey) }
     val types = listOf("Все") + live.map { it.type }.filter { it.isNotBlank() }.distinct().sorted()
     val shown = live.filter { p ->
@@ -1318,7 +1319,7 @@ internal fun ProtoServerScreen(
                     IconButton(onClick = { if (month < YearMonth.now()) month = month.plusMonths(1) }, enabled = month < YearMonth.now()) { Icon(Icons.Outlined.ChevronRight, null, tint = if (month < YearMonth.now()) ProtoGold else ProtoMuted) }
                 }
                 Row(Modifier.fillMaxWidth().clickable { onProduced() }.padding(vertical = 4.dp)) { Text("Выпущено за месяц", color = ProtoMuted, modifier = Modifier.weight(1f)); Text("$monthProduced шт.", color = ProtoText, fontWeight = FontWeight.SemiBold) }
-                Row(Modifier.fillMaxWidth().clickable { onNewClients() }.padding(vertical = 4.dp)) { Text("Новые клиенты", color = ProtoMuted, modifier = Modifier.weight(1f)); Text(newClients.toString(), color = ProtoText, fontWeight = FontWeight.SemiBold) }
+                if (showClients) Row(Modifier.fillMaxWidth().clickable { onNewClients() }.padding(vertical = 4.dp)) { Text("Новые клиенты", color = ProtoMuted, modifier = Modifier.weight(1f)); Text(newClients.toString(), color = ProtoText, fontWeight = FontWeight.SemiBold) }
             }
         }
         item { ProtoField(q, { q = it }, "Поиск по артикулу или названию") }
@@ -1371,17 +1372,17 @@ internal fun ProtoServerScreen(
 }
 
 @Composable
-internal fun ProtoReserveListScreen(orders: List<ProtoOrder>, onBack: () -> Unit, onOpen: (ProtoOrder) -> Unit) {
+internal fun ProtoReserveListScreen(orders: List<ProtoOrder>, onBack: () -> Unit, onOpen: (ProtoOrder) -> Unit, showClients: Boolean = true) {
     // Резерв = заказы «Получен» и «Подтверждён»: со склада они ещё не списаны (как в расчёте доступного остатка).
     val reserved = orders.filter { it.status in setOf("Получен", "Подтверждён") }.sortedBy { protoParseDate(it.deliveryDate) ?: LocalDate.MAX }
     ProtoScaffold("Резерв", protoPlural(reserved.sumOf { it.pieces }, "штука", "штуки", "штук") + " в " + protoPlural(reserved.size, "заказе", "заказах", "заказах"), onBack) {
         item { Text("Товар закреплён за заказом, пока он не передан в сборку. После «Собирается» он списывается со склада.", color = ProtoMuted, fontSize = 12.sp) }
         if (reserved.isEmpty()) item { ProtoEmptyState(Icons.Outlined.Inventory2, "Резерва нет") }
         items(reserved, key = { it.id }) { o ->
-            ProtoSectionCard(Modifier.clickable { onOpen(o) }) {
+            ProtoSectionCard(Modifier.clickable(enabled = showClients) { onOpen(o) }) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Column(Modifier.weight(1f)) {
-                        Text(o.clientName, color = ProtoText, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        Text(if (showClients) o.clientName else "Заказ № " + o.id, color = ProtoText, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
                         Text("№ ${o.id} · получение ${o.deliveryDate.ifBlank { "—" }}", color = ProtoMuted, fontSize = 12.sp)
                     }
                     ProtoStatusPill(o.status)
