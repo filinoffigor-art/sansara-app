@@ -58,12 +58,12 @@ jobs:
           mkdir -p shots
           {
             echo "UI-тесты (экран 1080x2340, 450 dpi):"
-            for f in $(find app/build/outputs/androidTest-results -name '*.xml' 2>/dev/null); do
+            find app/build/outputs/androidTest-results -name '*.xml' 2>/dev/null | while IFS= read -r f; do
               grep -o '<testcase [^>]*' "$f" | sed -n 's/.*name="\([^"]*\)".*time="\([^"]*\)".*/\1 \2s/p'
-              grep -c '<failure' "$f" | sed 's/^/провалов: /'
-              grep -o '<failure[^>]*message="[^"]*' "$f" | sed 's/<failure[^>]*message="/  причина: /' | cut -c1-500
+              (grep -c '<failure' "$f" || true) | sed 's/^/провалов: /'
+              grep -o '<failure[^>]*message="[^"]*' "$f" | sed 's/<failure[^>]*message="/  причина: /' | cut -c1-500 || true
             done
-            echo "---- XML ----"; for f in $(find app/build/outputs/androidTest-results app/build/outputs/connected_android_test_additional_output -name '*.xml' 2>/dev/null); do echo "== $f"; head -c 6000 "$f"; echo; done
+            echo "---- XML ----"; find app/build/outputs/androidTest-results -name '*.xml' 2>/dev/null | while IFS= read -r f; do echo "== $f"; head -c 12000 "$f" || true; echo; done
             echo "---- строки о тестах ----"; grep -iE "test(s)? |failed|exception|crash|instrumentation|Starting|finished" uitests.log 2>/dev/null | grep -v Transforming | tail -60
             echo "---- хвост журнала ----"; tail -25 uitests.log 2>/dev/null || echo "журнала нет"
           } > shots/00_tests.txt
