@@ -1348,6 +1348,19 @@ class SansaraRepository private constructor(
         if (dao.adminControlCount() == 0) dao.putAdminControls(listOf(AdminControlEntity("U-ADMIN","Главный администратор",true,true)))
     }
 
+    /** Рабочая сборка без единого администратора (чистая установка): нужна первичная настройка. */
+    suspend fun adminMissing(): Boolean = !BuildConfig.DEBUG && dao.accountCountByRole(SansaraRole.ADMIN.name) == 0
+
+    /** Первичная настройка: главный администратор с кодом, который задаёт владелец телефона. Только пока администратора нет. */
+    suspend fun createMainAdmin(code: String) {
+        val c = code.trim().uppercase()
+        require(c.length == 6 && c.all { it.isLetterOrDigit() }) { "Код — 6 букв или цифр" }
+        require(dao.accountCountByRole(SansaraRole.ADMIN.name) == 0) { "Администратор уже создан" }
+        require(dao.accountByAccessCodeHash(hashCode(c)) == null) { "Такой код уже занят" }
+        dao.putAccounts(listOf(AccountEntity("U-ADMIN",null,SansaraRole.ADMIN.name,"Администратор","","",BuildConfig.ADMIN_PHONE,"",hashCode(c),vault.encrypt(c),true,0L)))
+        if (dao.adminControlCount() == 0) dao.putAdminControls(listOf(AdminControlEntity("U-ADMIN","Главный администратор",true,true)))
+    }
+
     suspend fun ensureSalesAccount() {
         // Тестовый код 9003 только в debug-сборке: в рабочей версии он давал доступ к клиентам и деньгам.
         if (!BuildConfig.DEBUG) return

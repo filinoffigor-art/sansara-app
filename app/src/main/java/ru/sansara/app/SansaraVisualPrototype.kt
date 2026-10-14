@@ -303,6 +303,8 @@ fun SansaraVisualPrototype() {
     var loginLockedUntil by remember { mutableLongStateOf(0L) }
     var loginError by remember { mutableStateOf<String?>(null) }
     var rejectionNotice by remember { mutableStateOf<String?>(null) }
+    var adminSetupNeeded by remember { mutableStateOf(false) }
+    var adminSetupError by remember { mutableStateOf<String?>(null) }
     var homeFilter by remember { mutableStateOf(protoLoadFilter(context.getSharedPreferences("sansara", Context.MODE_PRIVATE), "home_filter")) }
     var filterTarget by remember { mutableStateOf("catalog") }
     var approvedCodes by remember { mutableStateOf<List<Triple<String, String, String>>?>(null) }
@@ -837,6 +839,7 @@ fun SansaraVisualPrototype() {
         repository.seedDebugIfNeeded()
         repository.ensureSalesAccount()
         repository.ensureMainAdmin()
+        adminSetupNeeded = repository.adminMissing()
         shipments.clear(); shipments.addAll(repository.shipments())
         expenses.clear(); expenses.addAll(repository.expenses())
         applySnapshot(repository.snapshot())
@@ -2423,6 +2426,34 @@ fun SansaraVisualPrototype() {
                     }
                 },
                 confirmButton = { TextButton(onClick = { approvedCodes = null; smsSent.clear() }) { Text("Готово", color = ProtoGold) } }
+            )
+        }
+
+        if (adminSetupNeeded && screen == ProtoScreen.Welcome) {
+            var c1 by remember { mutableStateOf("") }
+            var c2 by remember { mutableStateOf("") }
+            AlertDialog(
+                onDismissRequest = {}, containerColor = ProtoPanel,
+                title = { Text("Первый запуск", color = ProtoText) },
+                text = {
+                    Column {
+                        Text("На этом телефоне ещё нет администратора. Придумайте код главного администратора — 6 букв или цифр. Его нельзя будет посмотреть повторно, запишите его.", color = ProtoMuted, lineHeight = 20.sp)
+                        Spacer(Modifier.height(10.dp))
+                        OutlinedTextField(c1, { v -> c1 = v.filter { it.isLetterOrDigit() }.uppercase().take(6); adminSetupError = null }, label = { Text("Код администратора") }, singleLine = true, colors = protoFieldColors(), modifier = Modifier.fillMaxWidth())
+                        Spacer(Modifier.height(6.dp))
+                        OutlinedTextField(c2, { v -> c2 = v.filter { it.isLetterOrDigit() }.uppercase().take(6); adminSetupError = null }, label = { Text("Повторите код") }, singleLine = true, colors = protoFieldColors(), modifier = Modifier.fillMaxWidth(),
+                            isError = adminSetupError != null, supportingText = { adminSetupError?.let { Text(it, color = ProtoRed) } })
+                    }
+                },
+                confirmButton = { TextButton(enabled = c1.length == 6, onClick = {
+                    if (c1 != c2) { adminSetupError = "Коды не совпадают"; return@TextButton }
+                    scope.launch {
+                        runCatching { repository.createMainAdmin(c1) }
+                            .onSuccess { adminSetupNeeded = false; applySnapshot(repository.snapshot()); toast("Администратор создан. Войдите с этим кодом") }
+                            .onFailure { adminSetupError = it.message ?: "Не удалось сохранить код" }
+                    }
+                }) { Text("Сохранить", color = ProtoGold) } },
+                dismissButton = { TextButton(onClick = { adminSetupNeeded = false }) { Text("Позже", color = ProtoMuted) } }
             )
         }
 
