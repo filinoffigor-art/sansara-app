@@ -1338,6 +1338,16 @@ class SansaraRepository private constructor(
         dao.adminControl(targetUserId)?.let { dao.putAdminControls(listOf(it.copy(enabled=enabled))) }
     }
 
+    /** Рабочая сборка на «чистом» телефоне: главный администратор с кодом из секрета сборки (если он задан). */
+    suspend fun ensureMainAdmin() {
+        if (BuildConfig.DEBUG) return
+        val code = BuildConfig.ADMIN_BOOTSTRAP_CODE
+        if (code.isBlank() || dao.accountCountByRole(SansaraRole.ADMIN.name) > 0) return
+        if (dao.accountByAccessCodeHash(hashCode(code)) != null) return
+        dao.putAccounts(listOf(AccountEntity("U-ADMIN",null,SansaraRole.ADMIN.name,"Администратор","","",BuildConfig.ADMIN_PHONE,"",hashCode(code),vault.encrypt(code),true,0L)))
+        if (dao.adminControlCount() == 0) dao.putAdminControls(listOf(AdminControlEntity("U-ADMIN","Главный администратор",true,true)))
+    }
+
     suspend fun ensureSalesAccount() {
         // Тестовый код 9003 только в debug-сборке: в рабочей версии он давал доступ к клиентам и деньгам.
         if (!BuildConfig.DEBUG) return

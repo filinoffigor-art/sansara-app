@@ -836,6 +836,7 @@ fun SansaraVisualPrototype() {
     LaunchedEffect(Unit) {
         repository.seedDebugIfNeeded()
         repository.ensureSalesAccount()
+        repository.ensureMainAdmin()
         shipments.clear(); shipments.addAll(repository.shipments())
         expenses.clear(); expenses.addAll(repository.expenses())
         applySnapshot(repository.snapshot())

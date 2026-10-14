@@ -32,6 +32,9 @@ android {
             .replace("\\", "\\\\")
             .replace("\"", "\\\"")
         buildConfigField("String", "BACKEND_API_KEY", "\"$backendApiKey\"")
+        // Код главного администратора для первого запуска рабочей сборки на «чистом» телефоне (секрет CI, в репозиторий не попадает).
+        val adminBootstrap = providers.gradleProperty("SANSARA_ADMIN_CODE").orElse("").get().trim().filter { it.isLetterOrDigit() }
+        buildConfigField("String", "ADMIN_BOOTSTRAP_CODE", "\"$adminBootstrap\"")
     }
 
     signingConfigs {
@@ -52,6 +55,12 @@ android {
     buildTypes {
         getByName("debug") {
             signingConfigs.findByName("sansaraPersistent")?.let { signingConfig = it }
+        }
+        // Рабочая сборка для установки на телефон: без тестовых кодов, без выбора роли, без демо-данных.
+        // Подписана тем же ключом, что и прежние сборки, поэтому ставится поверх с сохранением данных.
+        getByName("release") {
+            isMinifyEnabled = false
+            signingConfig = signingConfigs.findByName("sansaraPersistent") ?: signingConfigs.getByName("debug")
         }
     }
 
@@ -89,6 +98,7 @@ dependencies {
     androidTestImplementation("androidx.test.ext:junit:1.2.1")
     androidTestImplementation("androidx.test:runner:1.6.2")
     androidTestUtil("androidx.test:orchestrator:1.5.1")
+    testImplementation("junit:junit:4.13.2")
 }
 
 

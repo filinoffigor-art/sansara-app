@@ -5,6 +5,9 @@ on:
     branches: [ main, stage-1-compose-visual-lock, stage-2-data-auth-presence, stage-3-client-mvp, stage-4-production-stock, stage-5-admin, stage-5-admin-workflows, stage-6-full-workflows, claude/stage-a-backend, claude/quick-fixes-0.23.1 ]
   workflow_dispatch:
 
+permissions:
+  contents: write
+
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -58,11 +61,13 @@ jobs:
           SANSARA_KEY_PASSWORD: ${{ secrets.SANSARA_KEY_PASSWORD }}
           ORG_GRADLE_PROJECT_SANSARA_BACKEND_API_URL: ${{ vars.SANSARA_BACKEND_API_URL || 'https://script.google.com/macros/s/AKfycbzzF4w-UsisqCPBFIBOEhzGBWcH_etG_JCJHzzARYaNQiA8mUe4T0Mm5RWlRBYLk7Empg/exec' }}
           ORG_GRADLE_PROJECT_SANSARA_BACKEND_API_KEY: ${{ secrets.SANSARA_BACKEND_API_KEY }}
+          ORG_GRADLE_PROJECT_SANSARA_ADMIN_CODE: ${{ secrets.SANSARA_ADMIN_CODE }}
         run: |
           set +e
-          gradle :app:assembleDebug --stacktrace 2>&1 | tee build.log
+          gradle :app:testDebugUnitTest :app:assembleDebug :app:assembleRelease --stacktrace 2>&1 | tee build.log
           code=${PIPESTATUS[0]}
-          grep -E "^e: |error: |OutOfMemory|Caused by|What went wrong|Metaspace|GC overhead" -A2 build.log | head -40 | while IFS= read -r l; do echo "::error::${l:0:400}"; done
+          grep -E "^e: |error: |OutOfMemory|Caused by|What went wrong|Metaspace|GC overhead|FAILED|AssertionError" -A2 build.log | head -40 | while IFS= read -r l; do echo "::error::${l:0:400}"; done
+          for f in app/build/test-results/testDebugUnitTest/*.xml; do [ -f "$f" ] && echo "::notice::$(grep -o '<testsuite [^>]*' "$f" | grep -o 'name="[^"]*"\|tests="[0-9]*"\|failures="[0-9]*"\|errors="[0-9]*"' | tr '\n' ' ')"; done
           exit $code
 
       - name: Verify APK signature and package
@@ -76,3 +81,18 @@ jobs:
           name: SANSARA-alpha-apk
           path: app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
+
+      - name: Publish installable APK to branch ci-apk
+        run: |
+          set -e
+          VER=$(grep -o 'versionName = "[^"]*"' app/build.gradle.kts | cut -d'"' -f2)
+          mkdir -p "$RUNNER_TEMP/apk"
+          cp app/build/outputs/apk/release/app-release.apk "$RUNNER_TEMP/apk/SANSARA-$VER.apk"
+          "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --print-certs "$RUNNER_TEMP/apk/SANSARA-$VER.apk" | head -n 3
+          git config user.name ci; git config user.email ci@example.com
+          git checkout --orphan ci-apk
+          git rm -rf . >/dev/null 2>&1 || true
+          cp "$RUNNER_TEMP"/apk/*.apk .
+          echo "$GITHUB_SHA $VER" > BUILD.txt
+          git add *.apk BUILD.txt && git commit -qm "apk $VER $GITHUB_SHA"
+          git push -f origin ci-apk
