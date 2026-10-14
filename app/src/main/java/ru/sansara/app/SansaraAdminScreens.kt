@@ -1062,7 +1062,7 @@ internal fun ProtoAdminReportsScreen(
             ProtoSectionCard {
                 Text("Кто заходил сегодня", color = ProtoGoldSoft, fontWeight = FontWeight.Bold)
                 if (presence.isEmpty()) Text("Нет данных", color = ProtoMuted, modifier = Modifier.padding(top = 6.dp))
-                presence.sortedByDescending { it.durationMs }.take(12).forEach { p -> ProtoInfoRow(clientName(p.clientId).ifBlank { p.role }, protoDuration(p.durationMs)) }
+                presence.sortedByDescending { it.durationMs }.take(12).forEach { p -> ProtoInfoRow(clientName(p.clientId).ifBlank { when (p.role) { "ADMIN" -> "Администратор"; "PRODUCTION" -> "Производство"; "SALES" -> "Продажи"; else -> p.role } }, protoDuration(p.durationMs)) }
             }
         }
         item {

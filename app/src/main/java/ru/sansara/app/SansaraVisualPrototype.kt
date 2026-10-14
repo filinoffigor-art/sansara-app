@@ -1674,7 +1674,7 @@ fun SansaraVisualPrototype() {
                 presence = presenceSessions,
                 productionOps = productionOps,
                 orders = orders,
-                clientName = { id -> clients.firstOrNull { it.id == id }?.name.orEmpty() },
+                clientName = { id -> clients.firstOrNull { it.id == id }?.name ?: when { id == null -> "" ; else -> id } },
                 dailyStatus = adminDailyStatus,
                 onBack = { back() },
                 onDailyStatus = { dayOff, reason ->
@@ -2562,8 +2562,7 @@ internal fun ProtoProfileScreen(
             bottomBar={ProtoClientBottomBar(ProtoScreen.Profile,0,onHome,onCatalog,onCart,onOrders,onProfile={})}
         ){pad->
             Column(Modifier.fillMaxSize().padding(pad)){
-                ProtoBrandHeader(onBack=onBack)
-                Text("Профиль",color=ProtoText,fontSize=30.sp,fontWeight=FontWeight.Bold,modifier=Modifier.padding(horizontal=16.dp,vertical=8.dp))
+                ProtoTopBar("Профиль",subtitle="Компания, контакты и расчёты",onBack=onBack)
                 LazyColumn(
                     Modifier.weight(1f),
                     contentPadding=PaddingValues(horizontal=16.dp,vertical=8.dp),
@@ -2590,7 +2589,7 @@ internal fun ProtoProfileScreen(
 
 @Composable
 internal fun ProtoSuspendedScreen(onCall:()->Unit,onMessage:()->Unit,onBack:()->Unit,onCatalog:()->Unit,onHome:()->Unit,onOrders:()->Unit){
-    Box(Modifier.fillMaxSize()){ProtoLiveBackground();Scaffold(containerColor=Color.Transparent,bottomBar={ProtoClientBottomBar(ProtoScreen.Suspended,0,onHome,onCatalog,onCart={},onOrders=onOrders,onProfile={})}){pad->Column(Modifier.fillMaxSize().padding(pad).padding(horizontal=18.dp)){ProtoBrandHeader(onBack=onBack);Text("Профиль",color=ProtoText,fontSize=30.sp,fontWeight=FontWeight.Bold,modifier=Modifier.padding(vertical=8.dp));ProtoSectionCard{Text("Ваш статус временно приостановлен.",color=ProtoRed,fontSize=24.sp,fontWeight=FontWeight.Bold);Spacer(Modifier.height(10.dp));Text("Самостоятельное оформление заказов недоступно. Пожалуйста, свяжитесь с администратором.",color=ProtoMuted,lineHeight=20.sp)};Spacer(Modifier.height(12.dp));ProtoSectionCard{ProtoInfoRow("Телефон администратора",protoPhone(BuildConfig.ADMIN_PHONE))};Spacer(Modifier.height(12.dp));ProtoPrimaryButton("Позвонить администратору",onCall);Spacer(Modifier.height(10.dp));ProtoSecondaryButton("Написать менеджеру",onMessage)}}}
+    Box(Modifier.fillMaxSize()){ProtoLiveBackground();Scaffold(containerColor=Color.Transparent,bottomBar={ProtoClientBottomBar(ProtoScreen.Suspended,0,onHome,onCatalog,onCart={},onOrders=onOrders,onProfile={})}){pad->Column(Modifier.fillMaxSize().padding(pad).padding(horizontal=18.dp)){ProtoTopBar("Профиль",onBack=onBack);ProtoSectionCard{Text("Ваш статус временно приостановлен.",color=ProtoRed,fontSize=24.sp,fontWeight=FontWeight.Bold);Spacer(Modifier.height(10.dp));Text("Самостоятельное оформление заказов недоступно. Пожалуйста, свяжитесь с администратором.",color=ProtoMuted,lineHeight=20.sp)};Spacer(Modifier.height(12.dp));ProtoSectionCard{ProtoInfoRow("Телефон администратора",protoPhone(BuildConfig.ADMIN_PHONE))};Spacer(Modifier.height(12.dp));ProtoPrimaryButton("Позвонить администратору",onCall);Spacer(Modifier.height(10.dp));ProtoSecondaryButton("Написать менеджеру",onMessage)}}}
 }
 
 @Composable
@@ -4112,7 +4111,7 @@ internal fun ProtoManagerDashboardScreen(
         item {
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 ProtoFinanceCard("Расходы", protoMoney(t.expenses), "за период", ProtoText, Modifier.weight(1f))
-                ProtoFinanceCard("Чистая прибыль", protoMoney(t.profit), "поступления − расходы", if (t.profit >= 0) ProtoGreen else ProtoRed, Modifier.weight(1f))
+                ProtoFinanceCard("Денежный поток", protoMoney(t.profit), "поступления − расходы", if (t.profit >= 0) ProtoGreen else ProtoRed, Modifier.weight(1f))
             }
         }
         item {
