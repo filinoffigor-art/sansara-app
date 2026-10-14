@@ -93,7 +93,7 @@ internal enum class ProtoScreen {
     AdminHome, AdminSearch, AdminClients, AdminClient, AdminOrders, AdminOrderDetail, AdminNotifications, AdminCatalog, AdminSettings, AdminSettingsDetail, AdminAttention, OnlineController, LowStockList, AdminChats, AdminChat, AdminProductionChat, AdminReports, AdminWorkshop, AdminAdmins, AdminAttendance,
     Production, ProductionCategory, ProductionCatalog, ProductionEntry, ProductionHistory, ProductionReport, ProductionPayments, ProductionProfile, ProductionWorkshop, ProductionAttendance, ProductionChat,
     Server, StockList, ReserveList, NewClients, Export, AdminAssemblers,
-    SalesHome, SalesShipmentNew, SalesShipments, SalesClients, SalesClient, AdminPayments, AdminDashboard
+    SalesHome, SalesShipmentNew, SalesShipments, SalesClients, SalesClient, AdminPayments, AdminDashboard, SalesProfile
 }
 
 internal enum class ProtoClientType(val label: String) { AGENT("Агент"), TRADING("Торгующая организация") }
@@ -258,13 +258,7 @@ internal val ruLocale = Locale("ru", "RU")
 internal fun currentDateLong(): String = LocalDate.now().format(DateTimeFormatter.ofPattern("d MMMM yyyy", ruLocale))
 internal fun currentDateShort(): String = LocalDate.now().format(DateTimeFormatter.ofPattern("dd.MM.yyyy"))
 internal fun currentTimeShort(): String = LocalDateTime.now().format(DateTimeFormatter.ofPattern("HH:mm"))
-internal fun nextWorkingDay(from: LocalDate): LocalDate {
-    var day = from.plusDays(1)
-    while (day.dayOfWeek == java.time.DayOfWeek.SATURDAY || day.dayOfWeek == java.time.DayOfWeek.SUNDAY) {
-        day = day.plusDays(1)
-    }
-    return day
-}
+
 internal fun currentMonthLabel(): String = LocalDate.now().format(DateTimeFormatter.ofPattern("LLLL yyyy", ruLocale)).replaceFirstChar { if (it.isLowerCase()) it.titlecase(ruLocale) else it.toString() }
 
 @Composable
@@ -1506,6 +1500,7 @@ fun SansaraVisualPrototype() {
                 },
                 onDeleteExpense = { ex -> scope.launch { repository.deleteExpense(ex.id); refreshExpenses(); toast("Расход удалён") } }
             )
+            ProtoScreen.SalesProfile -> ProtoStaffProfileScreen(role = "Продажи", onBack = { back() }, onCall = { protoDial(context) }, onLogout = { signOut() })
             ProtoScreen.SalesClients -> ProtoSalesClientsScreen(
                 clients = clients, shipments = shipments, onBack = { back() },
                 onOpen = { selectedClientId = it.id; go(ProtoScreen.SalesClient) }
@@ -1552,7 +1547,7 @@ fun SansaraVisualPrototype() {
                     onWorkshop = { refreshOperationsData(); go(ProtoScreen.ProductionWorkshop) },
                     onAttendance = { refreshOperationsData(); go(ProtoScreen.ProductionAttendance) },
                     onChat = { go(ProtoScreen.ProductionChat) },
-                    onHome = { toast("Главный экран производства") },
+                    onHome = { history.clear(); screen = ProtoScreen.Production },
                     onProfile = { go(ProtoScreen.ProductionProfile) }
                 )
             }
@@ -2033,10 +2028,51 @@ fun SansaraVisualPrototype() {
         }
     }
 
+    fun openTab(home: ProtoScreen, target: ProtoScreen) {
+        history.clear()
+        if (target != home) history.add(home)
+        screen = target
+    }
+
+    /** Нижняя навигация для экранов первого уровня сотрудников: тот же набор вкладок, что на главном экране роли. */
+    @Composable fun roleBottomBar() {
+        val role = session?.role
+        val adminTabs = setOf(ProtoScreen.AdminClients, ProtoScreen.AdminOrders, ProtoScreen.AdminSettings)
+        val productionTabs = setOf(ProtoScreen.ProductionHistory, ProtoScreen.ProductionProfile)
+        val salesTabs = setOf(ProtoScreen.SalesHome, ProtoScreen.SalesShipments, ProtoScreen.SalesClients, ProtoScreen.SalesProfile)
+        when {
+            screen in adminTabs || (screen == ProtoScreen.Server && role != SansaraRole.PRODUCTION) -> ProtoAdminBottomBar(
+                screen,
+                onHome = { history.clear(); screen = ProtoScreen.AdminHome },
+                onClients = { openTab(ProtoScreen.AdminHome, ProtoScreen.AdminClients) },
+                onOrders = { openTab(ProtoScreen.AdminHome, ProtoScreen.AdminOrders) },
+                onStock = { openTab(ProtoScreen.AdminHome, ProtoScreen.Server) },
+                onProfile = { openTab(ProtoScreen.AdminHome, ProtoScreen.AdminSettings) }
+            )
+            screen in productionTabs || (screen == ProtoScreen.Server && role == SansaraRole.PRODUCTION) -> ProtoProductionBottomBar(
+                screen,
+                onRelease = { history.clear(); screen = ProtoScreen.Production },
+                onHistory = { openTab(ProtoScreen.Production, ProtoScreen.ProductionHistory) },
+                onStock = { openTab(ProtoScreen.Production, ProtoScreen.Server) },
+                onProfile = { openTab(ProtoScreen.Production, ProtoScreen.ProductionProfile) }
+            )
+            screen in salesTabs -> ProtoSalesBottomBar(
+                screen,
+                onHome = { history.clear(); screen = ProtoScreen.SalesHome },
+                onShipments = { refreshShipments(); openTab(ProtoScreen.SalesHome, ProtoScreen.SalesShipments) },
+                onClients = { openTab(ProtoScreen.SalesHome, ProtoScreen.SalesClients) },
+                onProfile = { openTab(ProtoScreen.SalesHome, ProtoScreen.SalesProfile) }
+            )
+            else -> Unit
+        }
+    }
+
     BackHandler(enabled = screen != ProtoScreen.Welcome) { back() }
 
     SansaraTheme {
         Box(Modifier.fillMaxSize().background(ProtoBg).safeDrawingPadding()) {
+        Column(Modifier.fillMaxSize()) {
+        Box(Modifier.weight(1f)) {
         when (screen) {
             ProtoScreen.Welcome -> ProtoWelcomeScreen(
                 onLogin = { go(ProtoScreen.Login) },
@@ -2091,9 +2127,12 @@ fun SansaraVisualPrototype() {
             ProtoScreen.Home, ProtoScreen.Catalog, ProtoScreen.Filter, ProtoScreen.ProductList, ProtoScreen.ProductDetail, ProtoScreen.Cart, ProtoScreen.Checkout, ProtoScreen.OrderSent, ProtoScreen.OrderList, ProtoScreen.OrderDetail -> protoGroupA()
             ProtoScreen.Notifications, ProtoScreen.ClientChat, ProtoScreen.ClientReports, ProtoScreen.ClientSettings, ProtoScreen.Profile, ProtoScreen.Suspended -> protoGroupB()
             ProtoScreen.AdminHome, ProtoScreen.AdminSearch, ProtoScreen.AdminClients, ProtoScreen.AdminClient, ProtoScreen.AdminOrders, ProtoScreen.AdminOrderDetail, ProtoScreen.AdminChats, ProtoScreen.AdminChat, ProtoScreen.AdminProductionChat, ProtoScreen.AdminNotifications, ProtoScreen.AdminCatalog, ProtoScreen.AdminSettings, ProtoScreen.AdminSettingsDetail, ProtoScreen.AdminAttention, ProtoScreen.OnlineController, ProtoScreen.LowStockList, ProtoScreen.AdminAssemblers, ProtoScreen.AdminAdmins, ProtoScreen.AdminWorkshop, ProtoScreen.AdminAttendance -> protoGroupC()
-            ProtoScreen.SalesHome, ProtoScreen.SalesShipmentNew, ProtoScreen.SalesShipments, ProtoScreen.AdminPayments, ProtoScreen.SalesClients, ProtoScreen.SalesClient, ProtoScreen.AdminReports, ProtoScreen.AdminDashboard -> protoGroupD()
+            ProtoScreen.SalesHome, ProtoScreen.SalesShipmentNew, ProtoScreen.SalesShipments, ProtoScreen.AdminPayments, ProtoScreen.SalesClients, ProtoScreen.SalesClient, ProtoScreen.AdminReports, ProtoScreen.AdminDashboard, ProtoScreen.SalesProfile -> protoGroupD()
             ProtoScreen.Production, ProtoScreen.ProductionCategory, ProtoScreen.ProductionCatalog, ProtoScreen.ProductionEntry, ProtoScreen.ProductionHistory, ProtoScreen.ProductionReport, ProtoScreen.ProductionPayments, ProtoScreen.ProductionProfile, ProtoScreen.ProductionWorkshop, ProtoScreen.ProductionAttendance, ProtoScreen.ProductionChat, ProtoScreen.Server, ProtoScreen.StockList, ProtoScreen.ReserveList, ProtoScreen.NewClients, ProtoScreen.Export, ProtoScreen.AgentClients, ProtoScreen.AgentClientDetail -> protoGroupE()
             ProtoScreen.RetailHome, ProtoScreen.RetailCatalog, ProtoScreen.RetailFilter, ProtoScreen.RetailProductList, ProtoScreen.RetailProductDetail, ProtoScreen.RetailCart, ProtoScreen.RetailCheckout, ProtoScreen.RetailOrderList, ProtoScreen.RetailOrderDetail, ProtoScreen.RetailNotifications, ProtoScreen.RetailOrderSent -> protoGroupF()
+        }
+        }
+        roleBottomBar()
         }
 
         if (showClientMenu) {
@@ -2120,6 +2159,7 @@ fun SansaraVisualPrototype() {
                         TextButton(onClick = { history.clear(); screen = ProtoScreen.Home; showRolePicker = false }) { Text("Клиент", color = ProtoGold) }
                         TextButton(onClick = { history.clear(); screen = ProtoScreen.AdminHome; showRolePicker = false }) { Text("Администратор", color = ProtoGold) }
                         TextButton(onClick = { history.clear(); screen = ProtoScreen.Production; showRolePicker = false }) { Text("Производство", color = ProtoGold) }
+                        TextButton(onClick = { history.clear(); screen = ProtoScreen.SalesHome; showRolePicker = false }) { Text("Продажи", color = ProtoGold) }
                     }
                 }
             )
@@ -2141,18 +2181,16 @@ internal fun ProtoLoadingState() {
 
 @Composable
 internal fun ProtoLiveBackground() {
-    Box(Modifier.fillMaxSize().background(ProtoBg)) {
-        Image(painter=painterResource(R.drawable.mock_flowers),contentDescription=null,alpha=.045f,contentScale=ContentScale.Crop,modifier=Modifier.align(Alignment.BottomStart).fillMaxWidth().height(230.dp))
-        Image(painter=painterResource(R.drawable.mock_wreath),contentDescription=null,alpha=.025f,contentScale=ContentScale.Crop,modifier=Modifier.align(Alignment.TopEnd).size(180.dp))
-    }
+    // Фон без фотографий: ровный тёмный цвет и едва заметный узор листьев, нарисованный кодом.
+    Box(Modifier.fillMaxSize().background(ProtoBg)) { ProtoLeafPattern(Modifier.fillMaxSize()) }
 }
 
 @Composable
 internal fun ProtoBrandHeader(
     onBack:(()->Unit)?=null,
-    showBell:Boolean=true,
     unreadCount:Int=0,
     onBell:(()->Unit)?=null,
+    showBell:Boolean=onBell!=null,
     onMenu:(()->Unit)?=null,
     edge:Dp=18.dp,
     modifier:Modifier=Modifier
@@ -2170,7 +2208,7 @@ internal fun ProtoBrandHeader(
                 BadgedBox(
                     badge={
                         if(unreadCount>0)Badge(containerColor=ProtoGold){
-                            Text(unreadCount.coerceAtMost(99).toString(),color=Color.Black,fontSize=9.sp,fontWeight=FontWeight.Bold)
+                            Text(unreadCount.coerceAtMost(99).toString(),color=Color.Black,fontSize=11.sp,fontWeight=FontWeight.Bold)
                         }
                     }
                 ){
@@ -2342,7 +2380,7 @@ internal fun ProtoOrderListScreen(
                                         Row(verticalAlignment=Alignment.CenterVertically){
                                             Column(Modifier.weight(1f)){
                                                 Text(protoMonthLabel(monthKey),color=ProtoText,fontSize=18.sp,fontWeight=FontWeight.Bold)
-                                                Text(monthOrders.size.toString()+" заказов · "+protoMoney(monthOrders.sumOf{it.total}),color=ProtoMuted,fontSize=11.sp)
+                                                Text(monthOrders.size.toString()+" заказов · "+protoMoney(monthOrders.sumOf{it.total}),color=ProtoMuted,fontSize=12.sp)
                                             }
                                             Icon(if(expanded)Icons.Outlined.ExpandLess else Icons.Outlined.ExpandMore,null,tint=ProtoGold)
                                         }
@@ -2450,8 +2488,8 @@ internal fun ProtoProfileScreen(
                             ProtoInfoRow("Статус",client.status)
                             ProtoInfoRow("Скидка",client.discount.toString()+"%")
                             ProtoInfoRow("Контакт",client.contact)
-                            ProtoInfoRow("Телефон",client.phone)
-                            ProtoInfoRow("Администратор",BuildConfig.ADMIN_PHONE)
+                            ProtoInfoRow("Телефон",protoPhone(client.phone))
+                            ProtoInfoRow("Администратор",protoPhone(BuildConfig.ADMIN_PHONE))
                         }
                     }
                     item{ProtoPrimaryButton("Моя аналитика и расчёты",onAnalytics)}
@@ -2465,7 +2503,7 @@ internal fun ProtoProfileScreen(
 
 @Composable
 internal fun ProtoSuspendedScreen(onCall:()->Unit,onMessage:()->Unit,onBack:()->Unit,onCatalog:()->Unit,onHome:()->Unit,onOrders:()->Unit){
-    Box(Modifier.fillMaxSize()){ProtoLiveBackground();Scaffold(containerColor=Color.Transparent,bottomBar={ProtoClientBottomBar(ProtoScreen.Suspended,0,onHome,onCatalog,onCart={},onOrders=onOrders,onProfile={})}){pad->Column(Modifier.fillMaxSize().padding(pad).padding(horizontal=18.dp)){ProtoBrandHeader(onBack=onBack);Text("Профиль",color=ProtoText,fontSize=30.sp,fontWeight=FontWeight.Bold,modifier=Modifier.padding(vertical=8.dp));ProtoSectionCard{Text("Ваш статус временно приостановлен.",color=ProtoRed,fontSize=24.sp,fontWeight=FontWeight.Bold);Spacer(Modifier.height(10.dp));Text("Самостоятельное оформление заказов недоступно. Пожалуйста, свяжитесь с администратором.",color=ProtoMuted,lineHeight=20.sp)};Spacer(Modifier.height(12.dp));ProtoSectionCard{ProtoInfoRow("Телефон администратора",BuildConfig.ADMIN_PHONE)};Spacer(Modifier.height(12.dp));ProtoPrimaryButton("Позвонить администратору",onCall);Spacer(Modifier.height(10.dp));ProtoSecondaryButton("Написать менеджеру",onMessage)}}}
+    Box(Modifier.fillMaxSize()){ProtoLiveBackground();Scaffold(containerColor=Color.Transparent,bottomBar={ProtoClientBottomBar(ProtoScreen.Suspended,0,onHome,onCatalog,onCart={},onOrders=onOrders,onProfile={})}){pad->Column(Modifier.fillMaxSize().padding(pad).padding(horizontal=18.dp)){ProtoBrandHeader(onBack=onBack);Text("Профиль",color=ProtoText,fontSize=30.sp,fontWeight=FontWeight.Bold,modifier=Modifier.padding(vertical=8.dp));ProtoSectionCard{Text("Ваш статус временно приостановлен.",color=ProtoRed,fontSize=24.sp,fontWeight=FontWeight.Bold);Spacer(Modifier.height(10.dp));Text("Самостоятельное оформление заказов недоступно. Пожалуйста, свяжитесь с администратором.",color=ProtoMuted,lineHeight=20.sp)};Spacer(Modifier.height(12.dp));ProtoSectionCard{ProtoInfoRow("Телефон администратора",protoPhone(BuildConfig.ADMIN_PHONE))};Spacer(Modifier.height(12.dp));ProtoPrimaryButton("Позвонить администратору",onCall);Spacer(Modifier.height(10.dp));ProtoSecondaryButton("Написать менеджеру",onMessage)}}}
 }
 
 @Composable
@@ -2509,7 +2547,7 @@ internal fun ProtoClientMenuOverlay(
                     }
                 }
                 Spacer(Modifier.weight(1f))
-                Text("SANSARA · ${BuildConfig.VERSION_NAME}",color=ProtoMuted,fontSize=10.sp)
+                Text("SANSARA · ${BuildConfig.VERSION_NAME}",color=ProtoMuted,fontSize=12.sp)
             }
         }
     }
@@ -2537,7 +2575,7 @@ internal fun ProtoClientReportsScreen(orders:List<ProtoOrder>,shipments:List<Shi
 @Composable
 internal fun ProtoClientSettingsScreen(notificationsEnabled:Boolean,onNotifications:(Boolean)->Unit,onBack:()->Unit){
     ProtoScaffold("Настройки","Параметры клиентского приложения",onBack){
-        item{ProtoSectionCard{ProtoSwitchRow("Уведомления о заказах",notificationsEnabled,onNotifications);Text("Уведомления о смене статуса отображаются на колокольчике главного экрана.",color=ProtoMuted,fontSize=10.sp)}}
+        item{ProtoSectionCard{ProtoSwitchRow("Уведомления о заказах",notificationsEnabled,onNotifications);Text("Уведомления о смене статуса отображаются на колокольчике главного экрана.",color=ProtoMuted,fontSize=12.sp)}}
         item{ProtoSectionCard{ProtoInfoRow("Версия",BuildConfig.VERSION_NAME);ProtoInfoRow("Режим","Клиент")}}
     }
 }
@@ -2569,7 +2607,7 @@ internal fun ProtoAgentClientsScreen(
                 Row(verticalAlignment=Alignment.CenterVertically){
                     Box(Modifier.size(44.dp).background(ProtoPanel2,CircleShape),contentAlignment=Alignment.Center){Text(c.fullName.take(1).uppercase(),color=ProtoGold,fontWeight=FontWeight.Bold)}
                     Spacer(Modifier.width(10.dp))
-                    Column(Modifier.weight(1f)){Text(c.fullName,color=ProtoText,fontWeight=FontWeight.Bold);Text(c.phone,color=ProtoMuted,fontSize=11.sp);if(c.comment.isNotBlank())Text(c.comment,color=ProtoGoldSoft,fontSize=10.sp,maxLines=1,overflow=TextOverflow.Ellipsis)}
+                    Column(Modifier.weight(1f)){Text(c.fullName,color=ProtoText,fontWeight=FontWeight.Bold);Text(protoPhone(c.phone),color=ProtoMuted,fontSize=12.sp);if(c.comment.isNotBlank())Text(c.comment,color=ProtoGoldSoft,fontSize=12.sp,maxLines=1,overflow=TextOverflow.Ellipsis)}
                     Icon(Icons.Outlined.ChevronRight,null,tint=ProtoGold)
                 }
             }
@@ -2619,7 +2657,7 @@ internal fun ProtoAgentClientDetailScreen(
     var reminderNote by remember{mutableStateOf("")}
     val categories=listOf("Венки","Гробы","Кресты","Ленты","Одежда")
     ProtoScaffold(c.fullName,"Карточка частного клиента",onBack){
-        item{ProtoSectionCard{ProtoInfoRow("Телефон",c.phone);if(c.email.isNotBlank())ProtoInfoRow("E-mail",c.email);if(c.city.isNotBlank())ProtoInfoRow("Город",c.city);if(c.address.isNotBlank())ProtoInfoRow("Адрес",c.address)}}
+        item{ProtoSectionCard{ProtoInfoRow("Телефон",protoPhone(c.phone));if(c.email.isNotBlank())ProtoInfoRow("E-mail",c.email);if(c.city.isNotBlank())ProtoInfoRow("Город",c.city);if(c.address.isNotBlank())ProtoInfoRow("Адрес",c.address)}}
         item{OutlinedTextField(value=comment,onValueChange={comment=it},label={Text("Комментарий")},modifier=Modifier.fillMaxWidth(),minLines=3,maxLines=5,colors=protoFieldColors());Spacer(Modifier.height(8.dp));ProtoPrimaryButton("Сохранить комментарий",{onSaveComment(comment)})}
         item{Text("Индивидуальная наценка",color=ProtoText,fontSize=19.sp,fontWeight=FontWeight.Bold)}
         items(categories){category->
@@ -2669,7 +2707,7 @@ internal fun ProtoAgentClientDetailScreen(
                 ProtoPrimaryButton("Установить напоминание",{
                     onReminder(reminderDateTime.atZone(java.time.ZoneId.systemDefault()).toInstant().toEpochMilli(),reminderNote)
                 })
-                reminders.filter{it.active}.take(3).forEach{r->Text("• "+protoReminderTime(r.remindAtEpochMs)+" · "+r.note,color=ProtoMuted,fontSize=10.sp,modifier=Modifier.padding(top=4.dp))}
+                reminders.filter{it.active}.take(3).forEach{r->Text("• "+protoReminderTime(r.remindAtEpochMs)+" · "+r.note,color=ProtoMuted,fontSize=12.sp,modifier=Modifier.padding(top=4.dp))}
             }
         }
         item{ProtoPrimaryButton("Открыть режим «Для клиентов»",onRetail)}
@@ -2693,13 +2731,13 @@ internal fun ProtoAdminAccountsScreen(
     ProtoScaffold("Администраторы","Один главный аккаунт · общий пароль",onBack){
         item{
             ProtoSectionCard{
-                Text("Все дополнительные администраторы используют тот же код доступа, что и главный аккаунт.",color=ProtoMuted,fontSize=11.sp)
+                Text("Все дополнительные администраторы используют тот же код доступа, что и главный аккаунт.",color=ProtoMuted,fontSize=12.sp)
                 if(canManage){
                     Spacer(Modifier.height(8.dp))
                     ProtoField(name,{name=it},"Имя администратора")
                     ProtoPrimaryButton("Добавить администратора",{if(name.isNotBlank()){onAdd(name);name=""}},enabled=name.isNotBlank())
                 }else{
-                    Text("Добавлять и отключать администраторов может только главный аккаунт.",color=ProtoOrange,fontSize=11.sp,modifier=Modifier.padding(top=8.dp))
+                    Text("Добавлять и отключать администраторов может только главный аккаунт.",color=ProtoOrange,fontSize=12.sp,modifier=Modifier.padding(top=8.dp))
                 }
             }
         }
@@ -2712,8 +2750,8 @@ internal fun ProtoAdminAccountsScreen(
                     Spacer(Modifier.width(10.dp))
                     Column(Modifier.weight(1f)){
                         Text(admin.displayName,color=ProtoText,fontWeight=FontWeight.Bold)
-                        Text(if(admin.isMain)"Главный аккаунт" else "Администратор",color=ProtoGoldSoft,fontSize=11.sp)
-                        Text(if(admin.enabled)"Активен" else "Отключён",color=if(admin.enabled)ProtoGreen else ProtoRed,fontSize=10.sp)
+                        Text(if(admin.isMain)"Главный аккаунт" else "Администратор",color=ProtoGoldSoft,fontSize=12.sp)
+                        Text(if(admin.enabled)"Активен" else "Отключён",color=if(admin.enabled)ProtoGreen else ProtoRed,fontSize=12.sp)
                     }
                     if(!admin.isMain && canManage){
                         Switch(
@@ -2854,7 +2892,7 @@ internal fun ProtoWorkshopTasksScreen(
                     Text("Комментарий: "+task.comment,color=ProtoText,modifier=Modifier.padding(top=7.dp))
                 }else{
                     Text(protoWorkshopLinesLabel(task.linesJson),color=ProtoText,modifier=Modifier.padding(top=7.dp))
-                    if(task.comment.isNotBlank())Text("Комментарий: "+task.comment,color=ProtoMuted,fontSize=11.sp,modifier=Modifier.padding(top=3.dp))
+                    if(task.comment.isNotBlank())Text("Комментарий: "+task.comment,color=ProtoMuted,fontSize=12.sp,modifier=Modifier.padding(top=3.dp))
                     ProtoInfoRow("План",plan.toString()+" шт.")
                     ProtoInfoRow("Факт",task.actualQty.toString()+" шт.")
                 }
@@ -2911,6 +2949,8 @@ internal fun ProtoAttendanceScreen(
     val dayRows=rows.filter{it.date==dateKey}.associateBy{it.personId}
     ProtoScaffold("Табель рабочего времени",selectedDate.format(DateTimeFormatter.ofPattern("d MMMM yyyy",ruLocale)),onBack){
         item{ProtoSecondaryButton("Выбрать дату",{showCalendar=true})}
+        val unmarked=assemblers.filter{it.enabled&&dayRows[it.id]==null}
+        if(editable&&unmarked.isNotEmpty())item{ProtoPrimaryButton("Отметить остальных: работали ("+unmarked.size+")",{unmarked.forEach{onSave(it,"Работал","")}})}
         item{
             ProtoSectionCard{
                 ProtoInfoRow("Работали",dayRows.values.count{it.status=="Работал"}.toString())
@@ -2923,19 +2963,23 @@ internal fun ProtoAttendanceScreen(
             var comment by remember(person.id,dateKey,existing?.comment){mutableStateOf(existing?.comment.orEmpty())}
             ProtoSectionCard{
                 Text(person.name,color=ProtoText,fontWeight=FontWeight.Bold)
-                Text(existing?.status?:"Не заполнено",color=when(existing?.status){"Работал"->ProtoGreen;"Выходной"->ProtoGoldSoft;else->ProtoMuted},fontSize=11.sp)
+                Text(existing?.status?:"Не заполнено",color=when(existing?.status){"Работал"->ProtoGreen;"Выходной"->ProtoGoldSoft;else->ProtoMuted},fontSize=12.sp)
                 if(editable){
                     Spacer(Modifier.height(6.dp))
                     ProtoField(comment,{comment=it},"Комментарий / причина")
                     Row(horizontalArrangement=Arrangement.spacedBy(8.dp)){
-                        Button(onClick={onSave(person,"Работал",comment)},modifier=Modifier.weight(1f),colors=ButtonDefaults.buttonColors(containerColor=ProtoGold)){Text("Работал",color=Color.Black)}
-                        OutlinedButton(onClick={onSave(person,"Выходной",comment)},modifier=Modifier.weight(1f),border=BorderStroke(1.dp,ProtoBorder)){Text("Выходной",color=ProtoText)}
+                        // Обе кнопки равного веса; выбранный вариант подсвечен, второй — контурный.
+                        listOf("Работал","Выходной").forEach{st->
+                            val chosen=existing?.status==st
+                            if(chosen)Button(onClick={onSave(person,st,comment)},modifier=Modifier.weight(1f).height(44.dp),colors=ButtonDefaults.buttonColors(containerColor=ProtoGold)){Text(st,color=Color.Black,fontWeight=FontWeight.SemiBold)}
+                            else OutlinedButton(onClick={onSave(person,st,comment)},modifier=Modifier.weight(1f).height(44.dp),border=BorderStroke(1.dp,ProtoGold.copy(alpha=.6f))){Text(st,color=ProtoText)}
+                        }
                     }
                 }
             }
         }
     }
-    if(showCalendar)ProtoProductionCalendarDialog(selectedDate,onDismiss={showCalendar=false},onSelect={onDate(it);showCalendar=false})
+    if(showCalendar)ProtoProductionCalendarDialog(selectedDate,onDismiss={showCalendar=false},maxDate=LocalDate.now(),onSelect={onDate(it);showCalendar=false})
 }
 
 @Composable
@@ -2979,7 +3023,7 @@ internal fun ProtoAdminReportsScreen(
                 ProtoSwitchRow("Выходной",dayOff){dayOff=it}
                 ProtoField(reason,{reason=it},"Причина / комментарий")
                 ProtoPrimaryButton("Сохранить",{onDailyStatus(dayOff,reason)})
-                Text("Если установлен выходной или указана причина, обязательные напоминания на этот день не повторяются.",color=ProtoMuted,fontSize=10.sp,modifier=Modifier.padding(top=6.dp))
+                Text("Если установлен выходной или указана причина, обязательные напоминания на этот день не повторяются.",color=ProtoMuted,fontSize=12.sp,modifier=Modifier.padding(top=6.dp))
             }
         }
     }
@@ -3011,7 +3055,7 @@ internal fun ProtoAdminChatsScreen(
                 Row(verticalAlignment=Alignment.CenterVertically){
                     Box(Modifier.size(46.dp).background(ProtoPanel2,CircleShape),contentAlignment=Alignment.Center){Icon(Icons.Outlined.Factory,null,tint=ProtoGold)}
                     Spacer(Modifier.width(11.dp))
-                    Column(Modifier.weight(1f)){Text("Производство",color=ProtoText,fontWeight=FontWeight.Bold);Text(productionThread.maxByOrNull{it.createdAt}?.body?.ifBlank{"Вложение"}?:"Чат с цехом",color=ProtoMuted,fontSize=11.sp,maxLines=1,overflow=TextOverflow.Ellipsis)}
+                    Column(Modifier.weight(1f)){Text("Производство",color=ProtoText,fontWeight=FontWeight.Bold);Text(productionThread.maxByOrNull{it.createdAt}?.body?.ifBlank{"Вложение"}?:"Чат с цехом",color=ProtoMuted,fontSize=12.sp,maxLines=1,overflow=TextOverflow.Ellipsis)}
                     if(unread>0)Badge(containerColor=ProtoGold){Text(unread.toString(),color=Color.Black)}
                 }
             }
@@ -3030,11 +3074,11 @@ internal fun ProtoAdminChatsScreen(
                     Spacer(Modifier.width(11.dp))
                     Column(Modifier.weight(1f)){
                         Text(client.name,color=ProtoText,fontWeight=FontWeight.Bold,maxLines=1,overflow=TextOverflow.Ellipsis)
-                        Text(last?.let{if(it.body.isNotBlank())it.body else "Вложение: "+it.attachmentName} ?: "Сообщений пока нет",color=ProtoMuted,fontSize=11.sp,maxLines=1,overflow=TextOverflow.Ellipsis)
+                        Text(last?.let{if(it.body.isNotBlank())it.body else "Вложение: "+it.attachmentName} ?: "Сообщений пока нет",color=ProtoMuted,fontSize=12.sp,maxLines=1,overflow=TextOverflow.Ellipsis)
                     }
                     Column(horizontalAlignment=Alignment.End){
-                        last?.let{Text(protoChatTime(it.createdAt),color=ProtoMuted,fontSize=9.sp)}
-                        if(unread>0)Box(Modifier.padding(top=4.dp).size(23.dp).background(ProtoGold,CircleShape),contentAlignment=Alignment.Center){Text(unread.toString(),color=Color.Black,fontSize=9.sp,fontWeight=FontWeight.Bold)}
+                        last?.let{Text(protoChatTime(it.createdAt),color=ProtoMuted,fontSize=11.sp)}
+                        if(unread>0)Box(Modifier.padding(top=4.dp).size(23.dp).background(ProtoGold,CircleShape),contentAlignment=Alignment.Center){Text(unread.toString(),color=Color.Black,fontSize=11.sp,fontWeight=FontWeight.Bold)}
                     }
                 }
             }
@@ -3139,7 +3183,7 @@ internal fun ProtoChatScreen(
                                         Text(msg.attachmentName.ifBlank{"Вложение"},color=ProtoGoldSoft,fontSize=13.sp,maxLines=1,overflow=TextOverflow.Ellipsis)
                                     }
                                 }
-                                Text(protoChatTime(msg.createdAt),color=ProtoMuted,fontSize=11.sp,modifier=Modifier.align(Alignment.End).padding(top=5.dp))
+                                Text(protoChatTime(msg.createdAt),color=ProtoMuted,fontSize=12.sp,modifier=Modifier.align(Alignment.End).padding(top=5.dp))
                             }
                         }
                     }
@@ -3244,7 +3288,7 @@ internal fun ProtoAdminHomeScreen(
 @Composable
 internal fun ProtoAdminSearchScreen(clients:List<ProtoClient>,orders:List<ProtoOrder>,products:List<ProtoCatalogProduct>,stockOverrides:SnapshotStateMap<String,Int>,onBack:()->Unit,onClient:(ProtoClient)->Unit,onOrder:(ProtoOrder)->Unit,onProduct:(ProtoCatalogProduct)->Unit){
     var query by remember{mutableStateOf("")};val q=query.trim();val fc=if(q.isBlank())emptyList() else clients.filter{it.name.contains(q,true)||it.contact.contains(q,true)||it.id.contains(q,true)};val fo=if(q.isBlank())emptyList() else orders.filter{it.id.contains(q,true)||it.clientName.contains(q,true)};val fp=if(q.isBlank())emptyList() else products.filter{it.sku.contains(q,true)||it.name.contains(q,true)}.take(20)
-    ProtoScaffold("Поиск","Клиенты · заказы · товары",onBack){item{ProtoField(query,{query=it},"Введите название, ID или артикул")};if(q.isBlank())item{Text("Начните ввод — поиск работает сразу по всей системе.",color=ProtoMuted)};if(fc.isNotEmpty())item{Text("Клиенты",color=ProtoGoldSoft,fontSize=18.sp,fontWeight=FontWeight.Bold)};items(fc,key={it.id}){c->ProtoSectionCard(Modifier.clickable{onClient(c)}){Text(c.name,color=ProtoText,fontWeight=FontWeight.SemiBold);Text("${c.id} · ${c.status}",color=ProtoMuted,fontSize=11.sp)}};if(fo.isNotEmpty())item{Text("Заказы",color=ProtoGoldSoft,fontSize=18.sp,fontWeight=FontWeight.Bold)};items(fo,key={it.id}){o->ProtoOrderRow(o){onOrder(o)}};if(fp.isNotEmpty())item{Text("Товары",color=ProtoGoldSoft,fontSize=18.sp,fontWeight=FontWeight.Bold)};items(fp,key={it.sku}){p->ProtoSectionCard(Modifier.clickable{onProduct(p)}){Row(verticalAlignment=Alignment.CenterVertically){ProtoProductImage(p,Modifier.size(44.dp).clip(RoundedCornerShape(8.dp)));Spacer(Modifier.width(8.dp));Column(Modifier.weight(1f)){Text(p.name,color=ProtoText,fontWeight=FontWeight.SemiBold);ProtoSkuText(p.sku,fontSize=13)};Text("${stockOverrides[p.sku]?:p.stock} шт.",color=ProtoGoldSoft)}}}}
+    ProtoScaffold("Поиск","Клиенты · заказы · товары",onBack){item{ProtoField(query,{query=it},"Введите название, ID или артикул")};if(q.isBlank())item{Text("Начните ввод — поиск работает сразу по всей системе.",color=ProtoMuted)};if(fc.isNotEmpty())item{Text("Клиенты",color=ProtoGoldSoft,fontSize=18.sp,fontWeight=FontWeight.Bold)};items(fc,key={it.id}){c->ProtoSectionCard(Modifier.clickable{onClient(c)}){Text(c.name,color=ProtoText,fontWeight=FontWeight.SemiBold);Text("${c.id} · ${c.status}",color=ProtoMuted,fontSize=12.sp)}};if(fo.isNotEmpty())item{Text("Заказы",color=ProtoGoldSoft,fontSize=18.sp,fontWeight=FontWeight.Bold)};items(fo,key={it.id}){o->ProtoOrderRow(o){onOrder(o)}};if(fp.isNotEmpty())item{Text("Товары",color=ProtoGoldSoft,fontSize=18.sp,fontWeight=FontWeight.Bold)};items(fp,key={it.sku}){p->ProtoSectionCard(Modifier.clickable{onProduct(p)}){Row(verticalAlignment=Alignment.CenterVertically){ProtoProductImage(p,Modifier.size(44.dp).clip(RoundedCornerShape(8.dp)));Spacer(Modifier.width(8.dp));Column(Modifier.weight(1f)){Text(p.name,color=ProtoText,fontWeight=FontWeight.SemiBold);ProtoSkuText(p.sku,fontSize=13)};Text("${stockOverrides[p.sku]?:p.stock} шт.",color=ProtoGoldSoft)}}}}
 }
 
 @Composable
@@ -3295,7 +3339,7 @@ internal fun ProtoAdminClientsScreen(clients:List<ProtoClient>,onBack:()->Unit,o
                     Column(Modifier.weight(1f)){
                         Text(c.name,color=ProtoText,fontWeight=FontWeight.SemiBold)
                         Text(c.status+" · "+c.orderCount+" заказов",color=ProtoMuted,fontSize=12.sp)
-                        Text(if(c.online)"Онлайн" else "Был в сети "+c.lastSeen,color=if(c.online)ProtoGreen else ProtoMuted,fontSize=10.sp)
+                        Text(if(c.online)"Онлайн" else "Был в сети "+c.lastSeen,color=if(c.online)ProtoGreen else ProtoMuted,fontSize=12.sp)
                     }
                     Column(horizontalAlignment=Alignment.End){
                         Text(protoMoney(c.monthTurnover),color=ProtoGoldSoft,fontWeight=FontWeight.Bold)
@@ -3352,7 +3396,7 @@ internal fun ProtoAdminClientScreen(
                 ProtoSectionCard {
                     Text(currentClient.name, color = ProtoText, fontSize = 22.sp, fontWeight = FontWeight.Bold)
                     Text(currentClient.clientType, color = ProtoMuted)
-                    ProtoInfoRow("Телефон", currentClient.phone)
+                    ProtoInfoRow("Телефон", protoPhone(currentClient.phone))
                     ProtoInfoRow("E-mail", currentClient.email)
                     ProtoInfoRow("Клиент с", currentClient.registeredAt)
                 }
@@ -3365,7 +3409,7 @@ internal fun ProtoAdminClientScreen(
                         FilterChip(
                             selected = currentClient.status == status,
                             onClick = { onStatus(status) },
-                            label = { Text(status, fontSize = 10.sp) },
+                            label = { Text(status, fontSize = 12.sp) },
                             colors = FilterChipDefaults.filterChipColors(
                                 selectedContainerColor = ProtoGold,
                                 selectedLabelColor = Color.Black,
@@ -3468,8 +3512,8 @@ internal fun ProtoAdminClientScreen(
                     val marks=retailMarkups.filter{it.customerId==customer.id}.sortedBy{it.category}
                     ProtoSectionCard{
                         Text(customer.fullName,color=ProtoText,fontWeight=FontWeight.Bold)
-                        Text(customer.phone,color=ProtoMuted,fontSize=11.sp)
-                        if(marks.isEmpty())Text("Индивидуальная наценка не задана",color=ProtoMuted,fontSize=10.sp,modifier=Modifier.padding(top=5.dp))
+                        Text(protoPhone(customer.phone),color=ProtoMuted,fontSize=12.sp)
+                        if(marks.isEmpty())Text("Индивидуальная наценка не задана",color=ProtoMuted,fontSize=12.sp,modifier=Modifier.padding(top=5.dp))
                         else marks.forEach{m->ProtoInfoRow(m.category,m.markupPct.toString()+"%")}
                     }
                 }
@@ -3482,11 +3526,11 @@ internal fun ProtoAdminClientScreen(
             item {
                 ProtoSectionCard {
                     Text(currentClient.contact, color = ProtoText, fontWeight = FontWeight.SemiBold)
-                    Text(currentClient.email, color = ProtoMuted, fontSize = 11.sp)
+                    Text(currentClient.email, color = ProtoMuted, fontSize = 12.sp)
                     Text(
                         if (currentClient.online) "Онлайн" else "Был в сети " + currentClient.lastSeen,
                         color = if (currentClient.online) ProtoGreen else ProtoMuted,
-                        fontSize = 11.sp
+                        fontSize = 12.sp
                     )
                 }
             }
@@ -3550,7 +3594,7 @@ internal fun ProtoAdminCatalogScreen(
                     Spacer(Modifier.width(7.dp))
                     Text("Обновить из Tilda",color=ProtoGold)
                 }
-                Text("Цена и описание изменяются в источнике каталога, а не в приложении.",color=ProtoMuted,fontSize=10.sp,modifier=Modifier.padding(top=8.dp))
+                Text("Цена и описание изменяются в источнике каталога, а не в приложении.",color=ProtoMuted,fontSize=12.sp,modifier=Modifier.padding(top=8.dp))
             }
         }
         items(products,key={it.sku}){p->
@@ -3589,8 +3633,8 @@ internal fun ProtoAdminSettingsMenuScreen(syncStatus:String,lastSync:String,lowS
         Triple("О приложении",Icons.Outlined.Info,"SANSARA · версия ${BuildConfig.VERSION_NAME}")
     )
     ProtoScaffold("Настройки","Управление системой SANSARA",onBack){
-        items(rows){(title,icon,subtitle)->Card(colors=CardDefaults.cardColors(containerColor=ProtoPanel),border=BorderStroke(1.dp,ProtoBorder),shape=RoundedCornerShape(14.dp),modifier=Modifier.fillMaxWidth().clickable{onOpen(title)}){Row(Modifier.padding(13.dp),verticalAlignment=Alignment.CenterVertically){Box(Modifier.size(38.dp).background(ProtoPanel2,RoundedCornerShape(10.dp)),contentAlignment=Alignment.Center){Icon(icon,null,tint=ProtoGold)};Spacer(Modifier.width(11.dp));Column(Modifier.weight(1f)){Text(title,color=ProtoText,fontWeight=FontWeight.SemiBold);Text(subtitle,color=ProtoMuted,fontSize=10.sp,maxLines=1,overflow=TextOverflow.Ellipsis)};Icon(Icons.Outlined.ChevronRight,null,tint=ProtoGold)}}}
-        item{Spacer(Modifier.height(8.dp));Card(colors=CardDefaults.cardColors(containerColor=ProtoPanel),border=BorderStroke(1.dp,ProtoBorder),shape=RoundedCornerShape(16.dp),modifier=Modifier.fillMaxWidth().clickable{onCall()}){Row(Modifier.padding(16.dp),verticalAlignment=Alignment.CenterVertically){Box(Modifier.size(48.dp).background(ProtoGreen.copy(alpha=.16f),CircleShape),contentAlignment=Alignment.Center){Icon(Icons.Outlined.Phone,null,tint=ProtoGreen)};Spacer(Modifier.width(12.dp));Column(Modifier.weight(1f)){Text("Поддержка",color=ProtoMuted,fontSize=11.sp);Text(BuildConfig.ADMIN_PHONE,color=ProtoGoldSoft,fontSize=19.sp,fontWeight=FontWeight.Bold);Text("Ежедневно 09:00–20:00",color=ProtoMuted,fontSize=10.sp)};Icon(Icons.Outlined.ChevronRight,null,tint=ProtoGold)}}}
+        items(rows){(title,icon,subtitle)->Card(colors=CardDefaults.cardColors(containerColor=ProtoPanel),border=BorderStroke(1.dp,ProtoBorder),shape=RoundedCornerShape(14.dp),modifier=Modifier.fillMaxWidth().clickable{onOpen(title)}){Row(Modifier.padding(13.dp),verticalAlignment=Alignment.CenterVertically){Box(Modifier.size(38.dp).background(ProtoPanel2,RoundedCornerShape(10.dp)),contentAlignment=Alignment.Center){Icon(icon,null,tint=ProtoGold)};Spacer(Modifier.width(11.dp));Column(Modifier.weight(1f)){Text(title,color=ProtoText,fontWeight=FontWeight.SemiBold);Text(subtitle,color=ProtoMuted,fontSize=12.sp,maxLines=1,overflow=TextOverflow.Ellipsis)};Icon(Icons.Outlined.ChevronRight,null,tint=ProtoGold)}}}
+        item{Spacer(Modifier.height(8.dp));Card(colors=CardDefaults.cardColors(containerColor=ProtoPanel),border=BorderStroke(1.dp,ProtoBorder),shape=RoundedCornerShape(16.dp),modifier=Modifier.fillMaxWidth().clickable{onCall()}){Row(Modifier.padding(16.dp),verticalAlignment=Alignment.CenterVertically){Box(Modifier.size(48.dp).background(ProtoGreen.copy(alpha=.16f),CircleShape),contentAlignment=Alignment.Center){Icon(Icons.Outlined.Phone,null,tint=ProtoGreen)};Spacer(Modifier.width(12.dp));Column(Modifier.weight(1f)){Text("Поддержка",color=ProtoMuted,fontSize=12.sp);Text(BuildConfig.ADMIN_PHONE,color=ProtoGoldSoft,fontSize=19.sp,fontWeight=FontWeight.Bold);Text("Ежедневно 09:00–20:00",color=ProtoMuted,fontSize=12.sp)};Icon(Icons.Outlined.ChevronRight,null,tint=ProtoGold)}}}
     }
 }
 
@@ -3602,7 +3646,7 @@ internal fun ProtoAssemblerAdminScreen(assemblers:List<SansaraAssembler>,onBack:
         items(assemblers,key={it.id}){assembler->
             ProtoSectionCard{
                 Row(verticalAlignment=Alignment.CenterVertically){
-                    Column(Modifier.weight(1f)){Text(assembler.name,color=ProtoText,fontWeight=FontWeight.SemiBold);Text(if(assembler.enabled)"Активна" else "Отключена",color=if(assembler.enabled)ProtoGreen else ProtoMuted,fontSize=11.sp)}
+                    Column(Modifier.weight(1f)){Text(assembler.name,color=ProtoText,fontWeight=FontWeight.SemiBold);Text(if(assembler.enabled)"Активна" else "Отключена",color=if(assembler.enabled)ProtoGreen else ProtoMuted,fontSize=12.sp)}
                     Switch(checked=assembler.enabled,onCheckedChange={onToggle(assembler)},colors=SwitchDefaults.colors(checkedTrackColor=ProtoGold,checkedThumbColor=Color.Black))
                 }
             }
@@ -3621,9 +3665,9 @@ internal fun ProtoAdminSettingsDetailScreen(
 ){
     ProtoScaffold(section,null,onBack){
         when(section){
-            "Профиль компании"->item{ProtoSectionCard{ProtoInfoRow("Компания","SANSARA");ProtoInfoRow("Телефон",BuildConfig.ADMIN_PHONE);ProtoInfoRow("Режим поддержки","09:00–20:00");ProtoInfoRow("Каталог","sansararitual.ru")}}
-            "Пользователи и роли"->item{ProtoSectionCard{listOf("Администратор — полный доступ","Производство — выпуск / приход / история","Клиент — каталог / корзина / заказы").forEach{Text(it,color=ProtoText,modifier=Modifier.padding(vertical=5.dp))};Text("Роли фиксированы. Пользователь не выбирает роль самостоятельно.",color=ProtoMuted,fontSize=11.sp,modifier=Modifier.padding(top=8.dp))}}
-            "Каталог и синхронизация"->item{ProtoSectionCard{Text("Каталог Tilda",color=ProtoText,fontSize=19.sp,fontWeight=FontWeight.Bold);Text("Синхронизация обновляет карточки, цены, категории и фотографии. Склад, резерв, заказы и производство не перезаписываются.",color=ProtoMuted,fontSize=11.sp,modifier=Modifier.padding(vertical=6.dp));ProtoField(tildaUrl,onTildaUrl,"YML-ссылка каталога Tilda");Button(onClick=onSync,enabled=!syncing&&tildaUrl.isNotBlank(),modifier=Modifier.fillMaxWidth().height(48.dp),colors=ButtonDefaults.buttonColors(containerColor=ProtoGold)){if(syncing)CircularProgressIndicator(Modifier.size(18.dp),strokeWidth=2.dp,color=Color.Black)else Icon(Icons.Outlined.Sync,null,tint=Color.Black);Spacer(Modifier.width(7.dp));Text(if(syncing)"Синхронизация…" else "Синхронизировать каталог",color=Color.Black,fontWeight=FontWeight.Bold)};Text(syncStatus,color=if(syncStatus.startsWith("Ошибка"))ProtoRed else ProtoGreen,fontSize=11.sp,modifier=Modifier.padding(top=7.dp));Text("Последнее обновление: $lastSync",color=ProtoMuted,fontSize=10.sp);Text("Сервер событий: $backendStatus",color=ProtoMuted,fontSize=10.sp,modifier=Modifier.padding(top=4.dp))}}
+            "Профиль компании"->item{ProtoSectionCard{ProtoInfoRow("Компания","SANSARA");ProtoInfoRow("Телефон",protoPhone(BuildConfig.ADMIN_PHONE));ProtoInfoRow("Режим поддержки","09:00–20:00");ProtoInfoRow("Каталог","sansararitual.ru")}}
+            "Пользователи и роли"->item{ProtoSectionCard{listOf("Администратор — полный доступ","Производство — выпуск / приход / история","Клиент — каталог / корзина / заказы").forEach{Text(it,color=ProtoText,modifier=Modifier.padding(vertical=5.dp))};Text("Роли фиксированы. Пользователь не выбирает роль самостоятельно.",color=ProtoMuted,fontSize=12.sp,modifier=Modifier.padding(top=8.dp))}}
+            "Каталог и синхронизация"->item{ProtoSectionCard{Text("Каталог Tilda",color=ProtoText,fontSize=19.sp,fontWeight=FontWeight.Bold);Text("Синхронизация обновляет карточки, цены, категории и фотографии. Склад, резерв, заказы и производство не перезаписываются.",color=ProtoMuted,fontSize=12.sp,modifier=Modifier.padding(vertical=6.dp));ProtoField(tildaUrl,onTildaUrl,"YML-ссылка каталога Tilda");Button(onClick=onSync,enabled=!syncing&&tildaUrl.isNotBlank(),modifier=Modifier.fillMaxWidth().height(48.dp),colors=ButtonDefaults.buttonColors(containerColor=ProtoGold)){if(syncing)CircularProgressIndicator(Modifier.size(18.dp),strokeWidth=2.dp,color=Color.Black)else Icon(Icons.Outlined.Sync,null,tint=Color.Black);Spacer(Modifier.width(7.dp));Text(if(syncing)"Синхронизация…" else "Синхронизировать каталог",color=Color.Black,fontWeight=FontWeight.Bold)};Text(syncStatus,color=if(syncStatus.startsWith("Ошибка"))ProtoRed else ProtoGreen,fontSize=12.sp,modifier=Modifier.padding(top=7.dp));Text("Последнее обновление: $lastSync",color=ProtoMuted,fontSize=12.sp);Text("Сервер событий: $backendStatus",color=ProtoMuted,fontSize=12.sp,modifier=Modifier.padding(top=4.dp))}}
             "Telegram интеграция"->item{
                 var enabled by remember(telegramEnabled){mutableStateOf(telegramEnabled)}
                 var retry by remember(telegramRetryEnabled){mutableStateOf(telegramRetryEnabled)}
@@ -3631,7 +3675,7 @@ internal fun ProtoAdminSettingsDetailScreen(
                 var template by remember(telegramTemplate){mutableStateOf(telegramTemplate)}
                 ProtoSectionCard{
                     Text("Telegram-бот",color=ProtoText,fontSize=19.sp,fontWeight=FontWeight.Bold)
-                    Text("Заказы отправляются только через серверный прокси. BOT_TOKEN и CHAT_ID не хранятся в APK и репозитории.",color=ProtoMuted,fontSize=11.sp,modifier=Modifier.padding(vertical=6.dp))
+                    Text("Заказы отправляются только через серверный прокси. BOT_TOKEN и CHAT_ID не хранятся в APK и репозитории.",color=ProtoMuted,fontSize=12.sp,modifier=Modifier.padding(vertical=6.dp))
                     ProtoSwitchRow("Отправлять заказы в Telegram",enabled){enabled=it}
                     ProtoField(apiUrl,{apiUrl=it},"HTTPS-адрес серверного прокси")
                     ProtoSwitchRow("Повторять отправку при сбое",retry){retry=it}
@@ -3644,18 +3688,18 @@ internal fun ProtoAdminSettingsDetailScreen(
                         maxLines=9,
                         colors=protoFieldColors()
                     )
-                    Text("Переменные: {number}, {client}, {items}, {total}, {contact}, {date}, {time}",color=ProtoMuted,fontSize=10.sp)
+                    Text("Переменные: {number}, {client}, {items}, {total}, {contact}, {date}, {time}",color=ProtoMuted,fontSize=12.sp)
                     Spacer(Modifier.height(8.dp))
                     ProtoPrimaryButton("Сохранить настройки",{onTelegramSave(enabled,retry,apiUrl,template)},enabled=!enabled||apiUrl.startsWith("https://"))
                     Spacer(Modifier.height(8.dp))
-                    Text("Последняя отправка: "+telegramLastLog,color=ProtoMuted,fontSize=10.sp)
-                    Text("BOT_TOKEN/CHAT_ID задаются только на сервере или в его Secrets.",color=ProtoGoldSoft,fontSize=10.sp,modifier=Modifier.padding(top=4.dp))
+                    Text("Последняя отправка: "+telegramLastLog,color=ProtoMuted,fontSize=12.sp)
+                    Text("BOT_TOKEN/CHAT_ID задаются только на сервере или в его Secrets.",color=ProtoGoldSoft,fontSize=12.sp,modifier=Modifier.padding(top=4.dp))
                 }
             }
-            "Порог низких остатков"->item{ProtoSectionCard{Row(verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.Center,modifier=Modifier.fillMaxWidth()){ProtoQtyButton(Icons.Outlined.Remove,{onThreshold(threshold-1)});Text("$threshold шт.",color=ProtoGoldSoft,fontSize=28.sp,fontWeight=FontWeight.Bold,modifier=Modifier.padding(horizontal=20.dp));ProtoQtyButton(Icons.Outlined.Add,{onThreshold(threshold+1)})};Text("Позиции с доступным остатком ≤ порога автоматически попадают в «Требует внимания».",color=ProtoMuted,fontSize=11.sp)}}
+            "Порог низких остатков"->item{ProtoSectionCard{Row(verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.Center,modifier=Modifier.fillMaxWidth()){ProtoQtyButton(Icons.Outlined.Remove,{onThreshold(threshold-1)});Text("$threshold шт.",color=ProtoGoldSoft,fontSize=28.sp,fontWeight=FontWeight.Bold,modifier=Modifier.padding(horizontal=20.dp));ProtoQtyButton(Icons.Outlined.Add,{onThreshold(threshold+1)})};Text("Позиции с доступным остатком ≤ порога автоматически попадают в «Требует внимания».",color=ProtoMuted,fontSize=12.sp)}}
             "Уведомления"->item{ProtoSectionCard{ProtoSwitchRow("Новые регистрации",reg,onReg);ProtoSwitchRow("Новые заказы",orders,onOrders);ProtoSwitchRow("Производство",prod,onProd);ProtoSwitchRow("Низкие остатки",low,onLow)}}
             "Резервное копирование"->item{ProtoSectionCard{Text(backupStatus,color=ProtoMuted);Spacer(Modifier.height(10.dp));Button(onClick=onBackup,modifier=Modifier.fillMaxWidth(),colors=ButtonDefaults.buttonColors(containerColor=ProtoGold)){Icon(Icons.Outlined.Backup,null,tint=Color.Black);Spacer(Modifier.width(7.dp));Text("Создать резервную копию",color=Color.Black,fontWeight=FontWeight.Bold)}}}
-            "О приложении"->item{ProtoSectionCard{ProtoInfoRow("Приложение","SANSARA");ProtoInfoRow("Версия",BuildConfig.VERSION_NAME);ProtoInfoRow("Роль","Администратор");Text("B2B-платформа ритуальных товаров. Visual Lock: утверждённые reference-экраны не изменяются без отдельного согласования.",color=ProtoMuted,fontSize=11.sp,modifier=Modifier.padding(top=8.dp))}}
+            "О приложении"->item{ProtoSectionCard{ProtoInfoRow("Приложение","SANSARA");ProtoInfoRow("Версия",BuildConfig.VERSION_NAME);ProtoInfoRow("Роль","Администратор");Text("B2B-платформа ритуальных товаров. Visual Lock: утверждённые reference-экраны не изменяются без отдельного согласования.",color=ProtoMuted,fontSize=12.sp,modifier=Modifier.padding(top=8.dp))}}
             else->item{ProtoSectionCard{Text("Раздел готов к подключению серверных данных.",color=ProtoText);OutlinedButton(onClick=onClients,modifier=Modifier.fillMaxWidth().padding(top=8.dp),border=BorderStroke(1.dp,ProtoGold)){Text("Открыть клиентов",color=ProtoGold)}}}
         }
     }
@@ -3665,15 +3709,15 @@ internal fun ProtoAdminSettingsDetailScreen(
 internal fun ProtoAttentionScreen(regs:List<ProtoRegistration>,blocked:List<ProtoClient>,picking:List<ProtoOrder>,lowStock:List<ProtoCatalogProduct>,stockValue:(ProtoCatalogProduct)->Int,onBack:()->Unit,onClient:(ProtoClient)->Unit,onOrder:(ProtoOrder)->Unit,onApprove:(ProtoRegistration)->Unit,onClose:(ProtoRegistration)->Unit,onLowStock:()->Unit){
     ProtoScaffold("Требует внимания","Задачи остаются до обработки",onBack){
         item{Text("Новые регистрации",color=ProtoGoldSoft,fontSize=18.sp,fontWeight=FontWeight.Bold)}
-        if(regs.isEmpty())item{Text("Новых регистраций нет",color=ProtoMuted)} else items(regs,key={it.id}){r->ProtoSectionCard{Text(r.organization,color=ProtoText,fontWeight=FontWeight.SemiBold);Text("${r.type} · ${r.contact1} · ${r.phone1}",color=ProtoMuted,fontSize=12.sp);Text("${r.createdAt} · ${r.status}",color=ProtoMuted,fontSize=10.sp);Row(Modifier.padding(top=7.dp),horizontalArrangement=Arrangement.spacedBy(8.dp)){Button(onClick={onApprove(r)},colors=ButtonDefaults.buttonColors(containerColor=ProtoGold),modifier=Modifier.weight(1f)){Text("Подтвердить",color=Color.Black,fontSize=11.sp)};OutlinedButton(onClick={onClose(r)},border=BorderStroke(1.dp,ProtoBorder),modifier=Modifier.weight(1f)){Text("Закрыть",color=ProtoMuted,fontSize=11.sp)}}}}
+        if(regs.isEmpty())item{Text("Новых регистраций нет",color=ProtoMuted)} else items(regs,key={it.id}){r->ProtoSectionCard{Text(r.organization,color=ProtoText,fontWeight=FontWeight.SemiBold);Text("${r.type} · ${r.contact1} · ${r.phone1}",color=ProtoMuted,fontSize=12.sp);Text("${r.createdAt} · ${r.status}",color=ProtoMuted,fontSize=12.sp);Row(Modifier.padding(top=7.dp),horizontalArrangement=Arrangement.spacedBy(8.dp)){Button(onClick={onApprove(r)},colors=ButtonDefaults.buttonColors(containerColor=ProtoGold),modifier=Modifier.weight(1f)){Text("Подтвердить",color=Color.Black,fontSize=12.sp)};OutlinedButton(onClick={onClose(r)},border=BorderStroke(1.dp,ProtoBorder),modifier=Modifier.weight(1f)){Text("Закрыть",color=ProtoMuted,fontSize=12.sp)}}}}
         item{Text("Приостановленные клиенты",color=ProtoGoldSoft,fontSize=18.sp,fontWeight=FontWeight.Bold)};if(blocked.isEmpty())item{Text("Нет приостановленных клиентов",color=ProtoMuted)}else items(blocked,key={it.id}){c->ProtoSectionCard(Modifier.clickable{onClient(c)}){Text(c.name,color=ProtoText,fontWeight=FontWeight.SemiBold);Text("Нажмите, чтобы открыть карточку и изменить доступ",color=ProtoMuted,fontSize=12.sp)}}
         item{Text("Заказы на сборке",color=ProtoGoldSoft,fontSize=18.sp,fontWeight=FontWeight.Bold)};if(picking.isEmpty())item{Text("Нет заказов на сборке",color=ProtoMuted)}else items(picking,key={it.id}){o->ProtoOrderRow(o){onOrder(o)}}
-        if(lowStock.isNotEmpty())item{ProtoSectionCard(Modifier.clickable{onLowStock()}){Row(verticalAlignment=Alignment.CenterVertically){Icon(Icons.Outlined.Warning,null,tint=ProtoOrange);Spacer(Modifier.width(9.dp));Column(Modifier.weight(1f)){Text("Низкие остатки: ${lowStock.size}",color=ProtoText,fontWeight=FontWeight.SemiBold);Text(lowStock.take(3).joinToString(" · "){"${it.sku}: ${stockValue(it)}"},color=ProtoMuted,fontSize=10.sp)};Icon(Icons.Outlined.ChevronRight,null,tint=ProtoGold)}}}
+        if(lowStock.isNotEmpty())item{ProtoSectionCard(Modifier.clickable{onLowStock()}){Row(verticalAlignment=Alignment.CenterVertically){Icon(Icons.Outlined.Warning,null,tint=ProtoOrange);Spacer(Modifier.width(9.dp));Column(Modifier.weight(1f)){Text("Низкие остатки: ${lowStock.size}",color=ProtoText,fontWeight=FontWeight.SemiBold);Text(lowStock.take(3).joinToString(" · "){"${it.sku}: ${stockValue(it)}"},color=ProtoMuted,fontSize=12.sp)};Icon(Icons.Outlined.ChevronRight,null,tint=ProtoGold)}}}
     }
 }
 
 @Composable
-internal fun ProtoOnlineControllerScreen(clients:List<ProtoClient>,onBack:()->Unit,onClient:(ProtoClient)->Unit){ProtoScaffold("Кто в сети","Активность клиентов",onBack){item{ProtoSectionCard{ProtoInfoRow("Клиенты онлайн","${clients.count{it.online}}")}};item{Text("Клиенты сегодня",color=ProtoText,fontSize=19.sp,fontWeight=FontWeight.Bold)};items(clients.sortedByDescending{it.online},key={it.id}){c->ProtoSectionCard(Modifier.clickable{onClient(c)}){Row{Box(Modifier.size(9.dp).background(if(c.online)ProtoGreen else ProtoMuted,CircleShape).align(Alignment.CenterVertically));Spacer(Modifier.width(8.dp));Column(Modifier.weight(1f)){Text(c.name,color=ProtoText);Text("Последняя активность: ${c.lastSeen}",color=ProtoMuted,fontSize=11.sp)};Text("${c.orderCount} заказов",color=ProtoGoldSoft,fontSize=11.sp)}}}}}
+internal fun ProtoOnlineControllerScreen(clients:List<ProtoClient>,onBack:()->Unit,onClient:(ProtoClient)->Unit){ProtoScaffold("Кто в сети","Активность клиентов",onBack){item{ProtoSectionCard{ProtoInfoRow("Клиенты онлайн","${clients.count{it.online}}")}};item{Text("Клиенты сегодня",color=ProtoText,fontSize=19.sp,fontWeight=FontWeight.Bold)};items(clients.sortedByDescending{it.online},key={it.id}){c->ProtoSectionCard(Modifier.clickable{onClient(c)}){Row{Box(Modifier.size(9.dp).background(if(c.online)ProtoGreen else ProtoMuted,CircleShape).align(Alignment.CenterVertically));Spacer(Modifier.width(8.dp));Column(Modifier.weight(1f)){Text(c.name,color=ProtoText);Text("Последняя активность: ${c.lastSeen}",color=ProtoMuted,fontSize=12.sp)};Text("${c.orderCount} заказов",color=ProtoGoldSoft,fontSize=12.sp)}}}}}
 
 @Composable
 internal fun ProtoProductionHomeScreen(
@@ -3707,7 +3751,7 @@ internal fun ProtoProductionHomeScreen(
         ProtoLiveBackground()
         Scaffold(
             containerColor=Color.Transparent,
-            bottomBar={ProtoProductionBottomBar(onHome,onProduction={},onHistory,onStock,onProfile)}
+            bottomBar={ProtoProductionBottomBar(ProtoScreen.Production,onRelease={},onHistory=onHistory,onStock=onStock,onProfile=onProfile)}
         ){pad->
             LazyColumn(
                 Modifier.fillMaxSize().padding(pad),
@@ -3747,9 +3791,9 @@ internal fun ProtoProductionHomeScreen(
                                 Column(Modifier.weight(1f)){
                                     Text(op.name,color=ProtoText,fontWeight=FontWeight.SemiBold,maxLines=1,overflow=TextOverflow.Ellipsis)
                                     ProtoSkuText(op.sku,extra=" · "+op.assembler,fontSize=13)
-                                    Text("Ставка "+protoMoney(op.rateRub)+" / шт.",color=ProtoMuted,fontSize=10.sp)
+                                    Text("Ставка "+protoMoney(op.rateRub)+" / шт.",color=ProtoMuted,fontSize=12.sp)
                                 }
-                                Column(horizontalAlignment=Alignment.End){Text(op.qty.toString()+" шт.",color=ProtoGoldSoft,fontWeight=FontWeight.Bold);Text(protoMoney(op.amountRub),color=ProtoGreen,fontSize=11.sp)}
+                                Column(horizontalAlignment=Alignment.End){Text(op.qty.toString()+" шт.",color=ProtoGoldSoft,fontWeight=FontWeight.Bold);Text(protoMoney(op.amountRub),color=ProtoGreen,fontSize=12.sp)}
                             }
                         }
                     }
@@ -3757,8 +3801,8 @@ internal fun ProtoProductionHomeScreen(
                         ProtoSectionCard{
                             Row(verticalAlignment=Alignment.CenterVertically){
                                 ProtoProductImage(d.product,Modifier.size(58.dp).clip(RoundedCornerShape(10.dp)));Spacer(Modifier.width(10.dp))
-                                Column(Modifier.weight(1f)){Text(d.product.name,color=ProtoText,fontWeight=FontWeight.SemiBold);ProtoSkuText(d.product.sku,extra=" · "+d.assembler,fontSize=13);Text("Ставка "+protoMoney(d.rateRub)+" / шт.",color=ProtoMuted,fontSize=10.sp)}
-                                Column(horizontalAlignment=Alignment.End){Text(d.qty.toString()+" шт.",color=ProtoGoldSoft,fontWeight=FontWeight.Bold);Text(protoMoney(d.qty*d.rateRub),color=ProtoOrange,fontSize=11.sp)}
+                                Column(Modifier.weight(1f)){Text(d.product.name,color=ProtoText,fontWeight=FontWeight.SemiBold);ProtoSkuText(d.product.sku,extra=" · "+d.assembler,fontSize=13);Text("Ставка "+protoMoney(d.rateRub)+" / шт.",color=ProtoMuted,fontSize=12.sp)}
+                                Column(horizontalAlignment=Alignment.End){Text(d.qty.toString()+" шт.",color=ProtoGoldSoft,fontWeight=FontWeight.Bold);Text(protoMoney(d.qty*d.rateRub),color=ProtoOrange,fontSize=12.sp)}
                             }
                         }
                     }
@@ -3788,7 +3832,7 @@ internal fun ProtoProductionHomeScreen(
 internal fun ProtoProductionCategoryScreen(onBack:()->Unit,onCategory:(String)->Unit){ProtoScaffold("Выпуск продукции","Что произведено в цеху?",onBack){item{listOf("Венки","Венки круглые","Корзины","Флоретки","Полянки").forEach{cat->ProtoSectionCard(Modifier.padding(vertical=4.dp).clickable{onCategory(cat)}){Row(verticalAlignment=Alignment.CenterVertically){Image(painterResource(protoPlaceholderForType(cat)),null,Modifier.size(42.dp).clip(RoundedCornerShape(8.dp)),contentScale=ContentScale.Crop);Spacer(Modifier.width(12.dp));Text(cat,color=ProtoText,fontSize=18.sp,fontWeight=FontWeight.SemiBold,modifier=Modifier.weight(1f));Icon(Icons.Outlined.ChevronRight,null,tint=ProtoGold)}}}}}}
 
 @Composable
-internal fun ProtoProductionCatalogScreen(products:List<ProtoCatalogProduct>,onBack:()->Unit,onSelect:(ProtoCatalogProduct)->Unit){var query by remember{mutableStateOf("")};val filtered=products.filter{query.isBlank()||it.sku.contains(query,true)||it.name.contains(query,true)};ProtoScaffold("Каталог производства","Выберите модель — артикул подставится автоматически",onBack){item{ProtoField(query,{query=it},"Поиск по артикулу или названию")};items(filtered,key={it.sku}){p->ProtoSectionCard(Modifier.clickable{onSelect(p)}){Row(verticalAlignment=Alignment.CenterVertically){ProtoProductImage(p,Modifier.size(58.dp).clip(RoundedCornerShape(10.dp)));Spacer(Modifier.width(10.dp));Column(Modifier.weight(1f)){Text(p.name,color=ProtoText,fontWeight=FontWeight.SemiBold);Text("Арт. ${p.sku} · ${p.quality} · ${p.size}",color=ProtoMuted,fontSize=11.sp)};Icon(Icons.Outlined.ChevronRight,null,tint=ProtoGold)}}}}}
+internal fun ProtoProductionCatalogScreen(products:List<ProtoCatalogProduct>,onBack:()->Unit,onSelect:(ProtoCatalogProduct)->Unit){var query by remember{mutableStateOf("")};val filtered=products.filter{query.isBlank()||it.sku.contains(query,true)||it.name.contains(query,true)};ProtoScaffold("Каталог производства","Выберите модель — артикул подставится автоматически",onBack){item{ProtoField(query,{query=it},"Поиск по артикулу или названию")};items(filtered,key={it.sku}){p->ProtoSectionCard(Modifier.clickable{onSelect(p)}){Row(verticalAlignment=Alignment.CenterVertically){ProtoProductImage(p,Modifier.size(58.dp).clip(RoundedCornerShape(10.dp)));Spacer(Modifier.width(10.dp));Column(Modifier.weight(1f)){Text(p.name,color=ProtoText,fontWeight=FontWeight.SemiBold);Text("Арт. ${p.sku} · ${p.quality} · ${p.size}",color=ProtoMuted,fontSize=12.sp)};Icon(Icons.Outlined.ChevronRight,null,tint=ProtoGold)}}}}}
 
 @Composable
 internal fun ProtoProductionEntryScreen(
@@ -3936,13 +3980,13 @@ internal fun ProtoProductionHistoryScreen(
                             Spacer(Modifier.width(10.dp))
                             Column(Modifier.weight(1f)){
                                 Text(op.name,color=ProtoText,fontWeight=FontWeight.SemiBold)
-                                Text(op.time,color=ProtoMuted,fontSize=11.sp);ProtoSkuText(op.sku,fontSize=13)
-                                Text("Сборщица: "+op.assembler,color=ProtoMuted,fontSize=11.sp)
-                                if(op.documentId.isNotBlank())Text(op.documentId,color=ProtoGoldSoft,fontSize=9.sp)
+                                Text(op.time,color=ProtoMuted,fontSize=12.sp);ProtoSkuText(op.sku,fontSize=13)
+                                Text("Сборщица: "+op.assembler,color=ProtoMuted,fontSize=12.sp)
+                                if(op.documentId.isNotBlank())Text(op.documentId,color=ProtoGoldSoft,fontSize=11.sp)
                             }
                             Column(horizontalAlignment=Alignment.End){
                                 Text(op.qty.toString()+" шт.",color=ProtoGoldSoft,fontWeight=FontWeight.Bold)
-                                Text(protoMoney(op.amountRub),color=ProtoGreen,fontWeight=FontWeight.Bold,fontSize=11.sp)
+                                Text(protoMoney(op.amountRub),color=ProtoGreen,fontWeight=FontWeight.Bold,fontSize=12.sp)
                                 if(canEdit && op.opId.isNotBlank()){
                                     Row{
                                         IconButton(onClick={editing=op}){Icon(Icons.Outlined.Edit,null,tint=ProtoGold,modifier=Modifier.size(19.dp))}
@@ -3961,7 +4005,7 @@ internal fun ProtoProductionHistoryScreen(
         AlertDialog(
             onDismissRequest={editing=null},containerColor=ProtoPanel,
             title={Text("Корректировать выпуск",color=ProtoText)},
-            text={Column{Text(op.name,color=ProtoGoldSoft);ProtoField(qtyText,{qtyText=it.filter(Char::isDigit)},"Количество",KeyboardType.Number);Text("Изменение попадёт в журнал и скорректирует склад.",color=ProtoMuted,fontSize=10.sp)}},
+            text={Column{Text(op.name,color=ProtoGoldSoft);ProtoField(qtyText,{qtyText=it.filter(Char::isDigit)},"Количество",KeyboardType.Number);Text("Изменение попадёт в журнал и скорректирует склад.",color=ProtoMuted,fontSize=12.sp)}},
             confirmButton={TextButton(onClick={val q=qtyText.toIntOrNull()?:0;if(q>0){onCorrect(op,q);editing=null}}){Text("Сохранить",color=ProtoGold)}},
             dismissButton={TextButton(onClick={editing=null}){Text("Отмена",color=ProtoMuted)}}
         )
@@ -3999,7 +4043,7 @@ internal fun ProtoProductionReportScreen(selectedDate:LocalDate,ops:List<ProtoPr
         item{Text("По сборщицам",color=ProtoText,fontSize=21.sp,fontWeight=FontWeight.Bold)}
         items(byAssembler){row->ProtoSectionCard{Row{Text(row.first,color=ProtoText,fontWeight=FontWeight.SemiBold);Spacer(Modifier.weight(1f));Text(row.second.first.toString()+" шт. · "+protoMoney(row.second.second),color=ProtoGoldSoft,fontWeight=FontWeight.Bold)}}}
         item{Text("По артикулам",color=ProtoText,fontSize=21.sp,fontWeight=FontWeight.Bold)}
-        items(bySku){row->ProtoSectionCard{Text(row.second,color=ProtoText,fontWeight=FontWeight.SemiBold);Row{Text(row.first,color=ProtoMuted,fontSize=11.sp);Spacer(Modifier.weight(1f));Text(row.third.toString()+" шт.",color=ProtoGoldSoft,fontWeight=FontWeight.Bold)}}}
+        items(bySku){row->ProtoSectionCard{Text(row.second,color=ProtoText,fontWeight=FontWeight.SemiBold);Row{Text(row.first,color=ProtoMuted,fontSize=12.sp);Spacer(Modifier.weight(1f));Text(row.third.toString()+" шт.",color=ProtoGoldSoft,fontWeight=FontWeight.Bold)}}}
         item{Text("По качеству",color=ProtoText,fontSize=21.sp,fontWeight=FontWeight.Bold)}
         items(byQuality){row->ProtoSectionCard{Row{Text(row.first,color=ProtoText,fontWeight=FontWeight.SemiBold);Spacer(Modifier.weight(1f));Text(row.second.toString()+" шт.",color=ProtoGoldSoft,fontWeight=FontWeight.Bold)}}}
     }
@@ -4032,14 +4076,14 @@ internal fun ProtoProductionPaymentsScreen(ops:List<ProtoProductionOp>,onBack:()
 @Composable
 internal fun ProtoStaffProfileScreen(role:String,onBack:()->Unit,onCall:()->Unit,onLogout:()->Unit){
     ProtoScaffold("Профиль",role,onBack){
-        item{ProtoSectionCard{ProtoInfoRow("Роль",role);ProtoInfoRow("Дата",currentDateLong());ProtoInfoRow("Версия",BuildConfig.VERSION_NAME);ProtoInfoRow("Поддержка",BuildConfig.ADMIN_PHONE);Spacer(Modifier.height(8.dp));OutlinedButton(onClick=onCall,modifier=Modifier.fillMaxWidth(),border=BorderStroke(1.dp,ProtoGold)){Icon(Icons.Outlined.Phone,null,tint=ProtoGold);Spacer(Modifier.width(7.dp));Text("Позвонить в поддержку",color=ProtoGold)};TextButton(onClick=onLogout,modifier=Modifier.fillMaxWidth()){Text("Выйти",color=ProtoMuted)}}}
+        item{ProtoSectionCard{ProtoInfoRow("Роль",role);ProtoInfoRow("Дата",currentDateLong());ProtoInfoRow("Версия",BuildConfig.VERSION_NAME);ProtoInfoRow("Поддержка",protoPhone(BuildConfig.ADMIN_PHONE));Spacer(Modifier.height(8.dp));OutlinedButton(onClick=onCall,modifier=Modifier.fillMaxWidth(),border=BorderStroke(1.dp,ProtoGold)){Icon(Icons.Outlined.Phone,null,tint=ProtoGold);Spacer(Modifier.width(7.dp));Text("Позвонить в поддержку",color=ProtoGold)};TextButton(onClick=onLogout,modifier=Modifier.fillMaxWidth()){Text("Выйти",color=ProtoMuted)}}}
     }
 }
 
 @Composable
 internal fun ProtoServerScreen(products:List<ProtoCatalogProduct>,stockOverrides:SnapshotStateMap<String,Int>,productionOps:List<ProtoProductionOp>,orders:List<ProtoOrder>,clients:List<ProtoClient>,reservedForSku:(String)->Int,onBack:()->Unit,onProduced:()->Unit,onStock:()->Unit,onReserve:()->Unit,onNewClients:()->Unit,onOnline:()->Unit,onExport:()->Unit){
     val reserve=products.sumOf{reservedForSku(it.sku)};val available=products.sumOf{p->((stockOverrides[p.sku]?:p.stock)-reservedForSku(p.sku)).coerceAtLeast(0)};val monthProduced=productionOps.sumOf{it.qty};val monthKey=LocalDate.now().format(DateTimeFormatter.ofPattern("MM.yyyy"));val newClients=clients.count{it.registeredAt.endsWith(monthKey)}
-    Box(Modifier.fillMaxSize()){ProtoLiveBackground();LazyColumn(Modifier.fillMaxSize(),contentPadding=PaddingValues(horizontal=18.dp,vertical=8.dp),verticalArrangement=Arrangement.spacedBy(12.dp)){item{ProtoBrandHeader(onBack=onBack)};item{Text("Сервер данных",color=ProtoText,fontSize=30.sp,fontWeight=FontWeight.Bold);Text("Учёт по месяцам · "+currentMonthLabel(),color=ProtoMuted,fontSize=13.sp)};item{Row(horizontalArrangement=Arrangement.spacedBy(8.dp)){ProtoMetricCard("Выпуск",monthProduced.toString(),"",Modifier.weight(1f),onProduced);ProtoMetricCard("Резерв",reserve.toString(),"",Modifier.weight(1f),onReserve)}};item{Row(horizontalArrangement=Arrangement.spacedBy(8.dp)){ProtoMetricCard("Доступно",available.toString(),"",Modifier.weight(1f),onStock);ProtoMetricCard("Новые клиенты",newClients.toString(),"",Modifier.weight(1f),onNewClients)}};item{Text("Товары",color=ProtoText,fontSize=21.sp,fontWeight=FontWeight.Bold)};items(products.take(12)){p->val ph=stockOverrides[p.sku]?:p.stock;val rs=reservedForSku(p.sku);ProtoSectionCard{Row{Column(Modifier.weight(1f)){Text(p.name,color=ProtoText,fontWeight=FontWeight.SemiBold);Text(p.sku,color=ProtoMuted,fontSize=10.sp)};Column(horizontalAlignment=Alignment.End){Text("Остаток $ph",color=ProtoText,fontSize=11.sp);Text("Резерв $rs · Доступно "+(ph-rs).coerceAtLeast(0),color=ProtoGoldSoft,fontSize=11.sp)}}}};item{ProtoSectionCard(Modifier.clickable{onOnline()}){ProtoInfoRow("Клиенты онлайн",clients.count{it.online}.toString())}};item{Row(horizontalArrangement=Arrangement.spacedBy(8.dp)){ProtoSecondaryButton("Экспорт",onExport,Modifier.weight(1f));ProtoSecondaryButton("Остатки",onStock,Modifier.weight(1f))}}}}
+    Box(Modifier.fillMaxSize()){ProtoLiveBackground();LazyColumn(Modifier.fillMaxSize(),contentPadding=PaddingValues(horizontal=18.dp,vertical=8.dp),verticalArrangement=Arrangement.spacedBy(12.dp)){item{ProtoBrandHeader(onBack=onBack)};item{Text("Сервер данных",color=ProtoText,fontSize=30.sp,fontWeight=FontWeight.Bold);Text("Учёт по месяцам · "+currentMonthLabel(),color=ProtoMuted,fontSize=13.sp)};item{Row(horizontalArrangement=Arrangement.spacedBy(8.dp)){ProtoMetricCard("Выпуск",monthProduced.toString(),"",Modifier.weight(1f),onProduced);ProtoMetricCard("Резерв",reserve.toString(),"",Modifier.weight(1f),onReserve)}};item{Row(horizontalArrangement=Arrangement.spacedBy(8.dp)){ProtoMetricCard("Доступно",available.toString(),"",Modifier.weight(1f),onStock);ProtoMetricCard("Новые клиенты",newClients.toString(),"",Modifier.weight(1f),onNewClients)}};item{Text("Товары",color=ProtoText,fontSize=21.sp,fontWeight=FontWeight.Bold)};items(products.take(12)){p->val ph=stockOverrides[p.sku]?:p.stock;val rs=reservedForSku(p.sku);ProtoSectionCard{Row{Column(Modifier.weight(1f)){Text(p.name,color=ProtoText,fontWeight=FontWeight.SemiBold);Text(p.sku,color=ProtoMuted,fontSize=12.sp)};Column(horizontalAlignment=Alignment.End){Text("Остаток $ph",color=ProtoText,fontSize=12.sp);Text("Резерв $rs · Доступно "+(ph-rs).coerceAtLeast(0),color=ProtoGoldSoft,fontSize=12.sp)}}}};item{ProtoSectionCard(Modifier.clickable{onOnline()}){ProtoInfoRow("Клиенты онлайн",clients.count{it.online}.toString())}};item{Row(horizontalArrangement=Arrangement.spacedBy(8.dp)){ProtoSecondaryButton("Экспорт",onExport,Modifier.weight(1f));ProtoSecondaryButton("Остатки",onStock,Modifier.weight(1f))}}}}
 }
 
 @Composable
@@ -4097,8 +4141,8 @@ internal fun ProtoStockListScreen(
                         Row(verticalAlignment=Alignment.CenterVertically){
                             Box(Modifier.size(44.dp).background(ProtoPanel2,RoundedCornerShape(12.dp)),contentAlignment=Alignment.Center){Icon(protoIconForType(entry.key),null,tint=ProtoGold)}
                             Spacer(Modifier.width(10.dp))
-                            Column(Modifier.weight(1f)){Text(entry.key,color=ProtoText,fontWeight=FontWeight.Bold);Text(entry.value.size.toString()+" артикулов",color=ProtoMuted,fontSize=10.sp)}
-                            Column(horizontalAlignment=Alignment.End){Text(physicalQty.toString()+" шт.",color=ProtoGoldSoft,fontWeight=FontWeight.Bold);Text("доступно "+availableQty,color=ProtoMuted,fontSize=9.sp)}
+                            Column(Modifier.weight(1f)){Text(entry.key,color=ProtoText,fontWeight=FontWeight.Bold);Text(entry.value.size.toString()+" артикулов",color=ProtoMuted,fontSize=12.sp)}
+                            Column(horizontalAlignment=Alignment.End){Text(physicalQty.toString()+" шт.",color=ProtoGoldSoft,fontWeight=FontWeight.Bold);Text("доступно "+availableQty,color=ProtoMuted,fontSize=11.sp)}
                             Icon(Icons.Outlined.ChevronRight,null,tint=ProtoGold)
                         }
                     }
@@ -4110,8 +4154,8 @@ internal fun ProtoStockListScreen(
                 items(groups.entries.toList(),key={it.key}){entry->
                     ProtoSectionCard(Modifier.clickable{group=entry.key}){
                         Row(verticalAlignment=Alignment.CenterVertically){
-                            Column(Modifier.weight(1f)){Text(entry.key,color=ProtoText,fontWeight=FontWeight.Bold);Text(entry.value.size.toString()+" артикулов",color=ProtoMuted,fontSize=10.sp)}
-                            Column(horizontalAlignment=Alignment.End){Text(entry.value.sumOf{physical(it)}.toString()+" шт.",color=ProtoGoldSoft,fontWeight=FontWeight.Bold);Text("доступно "+entry.value.sumOf{available(it)},color=ProtoMuted,fontSize=9.sp)}
+                            Column(Modifier.weight(1f)){Text(entry.key,color=ProtoText,fontWeight=FontWeight.Bold);Text(entry.value.size.toString()+" артикулов",color=ProtoMuted,fontSize=12.sp)}
+                            Column(horizontalAlignment=Alignment.End){Text(entry.value.sumOf{physical(it)}.toString()+" шт.",color=ProtoGoldSoft,fontWeight=FontWeight.Bold);Text("доступно "+entry.value.sumOf{available(it)},color=ProtoMuted,fontSize=11.sp)}
                             Icon(Icons.Outlined.ChevronRight,null,tint=ProtoGold)
                         }
                     }
@@ -4125,8 +4169,8 @@ internal fun ProtoStockListScreen(
                     ProtoSectionCard(Modifier.clickable(enabled=canAdjust){adjustProduct=p;deltaText="";reason=""}){
                         Row(verticalAlignment=Alignment.CenterVertically){
                             ProtoProductImage(p,Modifier.size(52.dp).clip(RoundedCornerShape(8.dp)));Spacer(Modifier.width(10.dp))
-                            Column(Modifier.weight(1f)){Text(p.name,color=ProtoText,fontWeight=FontWeight.SemiBold);ProtoSkuText(p.sku,fontSize=12);Text("Факт: "+ph+" · Резерв: "+reserved,color=ProtoMuted,fontSize=10.sp)}
-                            Column(horizontalAlignment=Alignment.End){Text(av.toString()+" шт.",color=if(av>0)ProtoGreen else ProtoRed,fontWeight=FontWeight.Bold);Text("доступно",color=ProtoMuted,fontSize=9.sp);if(canAdjust)Text("Корректировать",color=ProtoGold,fontSize=9.sp)}
+                            Column(Modifier.weight(1f)){Text(p.name,color=ProtoText,fontWeight=FontWeight.SemiBold);ProtoSkuText(p.sku,fontSize=12);Text("Факт: "+ph+" · Резерв: "+reserved,color=ProtoMuted,fontSize=12.sp)}
+                            Column(horizontalAlignment=Alignment.End){Text(av.toString()+" шт.",color=if(av>0)ProtoGreen else ProtoRed,fontWeight=FontWeight.Bold);Text("доступно",color=ProtoMuted,fontSize=11.sp);if(canAdjust)Text("Корректировать",color=ProtoGold,fontSize=11.sp)}
                         }
                     }
                 }
@@ -4137,7 +4181,7 @@ internal fun ProtoStockListScreen(
         AlertDialog(
             onDismissRequest={adjustProduct=null},containerColor=ProtoPanel,
             title={Text("Корректировка склада",color=ProtoText)},
-            text={Column{Text(product.name,color=ProtoGoldSoft,fontWeight=FontWeight.SemiBold);ProtoField(deltaText,{v->deltaText=v.filter{it.isDigit()||it=='-'}},"Изменение количества",KeyboardType.Number);ProtoField(reason,{reason=it},"Причина");Text("Положительное число увеличит остаток, отрицательное уменьшит.",color=ProtoMuted,fontSize=10.sp)}},
+            text={Column{Text(product.name,color=ProtoGoldSoft,fontWeight=FontWeight.SemiBold);ProtoField(deltaText,{v->deltaText=v.filter{it.isDigit()||it=='-'}},"Изменение количества",KeyboardType.Number);ProtoField(reason,{reason=it},"Причина");Text("Положительное число увеличит остаток, отрицательное уменьшит.",color=ProtoMuted,fontSize=12.sp)}},
             confirmButton={TextButton(onClick={val delta=deltaText.toIntOrNull()?:0;if(delta!=0&&reason.isNotBlank()){onAdjust(product,delta,reason);adjustProduct=null}}){Text("Провести",color=ProtoGold)}},
             dismissButton={TextButton(onClick={adjustProduct=null}){Text("Отмена",color=ProtoMuted)}}
         )
@@ -4145,13 +4189,13 @@ internal fun ProtoStockListScreen(
 }
 
 @Composable
-internal fun ProtoLowStockListScreen(products:List<ProtoCatalogProduct>,stockOverrides:SnapshotStateMap<String,Int>,reservedForSku:(String)->Int,threshold:Int,onBack:()->Unit){val low=products.map{p->Triple(p,stockOverrides[p.sku]?:p.stock,reservedForSku(p.sku))}.filter{(p,physical,reserved)->(physical-reserved).coerceAtLeast(0)<=threshold};ProtoScaffold("Низкие остатки","Порог: ≤ $threshold шт.",onBack){if(low.isEmpty())item{Text("Все остатки выше установленного порога",color=ProtoGreen)}else items(low,key={it.first.sku}){(p,physical,reserved)->val available=(physical-reserved).coerceAtLeast(0);ProtoSectionCard{Row(verticalAlignment=Alignment.CenterVertically){ProtoProductImage(p,Modifier.size(48.dp).clip(RoundedCornerShape(8.dp)));Spacer(Modifier.width(9.dp));Column(Modifier.weight(1f)){Text(p.name,color=ProtoText,fontWeight=FontWeight.SemiBold);Text("${p.sku} · факт $physical · резерв $reserved",color=ProtoMuted,fontSize=10.sp)};Text("$available",color=ProtoOrange,fontSize=20.sp,fontWeight=FontWeight.Bold)}}}}}
+internal fun ProtoLowStockListScreen(products:List<ProtoCatalogProduct>,stockOverrides:SnapshotStateMap<String,Int>,reservedForSku:(String)->Int,threshold:Int,onBack:()->Unit){val low=products.map{p->Triple(p,stockOverrides[p.sku]?:p.stock,reservedForSku(p.sku))}.filter{(p,physical,reserved)->(physical-reserved).coerceAtLeast(0)<=threshold};ProtoScaffold("Низкие остатки","Порог: ≤ $threshold шт.",onBack){if(low.isEmpty())item{Text("Все остатки выше установленного порога",color=ProtoGreen)}else items(low,key={it.first.sku}){(p,physical,reserved)->val available=(physical-reserved).coerceAtLeast(0);ProtoSectionCard{Row(verticalAlignment=Alignment.CenterVertically){ProtoProductImage(p,Modifier.size(48.dp).clip(RoundedCornerShape(8.dp)));Spacer(Modifier.width(9.dp));Column(Modifier.weight(1f)){Text(p.name,color=ProtoText,fontWeight=FontWeight.SemiBold);Text("${p.sku} · факт $physical · резерв $reserved",color=ProtoMuted,fontSize=12.sp)};Text("$available",color=ProtoOrange,fontSize=20.sp,fontWeight=FontWeight.Bold)}}}}}
 
 @Composable
-internal fun ProtoReserveListScreen(orders:List<ProtoOrder>,onBack:()->Unit){ProtoScaffold("Резерв","За кем закреплены товары",onBack){items(orders.filter{it.status!="Доставлен"},key={it.id}){o->ProtoSectionCard{Text(o.clientName,color=ProtoText,fontWeight=FontWeight.SemiBold);Text("${o.id} · ${o.pieces} шт. · ${protoMoney(o.total)}",color=ProtoMuted,fontSize=11.sp);o.lines.forEach{l->Text("${l.sku} — ${l.qty} шт.",color=ProtoGoldSoft,fontSize=11.sp)}}}}}
+internal fun ProtoReserveListScreen(orders:List<ProtoOrder>,onBack:()->Unit){ProtoScaffold("Резерв","За кем закреплены товары",onBack){items(orders.filter{it.status!="Доставлен"},key={it.id}){o->ProtoSectionCard{Text(o.clientName,color=ProtoText,fontWeight=FontWeight.SemiBold);Text("${o.id} · ${o.pieces} шт. · ${protoMoney(o.total)}",color=ProtoMuted,fontSize=12.sp);o.lines.forEach{l->Text("${l.sku} — ${l.qty} шт.",color=ProtoGoldSoft,fontSize=12.sp)}}}}}
 
 @Composable
-internal fun ProtoNewClientsScreen(clients:List<ProtoClient>,onBack:()->Unit,onOpen:(ProtoClient)->Unit){val monthKey=LocalDate.now().format(DateTimeFormatter.ofPattern("MM.yyyy"));val current=clients.filter{it.registeredAt.endsWith(monthKey)};ProtoScaffold("Новые клиенты",currentMonthLabel(),onBack){items(current,key={it.id}){c->ProtoSectionCard(Modifier.clickable{onOpen(c)}){Text(c.name,color=ProtoText,fontWeight=FontWeight.SemiBold);Text("${c.orderCount} заказов · оборот ${protoMoney(c.monthTurnover)}",color=ProtoMuted,fontSize=11.sp)}}}}
+internal fun ProtoNewClientsScreen(clients:List<ProtoClient>,onBack:()->Unit,onOpen:(ProtoClient)->Unit){val monthKey=LocalDate.now().format(DateTimeFormatter.ofPattern("MM.yyyy"));val current=clients.filter{it.registeredAt.endsWith(monthKey)};ProtoScaffold("Новые клиенты",currentMonthLabel(),onBack){items(current,key={it.id}){c->ProtoSectionCard(Modifier.clickable{onOpen(c)}){Text(c.name,color=ProtoText,fontWeight=FontWeight.SemiBold);Text("${c.orderCount} заказов · оборот ${protoMoney(c.monthTurnover)}",color=ProtoMuted,fontSize=12.sp)}}}}
 
 @Composable
 internal fun ProtoExportScreen(onBack:()->Unit,onExport:(String)->Unit){var report by remember{mutableStateOf("Остатки на складе")};ProtoScaffold("Экспорт","Выберите отчёт — CSV сохраняется в Downloads",onBack){item{ProtoSectionCard{listOf("Остатки на складе","Резерв по клиентам","Выпуск за месяц","Производство по сборщицам","Заказы за месяц").forEach{r->Row(Modifier.fillMaxWidth().clickable{report=r}.padding(vertical=5.dp),verticalAlignment=Alignment.CenterVertically){RadioButton(selected=report==r,onClick={report=r},colors=RadioButtonDefaults.colors(selectedColor=ProtoGold));Text(r,color=ProtoText)}};Button(onClick={onExport(report)},modifier=Modifier.fillMaxWidth().padding(top=8.dp),colors=ButtonDefaults.buttonColors(containerColor=ProtoGold)){Icon(Icons.Outlined.FileDownload,null,tint=Color.Black);Spacer(Modifier.width(7.dp));Text("Экспортировать CSV",color=Color.Black,fontWeight=FontWeight.Bold)}}}}}
@@ -4176,74 +4220,31 @@ internal fun ProtoSimpleMessageScreen(title:String,text:String,onBack:()->Unit){
 }
 
 @Composable
-internal fun ProtoScaffold(title:String,subtitle:String?=null,onBack:(()->Unit)?=null,content:LazyListScope.()->Unit){
-    Box(Modifier.fillMaxSize()){ProtoLiveBackground();Column(Modifier.fillMaxSize()){ProtoBrandHeader(onBack=onBack);Column(Modifier.padding(horizontal=16.dp)){Text(title,color=ProtoText,fontSize=28.sp,fontWeight=FontWeight.Bold);if(subtitle!=null)Text(subtitle,color=ProtoMuted,fontSize=12.sp)};LazyColumn(Modifier.weight(1f),contentPadding=PaddingValues(horizontal=16.dp,vertical=8.dp),verticalArrangement=Arrangement.spacedBy(10.dp),content=content)}}
+internal fun ProtoScaffold(
+    title:String,
+    subtitle:String?=null,
+    onBack:(()->Unit)?=null,
+    action:(@Composable ()->Unit)?=null,
+    bottomBar:(@Composable ()->Unit)?=null,
+    content:LazyListScope.()->Unit
+){
+    // Внутренние экраны: компактная шапка вместо крупного логотипа — больше места под содержимое.
+    Box(Modifier.fillMaxSize()){
+        ProtoLiveBackground()
+        Column(Modifier.fillMaxSize()){
+            ProtoTopBar(title=title,subtitle=subtitle,onBack=onBack,action=action)
+            LazyColumn(Modifier.weight(1f),contentPadding=PaddingValues(start=16.dp,end=16.dp,top=4.dp,bottom=16.dp),verticalArrangement=Arrangement.spacedBy(10.dp),content=content)
+            if(bottomBar!=null)bottomBar()
+        }
+    }
 }
-
-@Composable
-internal fun ProtoHeader(title:String,subtitle:String,onBack:()->Unit){Row(verticalAlignment=Alignment.CenterVertically){ProtoCircleBack(onBack);Spacer(Modifier.width(12.dp));Column{Text(title,color=ProtoText,fontSize=27.sp,fontWeight=FontWeight.Bold);Text(subtitle,color=ProtoMuted,fontSize=11.sp)}}}
 
 @Composable
 internal fun ProtoCircleBack(onClick:()->Unit){Box(Modifier.size(44.dp).clip(CircleShape).background(Color(0xCC11100E)).border(1.dp,ProtoGold,CircleShape).clickable(onClick=onClick),contentAlignment=Alignment.Center){Icon(Icons.Outlined.ArrowBack,null,tint=ProtoGold)}}
 
 @Composable
-internal fun ProtoBackButton(onClick: () -> Unit) {
-    Box(
-        modifier = Modifier
-            .padding(start = 14.dp, top = 34.dp)
-            .size(46.dp)
-            .clip(CircleShape)
-            .background(Color(0xCC11100E))
-            .border(1.dp, ProtoGold, CircleShape)
-            .clickable(onClick = onClick),
-        contentAlignment = Alignment.Center
-    ) {
-        Icon(Icons.Outlined.ArrowBack, null, tint = ProtoGold, modifier = Modifier.size(25.dp))
-    }
-}
-
-@Composable
-internal fun BoxScope.PrototypeClickArea(
-    maxWidth: Dp,
-    maxHeight: Dp,
-    x: Float,
-    y: Float,
-    w: Float,
-    h: Float,
-    onClick: () -> Unit
-) {
-    Box(
-        Modifier
-            .offset(x = maxWidth * x, y = maxHeight * y)
-            .width(maxWidth * w)
-            .height(maxHeight * h)
-            .clickable(onClick = onClick)
-    )
-}
-
-@Composable
 internal fun ProtoQtyButton(icon: androidx.compose.ui.graphics.vector.ImageVector,onClick:()->Unit,size:Dp=34.dp){
     Surface(color=ProtoPanel2,border=BorderStroke(1.dp,ProtoGold),shape=RoundedCornerShape(10.dp),modifier=Modifier.size(size).clickable(onClick=onClick)){Box(Modifier.fillMaxSize(),contentAlignment=Alignment.Center){Icon(icon,null,tint=ProtoGold,modifier=Modifier.size((size.value*.48f).dp))}}
-}
-
-@Composable
-internal fun BoxScope.ProtoDevelopmentMiniBadge(maxWidth:Dp,maxHeight:Dp,x:Float,y:Float,w:Float,h:Float){
-    Box(Modifier.offset(maxWidth*x,maxHeight*y).size(maxWidth*w,maxHeight*h).background(Color.Black.copy(alpha=.38f),RoundedCornerShape(10.dp)),contentAlignment=Alignment.BottomCenter){Surface(color=ProtoPanel.copy(alpha=.94f),shape=RoundedCornerShape(10.dp),border=BorderStroke(1.dp,ProtoBorder),modifier=Modifier.padding(bottom=4.dp)){Text("В разработке",color=ProtoMuted,fontSize=7.sp,maxLines=1,modifier=Modifier.padding(horizontal=4.dp,vertical=2.dp))}}
-}
-
-@Composable
-internal fun BoxScope.ProtoDevelopmentOverlay(maxWidth:Dp,maxHeight:Dp,x:Float,y:Float,w:Float,h:Float){
-    Box(Modifier.offset(maxWidth*x,maxHeight*y).size(maxWidth*w,maxHeight*h).background(Color.Black.copy(alpha=.52f),RoundedCornerShape(14.dp)),contentAlignment=Alignment.Center){Surface(color=ProtoPanel.copy(alpha=.94f),border=BorderStroke(1.dp,ProtoBorder),shape=RoundedCornerShape(18.dp)){Text("В разработке",color=ProtoMuted,fontSize=11.sp,fontWeight=FontWeight.SemiBold,modifier=Modifier.padding(horizontal=12.dp,vertical=6.dp))}}
-}
-
-@Composable
-internal fun BoxWithConstraintsScope.ProtoReferenceCartBadge(count:Int){
-    Box(Modifier.offset(maxWidth*.488f,maxHeight*.908f).size(32.dp).background(ProtoPanel,CircleShape))
-    if(count>0){
-        Box(Modifier.offset(maxWidth*.505f,maxHeight*.912f).size(23.dp).background(ProtoGold,CircleShape),contentAlignment=Alignment.Center){
-            Text(count.coerceAtMost(99).toString(),color=Color.Black,fontSize=9.sp,fontWeight=FontWeight.Bold)
-        }
-    }
 }
 
 @Composable
@@ -4299,69 +4300,13 @@ internal fun ProtoCompactGrid(title:String,options:List<String>,selected:Set<Str
 }
 
 @Composable
-internal fun ProtoCategoryButton(label:String,disabled:Boolean,modifier:Modifier,onClick:()->Unit){OutlinedButton(onClick=onClick,enabled=true,modifier=modifier.height(46.dp),border=BorderStroke(1.dp,if(disabled)ProtoBorder else ProtoGold),contentPadding=PaddingValues(horizontal=5.dp)){Text(if(disabled)"$label · скоро" else label,color=if(disabled)ProtoMuted else ProtoGold,fontSize=11.sp,maxLines=1)}}
+internal fun ProtoOrderRow(o:ProtoOrder,onClick:()->Unit){ProtoSectionCard(Modifier.clickable(onClick=onClick)){Row{Column(Modifier.weight(1f)){Text(o.id,color=ProtoGoldSoft,fontWeight=FontWeight.Bold);Text(o.clientName,color=ProtoText,fontWeight=FontWeight.SemiBold);Text("${o.pieces} шт. · ${o.dateTime}",color=ProtoMuted,fontSize=12.sp)};Column(horizontalAlignment=Alignment.End){Text(protoMoney(o.total),color=ProtoGoldSoft,fontWeight=FontWeight.Bold);ProtoPill(o.status,protoStatusColor(o.status))}}}}
 
 @Composable
-internal fun ProtoPopularRow(p:ProtoCatalogProduct,stock:Int,onOpen:()->Unit){
-    Card(
-        colors=CardDefaults.cardColors(containerColor=ProtoPanel),
-        border=BorderStroke(1.dp,ProtoBorder),
-        shape=RoundedCornerShape(14.dp),
-        modifier=Modifier.fillMaxWidth().height(112.dp)
-    ){
-        Row(Modifier.padding(10.dp),verticalAlignment=Alignment.CenterVertically){
-            ProtoProductImage(p,Modifier.size(72.dp).clip(RoundedCornerShape(10.dp)))
-            Spacer(Modifier.width(10.dp))
-            Column(Modifier.weight(1f)){
-                Text(p.name,color=ProtoText,fontWeight=FontWeight.SemiBold,maxLines=1,overflow=TextOverflow.Ellipsis)
-                ProtoSkuText(p.sku)
-                Text(if(stock>0)"В наличии $stock шт." else "Под заказ · от ${p.productionDays} дней",color=if(stock>0)ProtoGreen else ProtoGoldSoft,fontSize=10.sp)
-                Text(protoMoney(p.price),color=ProtoGoldSoft,fontWeight=FontWeight.Bold)
-            }
-            Button(onClick=onOpen,colors=ButtonDefaults.buttonColors(containerColor=ProtoGold),contentPadding=PaddingValues(horizontal=8.dp),modifier=Modifier.width(92.dp)){
-                Text("В корзину",color=Color.Black,fontSize=10.sp,fontWeight=FontWeight.Bold,maxLines=1)
-            }
-        }
-    }
-}
-@Composable
-internal fun ProtoCartRow(p:ProtoCatalogProduct,qty:Int,onMinus:()->Unit,onPlus:()->Unit,onDelete:()->Unit){
-    Card(
-        colors=CardDefaults.cardColors(containerColor=ProtoPanel),
-        border=BorderStroke(1.dp,ProtoBorder),
-        shape=RoundedCornerShape(14.dp),
-        modifier=Modifier.height(112.dp)
-    ){
-        Row(Modifier.padding(10.dp),verticalAlignment=Alignment.CenterVertically){
-            ProtoProductImage(p,Modifier.size(64.dp).clip(RoundedCornerShape(9.dp)))
-            Spacer(Modifier.width(9.dp))
-            Column(Modifier.weight(1f)){
-                Text(p.name,color=ProtoText,fontWeight=FontWeight.SemiBold,maxLines=1,overflow=TextOverflow.Ellipsis)
-                ProtoSkuText(p.sku)
-                Row(verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.spacedBy(5.dp)){
-                    ProtoQtyButton(Icons.Outlined.Remove,onMinus)
-                    Text(qty.toString(),color=ProtoText,fontWeight=FontWeight.Bold)
-                    ProtoQtyButton(Icons.Outlined.Add,onPlus)
-                }
-            }
-            Column(horizontalAlignment=Alignment.End){
-                Text(protoMoney(p.price*qty),color=ProtoGoldSoft,fontWeight=FontWeight.Bold)
-                IconButton(onClick=onDelete){Icon(Icons.Outlined.Delete,null,tint=ProtoMuted)}
-            }
-        }
-    }
-}
-@Composable
-internal fun ProtoOrderRow(o:ProtoOrder,onClick:()->Unit){ProtoSectionCard(Modifier.clickable(onClick=onClick)){Row{Column(Modifier.weight(1f)){Text(o.id,color=ProtoGoldSoft,fontWeight=FontWeight.Bold);Text(o.clientName,color=ProtoText,fontWeight=FontWeight.SemiBold);Text("${o.pieces} шт. · ${o.dateTime}",color=ProtoMuted,fontSize=11.sp)};Column(horizontalAlignment=Alignment.End){Text(protoMoney(o.total),color=ProtoGoldSoft,fontWeight=FontWeight.Bold);ProtoPill(o.status,protoStatusColor(o.status))}}}}
+internal fun ProtoMetricCard(title:String,value:String,subtitle:String,modifier:Modifier,onClick:()->Unit){Card(colors=CardDefaults.cardColors(containerColor=ProtoPanel),border=BorderStroke(1.dp,ProtoBorder),shape=RoundedCornerShape(14.dp),modifier=modifier.clickable(onClick=onClick)){Column(Modifier.padding(12.dp)){Text(title,color=ProtoMuted,fontSize=12.sp);Text(value,color=ProtoText,fontSize=25.sp,fontWeight=FontWeight.Bold);Text(subtitle,color=ProtoGoldSoft,fontSize=12.sp)}}}
 
 @Composable
-internal fun ProtoMetricCard(title:String,value:String,subtitle:String,modifier:Modifier,onClick:()->Unit){Card(colors=CardDefaults.cardColors(containerColor=ProtoPanel),border=BorderStroke(1.dp,ProtoBorder),shape=RoundedCornerShape(14.dp),modifier=modifier.clickable(onClick=onClick)){Column(Modifier.padding(12.dp)){Text(title,color=ProtoMuted,fontSize=11.sp);Text(value,color=ProtoText,fontSize=25.sp,fontWeight=FontWeight.Bold);Text(subtitle,color=ProtoGoldSoft,fontSize=10.sp)}}}
-
-@Composable
-internal fun ProtoQuickButton(label:String,icon:androidx.compose.ui.graphics.vector.ImageVector,modifier:Modifier,onClick:()->Unit){OutlinedButton(onClick=onClick,modifier=modifier.height(64.dp),border=BorderStroke(1.dp,ProtoBorder),contentPadding=PaddingValues(3.dp)){Column(horizontalAlignment=Alignment.CenterHorizontally){Icon(icon,null,tint=ProtoGold,modifier=Modifier.size(20.dp));Text(label,color=ProtoText,fontSize=9.sp,maxLines=1)}}}
-
-@Composable
-internal fun ProtoAttentionLine(title:String,subtitle:String,color:Color,onClick:()->Unit){Card(colors=CardDefaults.cardColors(containerColor=ProtoPanel),border=BorderStroke(1.dp,ProtoBorder),modifier=Modifier.fillMaxWidth().padding(vertical=3.dp).clickable(onClick=onClick)){Row(Modifier.padding(11.dp),verticalAlignment=Alignment.CenterVertically){Box(Modifier.size(9.dp).background(color,CircleShape));Spacer(Modifier.width(9.dp));Column(Modifier.weight(1f)){Text(title,color=ProtoText,fontWeight=FontWeight.SemiBold);Text(subtitle,color=ProtoMuted,fontSize=10.sp)};Icon(Icons.Outlined.ChevronRight,null,tint=ProtoGold)}}}
+internal fun ProtoQuickButton(label:String,icon:androidx.compose.ui.graphics.vector.ImageVector,modifier:Modifier,onClick:()->Unit){OutlinedButton(onClick=onClick,modifier=modifier.height(64.dp),border=BorderStroke(1.dp,ProtoBorder),contentPadding=PaddingValues(3.dp)){Column(horizontalAlignment=Alignment.CenterHorizontally){Icon(icon,null,tint=ProtoGold,modifier=Modifier.size(20.dp));Text(label,color=ProtoText,fontSize=11.sp,maxLines=1)}}}
 
 @Composable
 internal fun ProtoSwitchRow(label:String,value:Boolean,onChange:(Boolean)->Unit){Row(Modifier.fillMaxWidth(),verticalAlignment=Alignment.CenterVertically){Text(label,color=ProtoText,modifier=Modifier.weight(1f));Switch(checked=value,onCheckedChange=onChange,colors=SwitchDefaults.colors(checkedThumbColor=Color.Black,checkedTrackColor=ProtoGold))}}
@@ -4382,10 +4327,7 @@ internal fun ProtoSkuText(sku:String,extra:String="",fontSize:Int=13){
 internal fun ProtoInfoRow(label:String,value:String){Row(Modifier.fillMaxWidth().padding(vertical=4.dp)){Text(label,color=ProtoMuted);Spacer(Modifier.weight(1f));Text(value,color=ProtoText,fontWeight=FontWeight.Medium)}}
 
 @Composable
-internal fun ProtoPill(text:String,color:Color){Surface(color=color.copy(alpha=.16f),shape=RoundedCornerShape(20.dp),border=BorderStroke(1.dp,color.copy(alpha=.55f))){Text(text,color=color,fontSize=10.sp,modifier=Modifier.padding(horizontal=8.dp,vertical=4.dp))}}
-
-@Composable
-internal fun ProtoActionChip(text:String,icon:androidx.compose.ui.graphics.vector.ImageVector,modifier:Modifier,onClick:()->Unit){OutlinedButton(onClick=onClick,modifier=modifier.height(44.dp),border=BorderStroke(1.dp,ProtoBorder)){Icon(icon,null,tint=ProtoGold,modifier=Modifier.size(17.dp));Spacer(Modifier.width(5.dp));Text(text,color=ProtoText,fontSize=11.sp)}}
+internal fun ProtoPill(text:String,color:Color){Surface(color=color.copy(alpha=.16f),shape=RoundedCornerShape(20.dp),border=BorderStroke(1.dp,color.copy(alpha=.55f))){Text(text,color=color,fontSize=12.sp,modifier=Modifier.padding(horizontal=8.dp,vertical=4.dp))}}
 
 @Composable
 internal fun ProtoClientBottomBar(current:ProtoScreen,cartCount:Int,onHome:()->Unit,onCatalog:()->Unit,onCart:()->Unit,onOrders:()->Unit,onProfile:()->Unit){
@@ -4404,7 +4346,7 @@ internal fun ProtoClientBottomBar(current:ProtoScreen,cartCount:Int,onHome:()->U
                     Icon(Icons.Outlined.ShoppingCart,null)
                 }
             },
-            label={Text("Корзина",fontSize=9.sp)},
+            label={Text("Корзина",fontSize=11.sp)},
             colors=protoNavColors()
         )
         ProtoNavItem(orders,"Заказы",Icons.Outlined.ReceiptLong,onOrders)
@@ -4435,7 +4377,7 @@ internal fun ProtoRetailBottomBar(
                     Icon(Icons.Outlined.ShoppingCart,null)
                 }
             },
-            label={Text("Корзина",fontSize=9.sp)},
+            label={Text("Корзина",fontSize=11.sp)},
             colors=protoNavColors()
         )
         ProtoNavItem(orders,"Заказы",Icons.Outlined.ReceiptLong,onOrders)
@@ -4448,10 +4390,13 @@ internal fun ProtoAdminBottomBar(current:ProtoScreen,onHome:()->Unit,onClients:(
 }
 
 @Composable
-internal fun ProtoProductionBottomBar(onHome:()->Unit,onProduction:()->Unit,onHistory:()->Unit,onStock:()->Unit,onProfile:()->Unit){NavigationBar(containerColor=ProtoPanel,tonalElevation=0.dp){ProtoNavItem(false,"Главная",Icons.Outlined.Home,onHome);ProtoNavItem(true,"Производство",Icons.Outlined.LocalFlorist,onProduction);ProtoNavItem(false,"История",Icons.Outlined.History,onHistory);ProtoNavItem(false,"Склад",Icons.Outlined.Inventory2,onStock);ProtoNavItem(false,"Профиль",Icons.Outlined.Person,onProfile)}}
+internal fun ProtoProductionBottomBar(current:ProtoScreen,onRelease:()->Unit,onHistory:()->Unit,onStock:()->Unit,onProfile:()->Unit){NavigationBar(containerColor=ProtoPanel,tonalElevation=0.dp){ProtoNavItem(current==ProtoScreen.Production,"Выпуск",Icons.Outlined.LocalFlorist,onRelease);ProtoNavItem(current==ProtoScreen.ProductionHistory,"История",Icons.Outlined.History,onHistory);ProtoNavItem(current in setOf(ProtoScreen.Server,ProtoScreen.StockList,ProtoScreen.ReserveList),"Склад",Icons.Outlined.Inventory2,onStock);ProtoNavItem(current==ProtoScreen.ProductionProfile,"Профиль",Icons.Outlined.Person,onProfile)}}
 
 @Composable
-internal fun RowScope.ProtoNavItem(selected:Boolean,label:String,icon:androidx.compose.ui.graphics.vector.ImageVector,onClick:()->Unit){NavigationBarItem(selected=selected,onClick=onClick,icon={Icon(icon,null)},label={Text(label,fontSize=9.sp)},colors=protoNavColors())}
+internal fun ProtoSalesBottomBar(current:ProtoScreen,onHome:()->Unit,onShipments:()->Unit,onClients:()->Unit,onProfile:()->Unit){NavigationBar(containerColor=ProtoPanel,tonalElevation=0.dp){ProtoNavItem(current==ProtoScreen.SalesHome,"Главная",Icons.Outlined.Home,onHome);ProtoNavItem(current in setOf(ProtoScreen.SalesShipments,ProtoScreen.SalesShipmentNew),"Отгрузки",Icons.Outlined.LocalShipping,onShipments);ProtoNavItem(current in setOf(ProtoScreen.SalesClients,ProtoScreen.SalesClient),"Клиенты",Icons.Outlined.Groups,onClients);ProtoNavItem(current==ProtoScreen.SalesProfile,"Профиль",Icons.Outlined.Person,onProfile)}}
+
+@Composable
+internal fun RowScope.ProtoNavItem(selected:Boolean,label:String,icon:androidx.compose.ui.graphics.vector.ImageVector,onClick:()->Unit){NavigationBarItem(selected=selected,onClick=onClick,icon={Icon(icon,null)},label={Text(label,fontSize=11.sp)},colors=protoNavColors())}
 
 @Composable
 internal fun protoNavColors()=NavigationBarItemDefaults.colors(selectedIconColor=Color.Black,selectedTextColor=ProtoGold,indicatorColor=ProtoGold,unselectedIconColor=ProtoMuted,unselectedTextColor=ProtoMuted)
@@ -4593,8 +4538,6 @@ internal fun protoStatusColor(status:String):Color = when(status){
     else->ProtoGoldSoft
 }
 internal fun protoIconForType(type:String)=when(type){"Венки","Венки круглые"->Icons.Outlined.LocalFlorist;"Корзины"->Icons.Outlined.ShoppingBasket;"Полянки","Флоретки"->Icons.Outlined.Spa;"Ленты"->Icons.Outlined.ReceiptLong;else->Icons.Outlined.Inventory2}
-
-internal fun protoLoadProducts(context:Context):List<ProtoCatalogProduct>{return try{val root=JSONObject(context.assets.open("demo_data.json").bufferedReader().use{it.readText()});val arr=root.getJSONArray("products");(0 until arr.length()).map{i->val o=arr.getJSONObject(i);ProtoCatalogProduct(o.getString("sku"),o.getString("name"),o.getString("type"),o.optString("quality","—"),o.getString("size"),o.getInt("price"),o.getInt("stock"),o.getString("status"),o.optInt("productionDays",3),o.optString("imageUrl",""),o.optString("externalId",o.optString("sku","")))}}catch(_:Exception){emptyList()}}
 
 internal fun protoExportCsv(
     context: Context,
@@ -4755,7 +4698,7 @@ internal fun ProtoSalesShipmentForm(
             items(found.take(12), key = { it.id }) { c ->
                 ProtoSectionCard(Modifier.clickable { client = c; order = null; amountText = "" }) {
                     Text(c.name, color = ProtoText, fontWeight = FontWeight.Bold)
-                    Text(c.contact + " · " + c.phone, color = ProtoMuted, fontSize = 12.sp)
+                    Text(c.contact + " · " + protoPhone(c.phone), color = ProtoMuted, fontSize = 12.sp)
                 }
             }
         } else {
@@ -4763,7 +4706,7 @@ internal fun ProtoSalesShipmentForm(
                 ProtoSectionCard {
                     Text("Клиент", color = ProtoGoldSoft, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
                     Text(client!!.name, color = ProtoText, fontWeight = FontWeight.Bold, fontSize = 18.sp)
-                    Text(client!!.contact + " · " + client!!.phone, color = ProtoMuted, fontSize = 12.sp)
+                    Text(client!!.contact + " · " + protoPhone(client!!.phone), color = ProtoMuted, fontSize = 12.sp)
                     Spacer(Modifier.height(8.dp))
                     ProtoSecondaryButton("Выбрать другого клиента", { client = null; order = null; amountText = "" })
                 }
@@ -4928,7 +4871,7 @@ internal fun ProtoSalesClientsScreen(
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Column(Modifier.weight(1f)) {
                         Text(c.name, color = ProtoText, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                        Text(c.contact + " · " + c.phone, color = ProtoMuted, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        Text(c.contact + " · " + protoPhone(c.phone), color = ProtoMuted, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
                     }
                     if (debt > 0) Text(protoMoney(debt), color = ProtoRed, fontWeight = FontWeight.Bold)
                 }
@@ -4973,7 +4916,7 @@ internal fun ProtoSalesClientScreen(
     ProtoScaffold(c.name, c.contact, onBack) {
         item {
             ProtoSectionCard {
-                ProtoInfoRow("Телефон", c.phone)
+                ProtoInfoRow("Телефон", protoPhone(c.phone))
                 if (c.email.isNotBlank()) ProtoInfoRow("E-mail", c.email)
                 if (c.city.isNotBlank()) ProtoInfoRow("Город", c.city)
                 if (c.address.isNotBlank()) ProtoInfoRow("Адрес", c.address)
@@ -5038,9 +4981,9 @@ internal fun ProtoFinanceCard(title: String, value: String, subtitle: String, va
         modifier = modifier.clickable(onClick = onClick)
     ) {
         Column(Modifier.padding(12.dp)) {
-            Text(title, color = ProtoMuted, fontSize = 11.sp)
+            Text(title, color = ProtoMuted, fontSize = 12.sp)
             Text(value, color = valueColor, fontSize = 21.sp, fontWeight = FontWeight.Bold, maxLines = 1)
-            Text(subtitle, color = ProtoGoldSoft, fontSize = 10.sp, maxLines = 1)
+            Text(subtitle, color = ProtoGoldSoft, fontSize = 12.sp, maxLines = 1)
         }
     }
 }

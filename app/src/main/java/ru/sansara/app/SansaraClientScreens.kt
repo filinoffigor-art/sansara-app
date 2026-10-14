@@ -239,7 +239,7 @@ internal fun ProtoRegistrationSentScreen(reg: ProtoRegistration?, onBack: () -> 
                 "Мы проверим данные в течение рабочего дня. Администратор позвонит и сообщит код доступа" + (reg?.phone1?.let { " на номер $it" } ?: "") + ".",
                 color = ProtoMuted, fontSize = 15.sp, lineHeight = 21.sp, textAlign = TextAlign.Center, modifier = Modifier.padding(vertical = 14.dp)
             )
-            if (reg != null) ProtoSectionCard { ProtoInfoLine("Тип клиента", reg.type); ProtoInfoLine("Организация", reg.organization); ProtoInfoLine("Контакт", reg.contact1); ProtoInfoLine("Телефон", reg.phone1) }
+            if (reg != null) ProtoSectionCard { ProtoInfoLine("Тип клиента", reg.type); ProtoInfoLine("Организация", reg.organization); ProtoInfoLine("Контакт", reg.contact1); ProtoInfoLine("Телефон", protoPhone(reg.phone1)) }
             Spacer(Modifier.weight(1f))
             ProtoPrimaryButton("Понятно", onBack)
             Spacer(Modifier.height(10.dp))
