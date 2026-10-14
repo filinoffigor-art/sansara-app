@@ -125,7 +125,17 @@ class SansaraRoleSmokeTest {
         scrollTo("В корзину")
         compose.onAllNodes(hasScrollToNodeAction()).onFirst().performTouchInput { swipeUp(startY = centerY, endY = top) }
         compose.waitForIdle()
-        compose.onAllNodes(hasText("В корзину") and hasClickAction()).onFirst().performClick()
+        // Кнопка у края экрана может оказаться под панелью — пробуем видимые по очереди, пока товар не добавится.
+        val buttons = compose.onAllNodes(hasText("В корзину") and hasClickAction())
+        val count = buttons.fetchSemanticsNodes().size
+        for (i in 0 until count) {
+            if (compose.onAllNodes(hasText("1 шт.", substring = true)).fetchSemanticsNodes().isNotEmpty()) break
+            runCatching { compose.onAllNodes(hasText("В корзину") and hasClickAction())[0].performClick() }
+            compose.waitForIdle()
+            runCatching { compose.waitUntil(3_000) { compose.onAllNodes(hasText("1 шт.", substring = true)).fetchSemanticsNodes().isNotEmpty() } }
+            if (compose.onAllNodes(hasText("1 шт.", substring = true)).fetchSemanticsNodes().isEmpty())
+                compose.onAllNodes(hasScrollToNodeAction()).onFirst().performTouchInput { swipeUp(startY = centerY, endY = centerY - height / 4f) }
+        }
         waitText("1 шт.")                          // товар добавлен — на карточке счётчик вместо кнопки
         click("Корзина")
         waitText("Оформить заказ")
