@@ -565,14 +565,18 @@ fun SansaraVisualPrototype() {
     }
     fun repeatOrder(order: ProtoOrder, edit: Boolean) {
         if (orderingBlocked()) { go(ProtoScreen.Suspended); return }
-        cart.clear()
+        // Корзину не очищаем молча: позиции заказа добавляются к тому, что уже лежит в корзине.
+        val hadItems = cart.isNotEmpty()
         var missing = 0
         order.lines.forEach { line ->
-            if (catalogProducts.any { it.sku == line.sku }) cart[line.sku] = line.qty else missing += 1
+            if (catalogProducts.any { it.sku == line.sku }) cart[line.sku] = (cart[line.sku] ?: 0) + line.qty else missing += 1
         }
         persistAll()
-        if (missing > 0) toast("Не добавлено позиций: $missing — сняты с продажи") else toast(if (edit) "Можно изменить состав и количество" else "Заказ " + order.id + " перенесён в корзину")
-        go(if (edit || cart.isEmpty()) ProtoScreen.Cart else ProtoScreen.Checkout)
+        toast(listOfNotNull(
+            if (hadItems) "Позиции заказа добавлены к товарам в корзине" else "Заказ " + order.id + " перенесён в корзину",
+            if (missing > 0) "не добавлено $missing — сняты с продажи" else null
+        ).joinToString(" · "))
+        go(if (edit || hadItems || cart.isEmpty()) ProtoScreen.Cart else ProtoScreen.Checkout)
     }
     fun saveDrafts() = protoSaveDrafts(prefs, productionDrafts)
     fun postDrafts(date: String) {
@@ -2738,7 +2742,7 @@ internal fun ProtoAgentClientDetailScreen(
     var comment by remember(c.id,c.comment){mutableStateOf(c.comment)}
     var reminderDateTime by remember{mutableStateOf(LocalDateTime.now().plusHours(2))}
     var reminderNote by remember{mutableStateOf("")}
-    val categories=listOf("Венки","Гробы","Кресты","Ленты","Одежда")
+    val categories=protoWreathGroupsOrdered
     ProtoScaffold(c.fullName,"Карточка частного клиента",onBack){
         item{ProtoSectionCard{ProtoInfoRow("Телефон",protoPhone(c.phone));if(c.email.isNotBlank())ProtoInfoRow("E-mail",c.email);if(c.city.isNotBlank())ProtoInfoRow("Город",c.city);if(c.address.isNotBlank())ProtoInfoRow("Адрес",c.address)}}
         item{OutlinedTextField(value=comment,onValueChange={comment=it},label={Text("Комментарий")},modifier=Modifier.fillMaxWidth(),minLines=3,maxLines=5,colors=protoFieldColors());Spacer(Modifier.height(8.dp));ProtoPrimaryButton("Сохранить комментарий",{onSaveComment(comment)})}
@@ -3178,7 +3182,8 @@ internal fun protoReportMonthLabel(key:String):String{
 @Composable
 internal fun ProtoProductionReportScreen(selectedDate:LocalDate,ops:List<ProtoProductionOp>,products:List<ProtoCatalogProduct>,onBack:()->Unit){
     val totalQty=ops.sumOf{it.qty}
-    val wreathQty=ops.filter{op->products.firstOrNull{it.sku==op.sku}?.type?.contains("Венки",true)==true}.sumOf{it.qty}
+    // Категория — из каталога, а если товар оттуда уже убран — по названию в строке прихода.
+    val wreathQty=ops.filter{op->(products.firstOrNull{it.sku==op.sku}?.type ?: protoGuessType(op.name)).contains("Вен",true)}.sumOf{it.qty}
     val totalAmount=ops.sumOf{it.amountRub}
     val byAssembler=ops.groupBy{it.assembler}.mapValues{entry->entry.value.sumOf{it.qty} to entry.value.sumOf{it.amountRub}}.toList().sortedByDescending{it.second.second}
     val bySku=ops.groupBy{it.sku}.map{entry->Triple(entry.key,entry.value.firstOrNull()?.name.orEmpty(),entry.value.sumOf{it.qty})}.sortedByDescending{it.third}
@@ -3838,12 +3843,12 @@ internal fun ProtoShipmentsScreen(
             dismissButton = { TextButton(onClick = { rejecting = null }) { Text("Отмена", color = ProtoMuted) } }
         )
     }
-    val filters = listOf("Все", "Ждут", "Красные", "Подтверждены")
+    val filters = listOf("Все", "Ждут", "Не оплачено", "Оплачено")
     val shown = items.filter {
         when (filter) {
             "Ждут" -> it.moneyStatus == "REQUESTED"
-            "Красные" -> it.moneyStatus != "CONFIRMED"
-            "Подтверждены" -> it.moneyStatus == "CONFIRMED"
+            "Не оплачено" -> it.moneyStatus != "CONFIRMED"
+            "Оплачено" -> it.moneyStatus == "CONFIRMED"
             else -> true
         }
     }
