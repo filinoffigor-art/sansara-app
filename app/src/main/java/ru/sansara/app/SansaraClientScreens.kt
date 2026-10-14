@@ -618,11 +618,11 @@ internal fun ProtoProductListScreen(
                 ProtoSearchField(query, onQuery, {}, focusRequester = focus)
                 run {
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        OutlinedButton(onClick = onOpenFilter, modifier = Modifier.weight(1f), border = BorderStroke(1.dp, ProtoGold), shape = RoundedCornerShape(24.dp)) {
-                            Icon(Icons.Outlined.Tune, null, tint = ProtoGold); Spacer(Modifier.width(6.dp)); Text("Изменить фильтр", color = ProtoGold, maxLines = 1, fontSize = 13.sp)
+                        OutlinedButton(onClick = onOpenFilter, modifier = Modifier.weight(1.15f), border = BorderStroke(1.dp, ProtoGold), shape = RoundedCornerShape(24.dp), contentPadding = PaddingValues(horizontal = 10.dp)) {
+                            Icon(Icons.Outlined.Tune, null, tint = ProtoGold, modifier = Modifier.size(20.dp)); Spacer(Modifier.width(6.dp)); Text("Изменить фильтр", color = ProtoGold, maxLines = 1, softWrap = false, fontSize = 13.sp)
                         }
                         Box(Modifier.weight(1f)) {
-                            OutlinedButton(onClick = { sortOpen = true }, modifier = Modifier.fillMaxWidth(), border = BorderStroke(1.dp, ProtoBorder), shape = RoundedCornerShape(24.dp)) {
+                            OutlinedButton(onClick = { sortOpen = true }, modifier = Modifier.fillMaxWidth(), border = BorderStroke(1.dp, ProtoBorder), shape = RoundedCornerShape(24.dp), contentPadding = PaddingValues(horizontal = 10.dp)) {
                                 Icon(Icons.Outlined.SwapVert, null, tint = ProtoGold); Spacer(Modifier.width(6.dp)); Text(sort, color = ProtoText, maxLines = 1, overflow = TextOverflow.Ellipsis, fontSize = 13.sp)
                             }
                             DropdownMenu(expanded = sortOpen, onDismissRequest = { sortOpen = false }) {

@@ -116,7 +116,7 @@ internal fun ProtoAdminHomeScreen(
         Scaffold(containerColor = Color.Transparent, bottomBar = { ProtoAdminBottomBar(ProtoScreen.AdminHome, onHome = {}, onClients, onOrders, onStock, onProfile = onSettings) }) { pad ->
             LazyColumn(
                 Modifier.fillMaxSize().padding(pad),
-                contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
+                contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 8.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
                 item { ProtoBrandHeader(unreadCount = unreadCount, onBell = onNotifications, edge = 0.dp) }

@@ -79,7 +79,7 @@ internal fun ProtoProductionHomeScreen(
             containerColor = Color.Transparent,
             bottomBar = { ProtoProductionBottomBar(ProtoScreen.Production, onRelease = {}, onHistory = onHistory, onStock = onStock, onProfile = onProfile) }
         ) { pad ->
-            LazyColumn(Modifier.fillMaxSize().padding(pad), contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            LazyColumn(Modifier.fillMaxSize().padding(pad), contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 8.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 item { ProtoBrandHeader(edge = 0.dp) }
                 item {
                     Row(verticalAlignment = Alignment.CenterVertically) {
