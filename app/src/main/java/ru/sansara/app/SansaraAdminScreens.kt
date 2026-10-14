@@ -610,7 +610,7 @@ internal fun ProtoAdminSettingsMenuScreen(syncStatus: String, lastSync: String, 
     val rows = listOf(
         Triple("Профиль компании", Icons.Outlined.Business, "Данные SANSARA и контакты"),
         Triple("Приветственный экран", Icons.Outlined.Campaign, "Рекламный текст при запуске приложения"),
-        Triple("Администраторы", Icons.Outlined.AdminPanelSettings, "Личные коды входа администраторов"),
+        Triple("Сотрудники и коды", Icons.Outlined.AdminPanelSettings, "Коды входа администраторов и производства"),
         Triple("Сборщицы", Icons.Outlined.Badge, "Справочник производства"),
         Triple("Ставки сборки", Icons.Outlined.Payments, "Оплата сборщицам за штуку"),
         Triple("Точки самовывоза", Icons.Outlined.Store, if (pickupCount > 0) protoPlural(pickupCount, "точка", "точки", "точек") else "Не заданы — клиент вводит адрес сам"),
@@ -1257,25 +1257,26 @@ internal fun ProtoAdminAccountsScreen(
     currentUserId: String,
     issued: Pair<String, String>?,
     onBack: () -> Unit,
-    onAdd: (String, String) -> Unit,
+    onAdd: (String, String, Boolean) -> Unit,
     onToggle: (SansaraAdminAccount) -> Unit,
     onIssuedSeen: () -> Unit
 ) {
     val context = LocalContext.current
     var name by remember { mutableStateOf("") }
     var phone by remember { mutableStateOf("") }
+    var production by remember { mutableStateOf(false) }
     val main = admins.firstOrNull { it.isMain }
     val canManage = main?.userId == currentUserId || currentUserId.isBlank()
-    ProtoScaffold("Администраторы", "У каждого — свой код входа", onBack) {
+    ProtoScaffold("Сотрудники и коды", "У каждого — свой код входа", onBack) {
         issued?.let { (who, code) ->
             item {
                 Surface(color = ProtoGold.copy(alpha = .12f), border = BorderStroke(1.dp, ProtoGold), shape = RoundedCornerShape(14.dp), modifier = Modifier.fillMaxWidth()) {
                     Column(Modifier.padding(14.dp)) {
                         Text("Код для «$who»", color = ProtoGoldSoft, fontWeight = FontWeight.SemiBold)
                         Text(code, color = ProtoText, fontSize = 30.sp, fontWeight = FontWeight.Bold, letterSpacing = 4.sp, modifier = Modifier.padding(vertical = 4.dp))
-                        Text("Код показывается один раз. Передайте его администратору.", color = ProtoMuted, fontSize = 12.sp)
+                        Text("Код показывается один раз. Передайте его сотруднику.", color = ProtoMuted, fontSize = 12.sp)
                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(top = 8.dp)) {
-                            OutlinedButton(onClick = { protoShare(context, "SANSARA: ваш код администратора $code. Вход: ваш телефон и этот код.", "Отправить код") }, border = BorderStroke(1.dp, ProtoGold), modifier = Modifier.weight(1f)) { Text("Отправить", color = ProtoGold) }
+                            OutlinedButton(onClick = { protoShare(context, "SANSARA: ваш код входа $code. Откройте приложение, нажмите «Войти» и введите этот код.", "Отправить код") }, border = BorderStroke(1.dp, ProtoGold), modifier = Modifier.weight(1f)) { Text("Отправить", color = ProtoGold) }
                             TextButton(onClick = onIssuedSeen, modifier = Modifier.weight(1f)) { Text("Готово", color = ProtoMuted) }
                         }
                     }
@@ -1285,21 +1286,32 @@ internal fun ProtoAdminAccountsScreen(
         item {
             ProtoSectionCard {
                 if (canManage) {
-                    Text("Новый администратор", color = ProtoText, fontWeight = FontWeight.SemiBold)
+                    Text("Новый сотрудник", color = ProtoText, fontWeight = FontWeight.SemiBold)
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(vertical = 8.dp)) {
+                        listOf(false to "Администратор", true to "Производство").forEach { (value, label) ->
+                            val sel = production == value
+                            Surface(
+                                onClick = { production = value },
+                                shape = RoundedCornerShape(20.dp),
+                                color = if (sel) ProtoGold else Color.Transparent,
+                                border = BorderStroke(1.dp, if (sel) ProtoGold else ProtoBorder)
+                            ) { Text(label, color = if (sel) Color.Black else ProtoText, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp)) }
+                        }
+                    }
                     ProtoField(name, { name = it.take(60) }, "Имя")
                     ProtoField(phone, { phone = protoPhoneDigits(it) }, "Телефон (10 цифр)", KeyboardType.Phone)
-                    ProtoPrimaryButton("Добавить и выдать код", { onAdd(name.trim(), phone); name = ""; phone = "" }, enabled = name.isNotBlank() && phone.length == 10)
-                } else Text("Добавлять и отключать администраторов может только главный аккаунт.", color = ProtoOrange, fontSize = 13.sp)
+                    ProtoPrimaryButton("Добавить и выдать код", { onAdd(name.trim(), phone, production); name = ""; phone = "" }, enabled = name.isNotBlank() && phone.length == 10)
+                } else Text("Добавлять и отключать сотрудников может только главный аккаунт.", color = ProtoOrange, fontSize = 13.sp)
             }
         }
         items(admins, key = { it.userId }) { admin ->
             ProtoSectionCard {
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Box(Modifier.size(42.dp).background(ProtoPanel2, CircleShape), contentAlignment = Alignment.Center) { Icon(if (admin.isMain) Icons.Outlined.VerifiedUser else Icons.Outlined.AdminPanelSettings, null, tint = ProtoGold) }
+                    Box(Modifier.size(42.dp).background(ProtoPanel2, CircleShape), contentAlignment = Alignment.Center) { Icon(if (admin.isMain) Icons.Outlined.VerifiedUser else if (admin.role == SansaraRole.PRODUCTION.name) Icons.Outlined.Factory else Icons.Outlined.AdminPanelSettings, null, tint = ProtoGold) }
                     Spacer(Modifier.width(10.dp))
                     Column(Modifier.weight(1f)) {
                         Text(admin.displayName, color = ProtoText, fontWeight = FontWeight.Bold)
-                        Text((if (admin.isMain) "Главный аккаунт" else "Администратор") + " · " + (if (admin.enabled) "активен" else "отключён"), color = if (admin.enabled) ProtoGoldSoft else ProtoRed, fontSize = 12.sp)
+                        Text((if (admin.isMain) "Главный аккаунт" else if (admin.role == SansaraRole.PRODUCTION.name) "Производство" else "Администратор") + " · " + (if (admin.enabled) "активен" else "отключён"), color = if (admin.enabled) ProtoGoldSoft else ProtoRed, fontSize = 12.sp)
                     }
                     if (!admin.isMain && canManage) Switch(checked = admin.enabled, onCheckedChange = { onToggle(admin) }, colors = SwitchDefaults.colors(checkedTrackColor = ProtoGold, checkedThumbColor = Color.Black))
                 }

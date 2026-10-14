@@ -188,4 +188,30 @@ class SansaraRoleSmokeTest {
             click("Выйти")
         }
     }
+
+    @Test
+    fun adminIssuesProductionCodeAndProductionLogsIn() {
+        login("9001")
+        waitText("Сегодня")
+        click("Профиль")
+        scrollTo("Сотрудники и коды")
+        click("Сотрудники и коды")
+        waitText("Новый сотрудник")
+        click("Производство")
+        type("Имя", "Цех Тестовый")
+        type("Телефон (10 цифр)", "9163334455")
+        click("Добавить и выдать код")
+        waitText("Код для «Цех Тестовый»")
+        val code = compose.onAllNodes(hasText("", substring = true), useUnmergedTree = true).fetchSemanticsNodes()
+            .mapNotNull { it.config.getOrNull(SemanticsProperties.Text)?.joinToString() }
+            .first { it.length == 6 && it.all(Char::isLetterOrDigit) && it.any(Char::isDigit) }
+        waitText("Производство · активен")
+        compose.activityRule.scenario.onActivity { it.onBackPressedDispatcher.onBackPressed() }
+        compose.waitForIdle()
+        scrollTo("Выйти из аккаунта")
+        click("Выйти из аккаунта")
+        compose.onAllNodes(hasText("Выйти") and hasClickAction()).onLast().performClick()
+        login(code)
+        waitText("Выпуск")
+    }
 }

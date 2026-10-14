@@ -1534,7 +1534,7 @@ fun SansaraVisualPrototype() {
                     when (section) {
                         "Клиенты" -> go(ProtoScreen.AdminClients)
                         "Сборщицы" -> go(ProtoScreen.AdminAssemblers)
-                        "Администраторы" -> { refreshOperationsData(); go(ProtoScreen.AdminAdmins) }
+                        "Сотрудники и коды" -> { refreshOperationsData(); go(ProtoScreen.AdminAdmins) }
                         "Задание в цех" -> { workshopPrefill = emptyMap(); workshopPrefillComment = ""; refreshOperationsData(); go(ProtoScreen.AdminWorkshop) }
                         "Табель рабочего времени" -> { refreshOperationsData(); go(ProtoScreen.AdminAttendance) }
                         "Отчёты" -> { refreshOperationsData(); go(ProtoScreen.AdminReports) }
@@ -1631,9 +1631,9 @@ fun SansaraVisualPrototype() {
                 currentUserId = session?.userId.orEmpty(),
                 issued = issuedAdminCode,
                 onBack = { issuedAdminCode = null; back() },
-                onAdd = { name, phone ->
+                onAdd = { name, phone, production ->
                     scope.launch {
-                        runCatching { repository.addAdmin(name, phone, session?.userId ?: "") }
+                        runCatching { repository.addAdmin(name, phone, session?.userId ?: "", if (production) SansaraRole.PRODUCTION else SansaraRole.ADMIN) }
                             .onSuccess { (_, code) -> refreshOperationsData(); issuedAdminCode = name to code }
                             .onFailure { toast(it.message ?: "Ошибка") }
                     }

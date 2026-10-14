@@ -359,6 +359,9 @@ interface SansaraDao {
     @Query("SELECT * FROM accounts WHERE role = 'ADMIN' ORDER BY firstName")
     suspend fun adminAccounts(): List<AccountEntity>
 
+    @Query("SELECT * FROM accounts WHERE role IN ('ADMIN','PRODUCTION') ORDER BY firstName")
+    suspend fun staffAccounts(): List<AccountEntity>
+
     @Query("UPDATE accounts SET enabled = :enabled WHERE userId = :userId")
     suspend fun setAccountEnabled(userId: String, enabled: Boolean)
 
@@ -836,7 +839,8 @@ data class SansaraAdminAccount(
     val userId: String,
     val displayName: String,
     val isMain: Boolean,
-    val enabled: Boolean
+    val enabled: Boolean,
+    val role: String = SansaraRole.ADMIN.name
 )
 
 class SansaraRepository private constructor(
@@ -1306,33 +1310,34 @@ class SansaraRepository private constructor(
 
     suspend fun adminAccounts():List<SansaraAdminAccount> {
         val controls=dao.adminControls().associateBy{it.userId}
-        return dao.adminAccounts().map { account ->
+        return dao.staffAccounts().map { account ->
             val control=controls[account.userId]
-            SansaraAdminAccount(account.userId,control?.displayName?:account.firstName,control?.isMain==true,account.enabled)
-        }.sortedWith(compareByDescending<SansaraAdminAccount>{it.isMain}.thenBy{it.displayName})
+            SansaraAdminAccount(account.userId,control?.displayName?:account.firstName,control?.isMain==true,account.enabled,account.role)
+        }.sortedWith(compareByDescending<SansaraAdminAccount>{it.isMain}.thenBy{it.role}.thenBy{it.displayName})
     }
 
-    suspend fun addAdmin(displayName:String,phone:String,sourceAdminUserId:String):Pair<SansaraAdminAccount,String> {
+    suspend fun addAdmin(displayName:String,phone:String,sourceAdminUserId:String,role:SansaraRole=SansaraRole.ADMIN):Pair<SansaraAdminAccount,String> {
+        require(role==SansaraRole.ADMIN || role==SansaraRole.PRODUCTION) { "Недопустимая роль" }
         val actor=dao.adminControl(sourceAdminUserId)
-        require(actor?.isMain==true) { "Добавлять администраторов может только главный аккаунт" }
+        require(actor?.isMain==true) { "Добавлять сотрудников может только главный аккаунт" }
         dao.accountByUserId(sourceAdminUserId) ?: error("Главный администратор не найден")
         val name=displayName.trim()
-        require(name.isNotBlank()) { "Введите имя администратора" }
-        require(phoneKey(phone).length==10) { "Введите телефон администратора" }
-        val id="U-ADM-"+java.util.UUID.randomUUID().toString().replace("-","").take(8).uppercase()
+        require(name.isNotBlank()) { "Введите имя сотрудника" }
+        require(phoneKey(phone).length==10) { "Введите телефон сотрудника" }
+        val id=(if(role==SansaraRole.PRODUCTION) "U-PRD-" else "U-ADM-")+java.util.UUID.randomUUID().toString().replace("-","").take(8).uppercase()
         // У каждого администратора свой код: так видно, кто что сделал, и отключение работает.
         val code=nextUniqueCode()
-        val account=AccountEntity(id,null,SansaraRole.ADMIN.name,name,"","",phone.trim(),"",hashCode(code),vault.encrypt(code),true,0L)
+        val account=AccountEntity(id,null,role.name,name,"","",phone.trim(),"",hashCode(code),vault.encrypt(code),true,0L)
         db.withTransaction {
             dao.putAccounts(listOf(account))
             dao.putAdminControls(listOf(AdminControlEntity(id,name,false,true)))
         }
-        return SansaraAdminAccount(id,name,false,true) to code
+        return SansaraAdminAccount(id,name,false,true,role.name) to code
     }
 
     suspend fun setAdminEnabled(targetUserId:String,enabled:Boolean,actingUserId:String) {
         val actor=dao.adminControl(actingUserId)
-        require(actor?.isMain==true) { "Отключать администраторов может только главный аккаунт" }
+        require(actor?.isMain==true) { "Отключать сотрудников может только главный аккаунт" }
         require(targetUserId!=actingUserId) { "Главный аккаунт нельзя отключить из самого приложения" }
         dao.setAccountEnabled(targetUserId,enabled)
         dao.adminControl(targetUserId)?.let { dao.putAdminControls(listOf(it.copy(enabled=enabled))) }
