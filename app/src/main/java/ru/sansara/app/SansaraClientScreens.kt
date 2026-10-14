@@ -53,7 +53,8 @@ internal fun ProtoLoginScreen(onBack: () -> Unit, lockedMessage: String?, error:
     var code by remember { mutableStateOf("") }
     val focus = remember { FocusRequester() }
     LaunchedEffect(Unit) { runCatching { focus.requestFocus() } }
-    val canSubmit = code.length == 6 && lockedMessage == null
+    // Новые коды — 6 символов; коды, выданные прежними версиями, были из 4 цифр и должны работать после обновления.
+    val canSubmit = code.length >= 4 && lockedMessage == null
     Box(Modifier.fillMaxSize()) {
         ProtoLiveBackground()
         Column(Modifier.fillMaxSize()) {
@@ -76,7 +77,7 @@ internal fun ProtoLoginScreen(onBack: () -> Unit, lockedMessage: String?, error:
                     )
                     if (BuildConfig.DEBUG) Text("Тестовая сборка: клиент 1024 · админ 9001 · производство 9002", color = ProtoMuted, fontSize = 12.sp, modifier = Modifier.padding(top = 4.dp))
                     Spacer(Modifier.height(12.dp))
-                    ProtoPrimaryButton("Войти", { onLogin(code) }, enabled = canSubmit || (BuildConfig.DEBUG && code.length >= 4 && lockedMessage == null))
+                    ProtoPrimaryButton("Войти", { onLogin(code) }, enabled = canSubmit)
                 }
                 Spacer(Modifier.height(8.dp))
                 ProtoClickableRow("Нет кода? Позвонить менеджеру", Icons.Outlined.HeadsetMic) { protoDial(context) }
