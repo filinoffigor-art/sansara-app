@@ -1,7 +1,7 @@
 package ru.sansara.app
 
 import androidx.compose.foundation.BorderStroke
-import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.border
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -13,11 +13,9 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.Path
-import androidx.compose.ui.graphics.drawscope.Stroke
-import androidx.compose.ui.graphics.drawscope.rotate
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -27,7 +25,72 @@ import androidx.compose.ui.unit.sp
 import java.time.LocalDate
 import java.time.format.DateTimeFormatter
 
-/** Компактная шапка внутренних экранов: «назад», заголовок, подзаголовок, одно действие справа. */
+/**
+ * Строка бренда — одинаковая на всех экранах, кроме «Добро пожаловать»:
+ * уменьшенная надпись SANSARA и подпись «Ваш оптовый партнёр» по центру,
+ * кнопки слева и справа (назад / меню / колокольчик) стоят на линии центра надписи.
+ */
+@Composable
+internal fun ProtoBrandRow(left: (@Composable () -> Unit)? = null, right: (@Composable () -> Unit)? = null, horizontalPadding: androidx.compose.ui.unit.Dp = 12.dp) {
+    Box(Modifier.fillMaxWidth().height(64.dp).padding(horizontal = horizontalPadding)) {
+        Column(Modifier.align(Alignment.TopCenter).padding(top = 10.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+            androidx.compose.foundation.Image(
+                painter = androidx.compose.ui.res.painterResource(R.drawable.sansara_wordmark_letters),
+                contentDescription = "SANSARA",
+                modifier = Modifier.height(22.dp),
+                contentScale = androidx.compose.ui.layout.ContentScale.Fit
+            )
+            Text("Ваш оптовый партнёр", color = ProtoGoldSoft, fontSize = 11.sp, letterSpacing = 1.sp, modifier = Modifier.padding(top = 4.dp))
+        }
+        // Центр надписи — 10 dp отступа + половина её высоты (11 dp) = 21 dp; кнопки 40 dp → сдвиг 1 dp.
+        if (left != null) Box(Modifier.align(Alignment.TopStart).padding(top = 1.dp)) { left() }
+        if (right != null) Box(Modifier.align(Alignment.TopEnd).padding(top = 1.dp)) { right() }
+    }
+}
+
+@Composable
+internal fun ProtoCircleBack(onClick: () -> Unit) {
+    Box(Modifier.size(40.dp).clip(CircleShape).background(ProtoPanel).border(1.dp, ProtoGold, CircleShape).clickable(onClick = onClick), contentAlignment = Alignment.Center) {
+        Icon(Icons.Outlined.ArrowBack, contentDescription = "Назад", tint = ProtoGold, modifier = Modifier.size(22.dp))
+    }
+}
+
+@Composable
+private fun CircleIcon(icon: ImageVector, description: String, onClick: () -> Unit, border: Color = ProtoGold) {
+    Box(Modifier.size(40.dp).clip(CircleShape).background(ProtoPanel).border(1.dp, border, CircleShape).clickable(onClick = onClick), contentAlignment = Alignment.Center) {
+        Icon(icon, contentDescription = description, tint = ProtoGold, modifier = Modifier.size(22.dp))
+    }
+}
+
+/** Шапка главных экранов ролей: строка бренда с меню и колокольчиком. */
+@Composable
+internal fun ProtoBrandHeader(
+    onBack: (() -> Unit)? = null,
+    unreadCount: Int = 0,
+    onBell: (() -> Unit)? = null,
+    showBell: Boolean = onBell != null,
+    onMenu: (() -> Unit)? = null,
+    edge: androidx.compose.ui.unit.Dp = 18.dp,
+    modifier: Modifier = Modifier
+) {
+    Box(modifier.fillMaxWidth()) {
+        ProtoBrandRow(
+            horizontalPadding = if (edge == 0.dp) 0.dp else 12.dp,
+            left = when {
+                onBack != null -> { { ProtoCircleBack(onBack) } }
+                onMenu != null -> { { CircleIcon(Icons.Outlined.Menu, "Меню", onMenu, ProtoBorder) } }
+                else -> null
+            },
+            right = if (showBell && onBell != null) { {
+                BadgedBox(badge = { if (unreadCount > 0) Badge(containerColor = ProtoGold) { Text(unreadCount.coerceAtMost(99).toString(), color = Color.Black, fontSize = 11.sp, fontWeight = FontWeight.Bold) } }) {
+                    CircleIcon(Icons.Outlined.Notifications, "Уведомления", onBell)
+                }
+            } } else null
+        )
+    }
+}
+
+/** Шапка внутренних экранов: строка бренда («назад» и одно действие на линии надписи), под ней заголовок экрана. */
 @Composable
 internal fun ProtoTopBar(
     title: String,
@@ -35,19 +98,92 @@ internal fun ProtoTopBar(
     onBack: (() -> Unit)? = null,
     action: (@Composable () -> Unit)? = null
 ) {
-    Row(
-        Modifier.fillMaxWidth().padding(start = 12.dp, end = 12.dp, top = 8.dp, bottom = 6.dp),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        if (onBack != null) {
-            ProtoCircleBack(onBack)
-            Spacer(Modifier.width(12.dp))
-        } else Spacer(Modifier.width(4.dp))
-        Column(Modifier.weight(1f)) {
+    Column(Modifier.fillMaxWidth()) {
+        ProtoBrandRow(left = onBack?.let { b -> { ProtoCircleBack(b) } }, right = action)
+        Column(Modifier.fillMaxWidth().padding(start = 16.dp, end = 16.dp, top = 2.dp, bottom = 8.dp)) {
             Text(title, color = ProtoText, fontSize = 24.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
             if (!subtitle.isNullOrBlank()) Text(subtitle, color = ProtoMuted, fontSize = 13.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
         }
-        if (action != null) action()
+    }
+}
+
+// ───────────── Нижнее меню ─────────────
+// Иконка стоит прямо над подписью; золотая «таблетка» активной вкладки не заходит на текст.
+
+@Composable
+internal fun ProtoNavRow(content: @Composable RowScope.() -> Unit) {
+    Surface(color = ProtoPanel, tonalElevation = 0.dp) {
+        Row(Modifier.fillMaxWidth().height(64.dp).padding(horizontal = 4.dp), verticalAlignment = Alignment.Bottom, content = content)
+    }
+}
+
+@Composable
+internal fun RowScope.ProtoNavItem(selected: Boolean, label: String, icon: ImageVector, onClick: () -> Unit, badge: Int = 0) {
+    Column(
+        Modifier.weight(1f).fillMaxHeight().clickable(onClick = onClick).padding(bottom = 7.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Bottom
+    ) {
+        Box(Modifier.size(width = 50.dp, height = 28.dp).background(if (selected) ProtoGold else Color.Transparent, RoundedCornerShape(14.dp)), contentAlignment = Alignment.Center) {
+            BadgedBox(badge = { if (badge > 0) Badge(containerColor = if (selected) Color.Black else ProtoGold) { Text(badge.coerceAtMost(99).toString(), color = if (selected) ProtoGold else Color.Black, fontSize = 10.sp, fontWeight = FontWeight.Bold) } }) {
+                Icon(icon, contentDescription = label, tint = if (selected) Color.Black else ProtoMuted, modifier = Modifier.size(22.dp))
+            }
+        }
+        Spacer(Modifier.height(3.dp))
+        Text(label, color = if (selected) ProtoGold else ProtoMuted, fontSize = 11.sp, maxLines = 1, fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal)
+    }
+}
+
+@Composable
+internal fun ProtoClientBottomBar(current: ProtoScreen, cartCount: Int, onHome: () -> Unit, onCatalog: () -> Unit, onCart: () -> Unit, onOrders: () -> Unit, onProfile: () -> Unit) {
+    ProtoNavRow {
+        ProtoNavItem(current == ProtoScreen.Home, "Главная", Icons.Outlined.Home, onHome)
+        ProtoNavItem(current in setOf(ProtoScreen.Catalog, ProtoScreen.Filter, ProtoScreen.ProductList, ProtoScreen.ProductDetail), "Каталог", Icons.Outlined.Inventory2, onCatalog)
+        ProtoNavItem(current in setOf(ProtoScreen.Cart, ProtoScreen.Checkout), "Корзина", Icons.Outlined.ShoppingCart, onCart, badge = cartCount)
+        ProtoNavItem(current in setOf(ProtoScreen.OrderList, ProtoScreen.OrderDetail, ProtoScreen.OrderSent), "Заказы", Icons.Outlined.ReceiptLong, onOrders)
+        ProtoNavItem(current == ProtoScreen.ClientChat, "Чат", Icons.Outlined.ChatBubbleOutline, onProfile)
+    }
+}
+
+@Composable
+internal fun ProtoRetailBottomBar(current: ProtoScreen, cartCount: Int, onHome: () -> Unit, onCatalog: () -> Unit, onCart: () -> Unit, onExit: () -> Unit, onOrders: () -> Unit = {}) {
+    ProtoNavRow {
+        ProtoNavItem(current == ProtoScreen.RetailHome, "Главная", Icons.Outlined.Home, onHome)
+        ProtoNavItem(current in setOf(ProtoScreen.RetailCatalog, ProtoScreen.RetailFilter, ProtoScreen.RetailProductList, ProtoScreen.RetailProductDetail), "Каталог", Icons.Outlined.Inventory2, onCatalog)
+        ProtoNavItem(current in setOf(ProtoScreen.RetailCart, ProtoScreen.RetailCheckout), "Корзина", Icons.Outlined.ShoppingCart, onCart, badge = cartCount)
+        ProtoNavItem(current in setOf(ProtoScreen.RetailOrderList, ProtoScreen.RetailOrderDetail, ProtoScreen.RetailOrderSent), "Заказы", Icons.Outlined.ReceiptLong, onOrders)
+        ProtoNavItem(false, "Выйти", Icons.Outlined.ExitToApp, onExit)
+    }
+}
+
+@Composable
+internal fun ProtoAdminBottomBar(current: ProtoScreen, onHome: () -> Unit, onClients: () -> Unit, onOrders: () -> Unit, onStock: () -> Unit, onProfile: () -> Unit) {
+    ProtoNavRow {
+        ProtoNavItem(current == ProtoScreen.AdminHome, "Главная", Icons.Outlined.Home, onHome)
+        ProtoNavItem(current in setOf(ProtoScreen.AdminClients, ProtoScreen.AdminClient), "Клиенты", Icons.Outlined.Groups, onClients)
+        ProtoNavItem(current in setOf(ProtoScreen.AdminOrders, ProtoScreen.AdminOrderDetail), "Заказы", Icons.Outlined.ReceiptLong, onOrders)
+        ProtoNavItem(current in setOf(ProtoScreen.Server, ProtoScreen.StockList, ProtoScreen.ReserveList), "Склад", Icons.Outlined.Inventory2, onStock)
+        ProtoNavItem(current in setOf(ProtoScreen.AdminSettings, ProtoScreen.AdminSettingsDetail), "Профиль", Icons.Outlined.Person, onProfile)
+    }
+}
+
+@Composable
+internal fun ProtoProductionBottomBar(current: ProtoScreen, onRelease: () -> Unit, onHistory: () -> Unit, onStock: () -> Unit, onProfile: () -> Unit) {
+    ProtoNavRow {
+        ProtoNavItem(current == ProtoScreen.Production, "Выпуск", Icons.Outlined.LocalFlorist, onRelease)
+        ProtoNavItem(current == ProtoScreen.ProductionHistory, "История", Icons.Outlined.History, onHistory)
+        ProtoNavItem(current in setOf(ProtoScreen.Server, ProtoScreen.StockList, ProtoScreen.ReserveList), "Склад", Icons.Outlined.Inventory2, onStock)
+        ProtoNavItem(current == ProtoScreen.ProductionProfile, "Профиль", Icons.Outlined.Person, onProfile)
+    }
+}
+
+@Composable
+internal fun ProtoSalesBottomBar(current: ProtoScreen, onHome: () -> Unit, onShipments: () -> Unit, onClients: () -> Unit, onProfile: () -> Unit) {
+    ProtoNavRow {
+        ProtoNavItem(current == ProtoScreen.SalesHome, "Главная", Icons.Outlined.Home, onHome)
+        ProtoNavItem(current in setOf(ProtoScreen.SalesShipments, ProtoScreen.SalesShipmentNew), "Отгрузки", Icons.Outlined.LocalShipping, onShipments)
+        ProtoNavItem(current in setOf(ProtoScreen.SalesClients, ProtoScreen.SalesClient), "Клиенты", Icons.Outlined.Groups, onClients)
+        ProtoNavItem(current == ProtoScreen.SalesProfile, "Профиль", Icons.Outlined.Person, onProfile)
     }
 }
 
@@ -72,44 +208,6 @@ internal fun ProtoEmptyState(
             OutlinedButton(onClick = onAction, border = BorderStroke(1.dp, ProtoGold), shape = RoundedCornerShape(24.dp)) {
                 Text(actionLabel, color = ProtoGold, fontWeight = FontWeight.SemiBold)
             }
-        }
-    }
-}
-
-/** Едва заметный узор из листьев на фоне всех экранов (рисуется кодом, без картинок). */
-@Composable
-internal fun ProtoLeafPattern(modifier: Modifier = Modifier) {
-    Canvas(modifier) {
-        val step = 118.dp.toPx()
-        val leafLen = 38.dp.toPx()
-        val leafW = 11.dp.toPx()
-        val fill = Color(0xFFD8B07C).copy(alpha = 0.035f)
-        val vein = Color(0xFFD8B07C).copy(alpha = 0.05f)
-        var row = 0
-        var y = step * 0.4f
-        while (y < size.height + step) {
-            var col = 0
-            var x = if (row % 2 == 0) step * 0.3f else step * 0.8f
-            while (x < size.width + step) {
-                val angle = ((row * 47 + col * 71) % 120 - 60).toFloat()
-                rotate(angle, pivot = Offset(x, y)) {
-                    val top = y - leafLen / 2
-                    val bottom = y + leafLen / 2
-                    val leaf = Path().apply {
-                        moveTo(x, top)
-                        cubicTo(x + leafW, top + leafLen * 0.25f, x + leafW, bottom - leafLen * 0.25f, x, bottom)
-                        cubicTo(x - leafW, bottom - leafLen * 0.25f, x - leafW, top + leafLen * 0.25f, x, top)
-                        close()
-                    }
-                    drawPath(leaf, fill)
-                    drawLine(vein, Offset(x, top + 4f), Offset(x, bottom + leafLen * 0.18f), strokeWidth = 1.2f)
-                    drawPath(leaf, vein, style = Stroke(width = 1f))
-                }
-                x += step
-                col++
-            }
-            y += step * 0.78f
-            row++
         }
     }
 }
@@ -274,3 +372,51 @@ internal fun protoOrderEpoch(value: String): Long = runCatching {
     java.time.LocalDateTime.parse(value.trim(), DateTimeFormatter.ofPattern("dd.MM.yyyy HH:mm"))
         .atZone(java.time.ZoneId.systemDefault()).toInstant().toEpochMilli()
 }.getOrDefault(0L)
+
+/** Строка поиска прямо на экране: ввод, крестик очистки и золотая кнопка «Найти» в правом углу. */
+@Composable
+internal fun ProtoSearchField(
+    value: String,
+    onValueChange: (String) -> Unit,
+    onSearch: () -> Unit,
+    placeholder: String = "Артикул или название",
+    modifier: Modifier = Modifier,
+    focusRequester: androidx.compose.ui.focus.FocusRequester? = null
+) {
+    val focus = androidx.compose.ui.platform.LocalFocusManager.current
+    val submit = { focus.clearFocus(); onSearch() }
+    Surface(color = ProtoPanel, border = BorderStroke(1.dp, ProtoBorder), shape = RoundedCornerShape(26.dp), modifier = modifier.fillMaxWidth().height(52.dp)) {
+        Row(Modifier.fillMaxSize().padding(start = 16.dp, end = 5.dp), verticalAlignment = Alignment.CenterVertically) {
+            Icon(Icons.Outlined.Search, null, tint = ProtoGold, modifier = Modifier.size(22.dp))
+            Spacer(Modifier.width(10.dp))
+            Box(Modifier.weight(1f), contentAlignment = Alignment.CenterStart) {
+                if (value.isEmpty()) Text(placeholder, color = ProtoMuted, fontSize = 14.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                androidx.compose.foundation.text.BasicTextField(
+                    value = value,
+                    onValueChange = onValueChange,
+                    singleLine = true,
+                    textStyle = androidx.compose.ui.text.TextStyle(color = ProtoText, fontSize = 15.sp),
+                    cursorBrush = androidx.compose.ui.graphics.SolidColor(ProtoGold),
+                    keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(imeAction = androidx.compose.ui.text.input.ImeAction.Search),
+                    keyboardActions = androidx.compose.foundation.text.KeyboardActions(onSearch = { submit() }),
+                    modifier = Modifier.fillMaxWidth().then(if (focusRequester != null) Modifier.focusRequester(focusRequester) else Modifier)
+                )
+            }
+            if (value.isNotEmpty()) Box(Modifier.size(34.dp).clip(CircleShape).clickable { onValueChange("") }, contentAlignment = Alignment.Center) {
+                Icon(Icons.Outlined.Close, contentDescription = "Очистить", tint = ProtoMuted, modifier = Modifier.size(18.dp))
+            }
+            Spacer(Modifier.width(4.dp))
+            Box(Modifier.height(42.dp).clip(RoundedCornerShape(21.dp)).background(ProtoGold).clickable { submit() }.padding(horizontal = 16.dp), contentAlignment = Alignment.Center) {
+                Text("Найти", color = Color.Black, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+            }
+        }
+    }
+}
+
+/** Круглая кнопка-иконка 42 dp (настройки фильтра и т. п.). */
+@Composable
+internal fun ProtoRoundIconButton(icon: ImageVector, description: String, onClick: () -> Unit, active: Boolean = false) {
+    Box(Modifier.size(42.dp).clip(CircleShape).background(if (active) ProtoGold else ProtoPanel).border(1.dp, if (active) ProtoGold else ProtoBorder, CircleShape).clickable(onClick = onClick), contentAlignment = Alignment.Center) {
+        Icon(icon, contentDescription = description, tint = if (active) Color.Black else ProtoGold, modifier = Modifier.size(22.dp))
+    }
+}

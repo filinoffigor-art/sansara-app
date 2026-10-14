@@ -936,7 +936,8 @@ fun SansaraVisualPrototype() {
                 lastOrder = myOrders.filter { it.status != "Отменён" }.maxByOrNull { protoOrderEpoch(it.dateTime) },
                 unreadCount = notifications.count { isClientNotification(it, client) && !it.read },
                 onNotifications = { go(ProtoScreen.Notifications) },
-                onSearch = { openProductList(focus = true) },
+                onSearch = { q -> openProductList(query = q, focus = q.isBlank()) },
+                onFilter = { resetFilters(); searchQuery = ""; go(ProtoScreen.Filter) },
                 onGroup = { g -> openProductList(type = g) },
                 onOpenProduct = { openProduct(it) },
                 onSetQty = { p, q -> setCartQty(p, q) },
@@ -1916,7 +1917,8 @@ fun SansaraVisualPrototype() {
                     lastOrder = retailOrders.maxByOrNull { protoOrderEpoch(it.dateTime) }?.let { asRetailView(it) },
                     unreadCount = 0,
                     onNotifications = { go(ProtoScreen.RetailNotifications) },
-                    onSearch = { openProductList(focus = true, target = ProtoScreen.RetailProductList) },
+                    onSearch = { q -> openProductList(query = q, focus = q.isBlank(), target = ProtoScreen.RetailProductList) },
+                    onFilter = { resetFilters(); searchQuery = ""; go(ProtoScreen.RetailFilter) },
                     onGroup = { g -> openProductList(type = g, target = ProtoScreen.RetailProductList) },
                     onOpenProduct = { p -> retailSelectedProduct = p; retailDetailQty = 1; go(ProtoScreen.RetailProductDetail) },
                     onSetQty = { p, q -> setRetailQty(p, q) },
@@ -2274,48 +2276,10 @@ internal fun ProtoLoadingState() {
 
 @Composable
 internal fun ProtoLiveBackground() {
-    // Фон без фотографий: ровный тёмный цвет и едва заметный узор листьев, нарисованный кодом.
-    Box(Modifier.fillMaxSize().background(ProtoBg)) { ProtoLeafPattern(Modifier.fillMaxSize()) }
+    // По правкам заказчика: без фоновых картинок и узоров — ровный тёмный фон.
+    Box(Modifier.fillMaxSize().background(ProtoBg))
 }
 
-@Composable
-internal fun ProtoBrandHeader(
-    onBack:(()->Unit)?=null,
-    unreadCount:Int=0,
-    onBell:(()->Unit)?=null,
-    showBell:Boolean=onBell!=null,
-    onMenu:(()->Unit)?=null,
-    edge:Dp=18.dp,
-    modifier:Modifier=Modifier
-) {
-    Row(modifier.fillMaxWidth().padding(horizontal=edge,vertical=8.dp),verticalAlignment=Alignment.CenterVertically) {
-        Box(Modifier.width(48.dp).offset(y=(-6).dp),contentAlignment=Alignment.CenterStart){
-            if(onBack!=null)ProtoCircleBack(onBack)
-            else if(onMenu!=null)Box(Modifier.size(44.dp).clip(CircleShape).background(Color(0xCC11100E)).border(1.dp,ProtoBorder,CircleShape).clickable{onMenu()},contentAlignment=Alignment.Center){
-                Icon(Icons.Outlined.Menu,contentDescription="Меню",tint=ProtoGold,modifier=Modifier.size(25.dp))
-            }
-        }
-        Image(painter=painterResource(R.drawable.sansara_wordmark_large),contentDescription="SANSARA",contentScale=ContentScale.Fit,modifier=Modifier.weight(1f).height(68.dp))
-        Box(Modifier.width(48.dp).offset(y=(-6).dp),contentAlignment=Alignment.CenterEnd){
-            if(showBell){
-                BadgedBox(
-                    badge={
-                        if(unreadCount>0)Badge(containerColor=ProtoGold){
-                            Text(unreadCount.coerceAtMost(99).toString(),color=Color.Black,fontSize=11.sp,fontWeight=FontWeight.Bold)
-                        }
-                    }
-                ){
-                    Box(
-                        Modifier.size(44.dp).clip(CircleShape).background(Color(0xCC11100E)).border(1.dp,ProtoGold,CircleShape).then(if(onBell!=null)Modifier.clickable{onBell()} else Modifier),
-                        contentAlignment=Alignment.Center
-                    ){
-                        Icon(Icons.Outlined.Notifications,contentDescription="Уведомления",tint=ProtoGold,modifier=Modifier.size(25.dp))
-                    }
-                }
-            }
-        }
-    }
-}
 @Composable
 internal fun ProtoSearchBar(text:String,onClick:()->Unit,placeholder:String="Поиск по артикулу, названию") {
     Surface(color=ProtoPanel,border=BorderStroke(1.dp,ProtoBorder),shape=RoundedCornerShape(28.dp),modifier=Modifier.fillMaxWidth().height(48.dp).clickable{onClick()}){
@@ -3250,9 +3214,6 @@ internal fun ProtoScaffold(
 }
 
 @Composable
-internal fun ProtoCircleBack(onClick:()->Unit){Box(Modifier.size(44.dp).clip(CircleShape).background(Color(0xCC11100E)).border(1.dp,ProtoGold,CircleShape).clickable(onClick=onClick),contentAlignment=Alignment.Center){Icon(Icons.Outlined.ArrowBack,null,tint=ProtoGold)}}
-
-@Composable
 internal fun ProtoQtyButton(icon: androidx.compose.ui.graphics.vector.ImageVector,onClick:()->Unit,size:Dp=34.dp){
     Surface(color=ProtoPanel2,border=BorderStroke(1.dp,ProtoGold),shape=RoundedCornerShape(10.dp),modifier=Modifier.size(size).clickable(onClick=onClick)){Box(Modifier.fillMaxSize(),contentAlignment=Alignment.Center){Icon(icon,null,tint=ProtoGold,modifier=Modifier.size((size.value*.48f).dp))}}
 }
@@ -3354,75 +3315,6 @@ internal fun ProtoInfoRow(label:String,value:String){Row(Modifier.fillMaxWidth()
 
 @Composable
 internal fun ProtoPill(text:String,color:Color){Surface(color=color.copy(alpha=.16f),shape=RoundedCornerShape(20.dp),border=BorderStroke(1.dp,color.copy(alpha=.55f))){Text(text,color=color,fontSize=12.sp,modifier=Modifier.padding(horizontal=8.dp,vertical=4.dp))}}
-
-@Composable
-internal fun ProtoClientBottomBar(current:ProtoScreen,cartCount:Int,onHome:()->Unit,onCatalog:()->Unit,onCart:()->Unit,onOrders:()->Unit,onProfile:()->Unit){
-    val catalog=current in setOf(ProtoScreen.Catalog,ProtoScreen.Filter,ProtoScreen.ProductList,ProtoScreen.ProductDetail)
-    val cart=current in setOf(ProtoScreen.Cart,ProtoScreen.Checkout)
-    val orders=current in setOf(ProtoScreen.OrderList,ProtoScreen.OrderDetail,ProtoScreen.OrderSent)
-    val chat=current==ProtoScreen.ClientChat
-    NavigationBar(containerColor=ProtoPanel,tonalElevation=0.dp,modifier=Modifier.height(66.dp)){
-        ProtoNavItem(current==ProtoScreen.Home,"Главная",Icons.Outlined.Home,onHome)
-        ProtoNavItem(catalog,"Каталог",Icons.Outlined.Inventory2,onCatalog)
-        NavigationBarItem(
-            selected=cart,
-            onClick=onCart,
-            icon={
-                BadgedBox(badge={if(cartCount>0)Badge(containerColor=ProtoGold){Text(cartCount.toString(),color=Color.Black)}}){
-                    Icon(Icons.Outlined.ShoppingCart,null)
-                }
-            },
-            label={Text("Корзина",fontSize=11.sp)},
-            colors=protoNavColors()
-        )
-        ProtoNavItem(orders,"Заказы",Icons.Outlined.ReceiptLong,onOrders)
-        ProtoNavItem(chat,"Чат",Icons.Outlined.ChatBubbleOutline,onProfile)
-    }
-}
-@Composable
-internal fun ProtoRetailBottomBar(
-    current:ProtoScreen,
-    cartCount:Int,
-    onHome:()->Unit,
-    onCatalog:()->Unit,
-    onCart:()->Unit,
-    onExit:()->Unit,
-    onOrders:()->Unit={}
-){
-    val catalog=current in setOf(ProtoScreen.RetailCatalog,ProtoScreen.RetailFilter,ProtoScreen.RetailProductList,ProtoScreen.RetailProductDetail)
-    val cart=current in setOf(ProtoScreen.RetailCart,ProtoScreen.RetailCheckout)
-    val orders=current in setOf(ProtoScreen.RetailOrderList,ProtoScreen.RetailOrderDetail,ProtoScreen.RetailOrderSent)
-    NavigationBar(containerColor=ProtoPanel,tonalElevation=0.dp,modifier=Modifier.height(66.dp)){
-        ProtoNavItem(current==ProtoScreen.RetailHome,"Главная",Icons.Outlined.Home,onHome)
-        ProtoNavItem(catalog,"Каталог",Icons.Outlined.Inventory2,onCatalog)
-        NavigationBarItem(
-            selected=cart,
-            onClick=onCart,
-            icon={
-                BadgedBox(badge={if(cartCount>0)Badge(containerColor=ProtoGold){Text(cartCount.toString(),color=Color.Black)}}){
-                    Icon(Icons.Outlined.ShoppingCart,null)
-                }
-            },
-            label={Text("Корзина",fontSize=11.sp)},
-            colors=protoNavColors()
-        )
-        ProtoNavItem(orders,"Заказы",Icons.Outlined.ReceiptLong,onOrders)
-        ProtoNavItem(false,"Выйти",Icons.Outlined.ExitToApp,onExit)
-    }
-}
-
-@Composable
-internal fun ProtoAdminBottomBar(current:ProtoScreen,onHome:()->Unit,onClients:()->Unit,onOrders:()->Unit,onStock:()->Unit,onProfile:()->Unit){NavigationBar(containerColor=ProtoPanel,tonalElevation=0.dp){ProtoNavItem(current==ProtoScreen.AdminHome,"Главная",Icons.Outlined.Home,onHome);ProtoNavItem(current in setOf(ProtoScreen.AdminClients,ProtoScreen.AdminClient),"Клиенты",Icons.Outlined.Groups,onClients);ProtoNavItem(current in setOf(ProtoScreen.AdminOrders,ProtoScreen.AdminOrderDetail),"Заказы",Icons.Outlined.ReceiptLong,onOrders);ProtoNavItem(current in setOf(ProtoScreen.Server,ProtoScreen.StockList,ProtoScreen.ReserveList),"Склад",Icons.Outlined.Inventory2,onStock);ProtoNavItem(current in setOf(ProtoScreen.AdminSettings,ProtoScreen.AdminSettingsDetail),"Профиль",Icons.Outlined.Person,onProfile)}
-}
-
-@Composable
-internal fun ProtoProductionBottomBar(current:ProtoScreen,onRelease:()->Unit,onHistory:()->Unit,onStock:()->Unit,onProfile:()->Unit){NavigationBar(containerColor=ProtoPanel,tonalElevation=0.dp){ProtoNavItem(current==ProtoScreen.Production,"Выпуск",Icons.Outlined.LocalFlorist,onRelease);ProtoNavItem(current==ProtoScreen.ProductionHistory,"История",Icons.Outlined.History,onHistory);ProtoNavItem(current in setOf(ProtoScreen.Server,ProtoScreen.StockList,ProtoScreen.ReserveList),"Склад",Icons.Outlined.Inventory2,onStock);ProtoNavItem(current==ProtoScreen.ProductionProfile,"Профиль",Icons.Outlined.Person,onProfile)}}
-
-@Composable
-internal fun ProtoSalesBottomBar(current:ProtoScreen,onHome:()->Unit,onShipments:()->Unit,onClients:()->Unit,onProfile:()->Unit){NavigationBar(containerColor=ProtoPanel,tonalElevation=0.dp){ProtoNavItem(current==ProtoScreen.SalesHome,"Главная",Icons.Outlined.Home,onHome);ProtoNavItem(current in setOf(ProtoScreen.SalesShipments,ProtoScreen.SalesShipmentNew),"Отгрузки",Icons.Outlined.LocalShipping,onShipments);ProtoNavItem(current in setOf(ProtoScreen.SalesClients,ProtoScreen.SalesClient),"Клиенты",Icons.Outlined.Groups,onClients);ProtoNavItem(current==ProtoScreen.SalesProfile,"Профиль",Icons.Outlined.Person,onProfile)}}
-
-@Composable
-internal fun RowScope.ProtoNavItem(selected:Boolean,label:String,icon:androidx.compose.ui.graphics.vector.ImageVector,onClick:()->Unit){NavigationBarItem(selected=selected,onClick=onClick,icon={Icon(icon,null)},label={Text(label,fontSize=11.sp)},colors=protoNavColors())}
 
 @Composable
 internal fun protoNavColors()=NavigationBarItemDefaults.colors(selectedIconColor=Color.Black,selectedTextColor=ProtoGold,indicatorColor=ProtoGold,unselectedIconColor=ProtoMuted,unselectedTextColor=ProtoMuted)

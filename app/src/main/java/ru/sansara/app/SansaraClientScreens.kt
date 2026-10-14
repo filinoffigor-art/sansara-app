@@ -230,21 +230,30 @@ internal fun ProtoRegistrationScreen(onBack: () -> Unit, onSubmit: (ProtoRegistr
 internal fun ProtoRegistrationSentScreen(reg: ProtoRegistration?, onBack: () -> Unit, onHaveCode: () -> Unit) {
     Box(Modifier.fillMaxSize()) {
         ProtoLiveBackground()
-        Column(Modifier.fillMaxSize().padding(horizontal = 18.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+        Column(Modifier.fillMaxSize()) {
             ProtoBrandHeader(showBell = false)
-            Spacer(Modifier.height(32.dp))
-            Box(Modifier.size(112.dp).border(3.dp, ProtoGold, CircleShape), contentAlignment = Alignment.Center) { Icon(Icons.Outlined.Check, null, tint = ProtoGold, modifier = Modifier.size(64.dp)) }
-            Text("Заявка отправлена", color = ProtoText, fontSize = 31.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(top = 20.dp))
-            Text(
-                "Мы проверим данные в течение рабочего дня. Администратор позвонит и сообщит код доступа" + (reg?.phone1?.let { " на номер $it" } ?: "") + ".",
-                color = ProtoMuted, fontSize = 15.sp, lineHeight = 21.sp, textAlign = TextAlign.Center, modifier = Modifier.padding(vertical = 14.dp)
-            )
-            if (reg != null) ProtoSectionCard { ProtoInfoLine("Тип клиента", reg.type); ProtoInfoLine("Организация", reg.organization); ProtoInfoLine("Контакт", reg.contact1); ProtoInfoLine("Телефон", protoPhone(reg.phone1)) }
-            Spacer(Modifier.weight(1f))
-            ProtoPrimaryButton("Понятно", onBack)
-            Spacer(Modifier.height(10.dp))
-            ProtoSecondaryButton("У меня уже есть код", onHaveCode)
-            Spacer(Modifier.height(20.dp))
+            // Всё содержимое экрана, включая кнопки, — в одной рамке с равными отступами (как экран фильтра).
+            Surface(
+                color = ProtoPanel, border = BorderStroke(1.dp, ProtoBorder), shape = RoundedCornerShape(24.dp),
+                modifier = Modifier.fillMaxSize().padding(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 16.dp)
+            ) {
+                Column(Modifier.fillMaxSize().padding(20.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                    Spacer(Modifier.height(12.dp))
+                    Box(Modifier.size(96.dp).border(3.dp, ProtoGold, CircleShape), contentAlignment = Alignment.Center) { Icon(Icons.Outlined.Check, null, tint = ProtoGold, modifier = Modifier.size(56.dp)) }
+                    Text("Заявка отправлена", color = ProtoText, fontSize = 26.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(top = 18.dp))
+                    Text(
+                        "Проверим данные в течение рабочего дня. Код для входа придёт SMS-сообщением" + (reg?.phone1?.takeIf { it.isNotBlank() }?.let { " на номер " + protoPhone(it) } ?: "") + ".",
+                        color = ProtoMuted, fontSize = 15.sp, lineHeight = 21.sp, textAlign = TextAlign.Center, modifier = Modifier.padding(vertical = 12.dp)
+                    )
+                    if (reg != null) Column(Modifier.fillMaxWidth().background(ProtoPanel2, RoundedCornerShape(14.dp)).padding(12.dp)) {
+                        ProtoInfoLine("Тип клиента", reg.type); ProtoInfoLine("Организация", reg.organization); ProtoInfoLine("Контакт", reg.contact1); ProtoInfoLine("Телефон", protoPhone(reg.phone1))
+                    }
+                    Spacer(Modifier.weight(1f))
+                    ProtoPrimaryButton("Понятно", onBack)
+                    Spacer(Modifier.height(10.dp))
+                    ProtoSecondaryButton("У меня уже есть код", onHaveCode)
+                }
+            }
         }
     }
 }
@@ -315,7 +324,7 @@ internal fun ProtoClientHomeScreen(
     lastOrder: ProtoOrder?,
     unreadCount: Int,
     onNotifications: () -> Unit,
-    onSearch: () -> Unit,
+    onSearch: (String) -> Unit,
     onGroup: (String) -> Unit,
     onOpenProduct: (ProtoCatalogProduct) -> Unit,
     onSetQty: (ProtoCatalogProduct, Int) -> Unit,
@@ -328,9 +337,11 @@ internal fun ProtoClientHomeScreen(
     onProfile: () -> Unit,
     retailMode: Boolean = false,
     onRetailExit: () -> Unit = {},
-    onMenu: (() -> Unit)? = null
+    onMenu: (() -> Unit)? = null,
+    onFilter: () -> Unit = {}
 ) {
     var mode by remember { mutableStateOf("Все") }
+    var searchText by remember { mutableStateOf("") }
     val popular = products
         .filter { p -> when (mode) { "В наличии" -> availableStock(p) > 0; "Под заказ" -> availableStock(p) <= 0; else -> true } }
         .sortedWith(compareByDescending<ProtoCatalogProduct> { popularity[it.sku] ?: 0 }.thenByDescending { availableStock(it) > 0 })
@@ -347,17 +358,24 @@ internal fun ProtoClientHomeScreen(
                 else ProtoClientBottomBar(ProtoScreen.Home, cart.size, onHome = onHome, onCatalog = onCatalog, onCart = onCart, onOrders = onOrders, onProfile = onProfile)
             }
         ) { pad ->
-            LazyColumn(Modifier.fillMaxSize().padding(pad), contentPadding = PaddingValues(bottom = 16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                item { ProtoBrandHeader(unreadCount = unreadCount, onBell = onNotifications, onMenu = onMenu) }
-                item {
-                    Column(Modifier.padding(horizontal = 18.dp)) {
-                        Text("Здравствуйте, " + client.firstName, color = ProtoText, fontSize = 26.sp, fontWeight = FontWeight.Bold)
-                        if (retailMode) Text("Режим клиента · закупочные цены скрыты", color = ProtoGoldSoft, fontSize = 14.sp)
-                        else Text("Статус: " + client.status + "  ·  Скидка " + client.discount + "%", color = ProtoGoldSoft, fontSize = 14.sp)
-                        Spacer(Modifier.height(12.dp))
-                        ProtoSearchBar("", onSearch)
-                    }
+            Column(Modifier.fillMaxSize().padding(pad)) {
+            // Неподвижная верхняя часть: бренд, приветствие, поиск, фильтр наличия.
+            ProtoBrandHeader(unreadCount = unreadCount, onBell = onNotifications, onMenu = onMenu)
+            Column(Modifier.padding(horizontal = 16.dp)) {
+                Text("Здравствуйте, " + client.firstName, color = ProtoText, fontSize = 24.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                if (retailMode) Text("Режим клиента · закупочные цены скрыты", color = ProtoGoldSoft, fontSize = 13.sp)
+                else Text("Статус: " + client.status + "  ·  Скидка " + client.discount + "%", color = ProtoGoldSoft, fontSize = 13.sp)
+                Spacer(Modifier.height(10.dp))
+                ProtoSearchField(searchText, { searchText = it }, { onSearch(searchText.trim()) }, "Поиск по артикулу, названию")
+                Spacer(Modifier.height(10.dp))
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Box(Modifier.weight(1f)) { ProtoAvailabilityChips(mode) { mode = it } }
+                    Spacer(Modifier.width(8.dp))
+                    ProtoRoundIconButton(Icons.Outlined.Tune, "Настроить фильтр", onFilter)
                 }
+            }
+            Spacer(Modifier.height(14.dp))
+            LazyColumn(Modifier.weight(1f), contentPadding = PaddingValues(bottom = 16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 item {
                     LazyRow(contentPadding = PaddingValues(horizontal = 18.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                         items(groupCounts.keys.toList()) { g ->
@@ -390,12 +408,9 @@ internal fun ProtoClientHomeScreen(
                     }
                 }
                 item {
-                    Column(Modifier.padding(horizontal = 18.dp)) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Text(if (popularity.isEmpty()) "Товары" else "Популярные товары", color = ProtoText, fontSize = 22.sp, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
-                            TextButton(onClick = { onSeeAll(mode) }) { Text("Все →", color = ProtoGold) }
-                        }
-                        ProtoAvailabilityChips(mode) { mode = it }
+                    Row(Modifier.padding(horizontal = 18.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Text((if (popularity.isEmpty()) "Товары" else "Популярные товары") + if (mode != "Все") " · " + mode.lowercase() else "", color = ProtoText, fontSize = 20.sp, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
+                        TextButton(onClick = { onSeeAll(mode) }) { Text("Все →", color = ProtoGold) }
                     }
                 }
                 if (popular.isEmpty()) item {
@@ -408,6 +423,7 @@ internal fun ProtoClientHomeScreen(
                         if (row.size == 1) Spacer(Modifier.weight(1f))
                     }
                 }
+            }
             }
         }
     }
@@ -439,24 +455,19 @@ internal fun ProtoCatalogHomeScreen(
             if (retailMode) ProtoRetailBottomBar(ProtoScreen.RetailCatalog, cartCount, onHome, onCatalog = {}, onCart, onRetailExit, onOrders)
             else ProtoClientBottomBar(ProtoScreen.Catalog, cartCount, onHome, onCatalog = {}, onCart, onOrders, onProfile)
         }) { pad ->
+            Column(Modifier.fillMaxSize().padding(pad)) {
+            ProtoTopBar("Каталог", "Сейчас в продаже — венки и композиции", onBack)
+            Column(Modifier.padding(horizontal = 16.dp)) {
+                ProtoSearchField(searchText, { searchText = it }, { onSearch(searchText.trim()) })
+                Spacer(Modifier.height(10.dp))
+                ProtoAvailabilityChips(mode) { mode = it; onAvailability(it) }
+            }
+            Spacer(Modifier.height(14.dp))
             LazyVerticalGrid(
-                columns = GridCells.Fixed(2), modifier = Modifier.fillMaxSize().padding(pad),
+                columns = GridCells.Fixed(2), modifier = Modifier.weight(1f),
                 contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 16.dp),
                 horizontalArrangement = Arrangement.spacedBy(10.dp), verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
-                item(span = { GridItemSpan(2) }) { ProtoTopBar("Каталог", "Сейчас в продаже — венки и композиции", onBack) }
-                item(span = { GridItemSpan(2) }) {
-                    OutlinedTextField(
-                        value = searchText, onValueChange = { searchText = it },
-                        placeholder = { Text("Артикул или название", color = ProtoMuted) },
-                        leadingIcon = { Icon(Icons.Outlined.Search, null, tint = ProtoGold) },
-                        singleLine = true, shape = RoundedCornerShape(28.dp),
-                        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
-                        keyboardActions = KeyboardActions(onSearch = { if (searchText.isNotBlank()) onSearch(searchText.trim()) }),
-                        modifier = Modifier.fillMaxWidth(), colors = protoFieldColors()
-                    )
-                }
-                item(span = { GridItemSpan(2) }) { ProtoAvailabilityChips(mode) { mode = it; onAvailability(it) } }
                 gridItems(groupCounts.keys.toList()) { g ->
                     Card(colors = CardDefaults.cardColors(containerColor = ProtoPanel), border = BorderStroke(1.dp, ProtoBorder), shape = RoundedCornerShape(20.dp), modifier = Modifier.height(190.dp).clickable { onGroup(g) }) {
                         Box(Modifier.fillMaxSize()) {
@@ -486,6 +497,7 @@ internal fun ProtoCatalogHomeScreen(
                         }
                     }
                 }
+            }
             }
         }
     }
@@ -599,27 +611,15 @@ internal fun ProtoProductListScreen(
             if (retailMode) ProtoRetailBottomBar(ProtoScreen.RetailProductList, cart.size, onHome, onCatalog, onCart, onRetailExit, onOrders)
             else ProtoClientBottomBar(ProtoScreen.ProductList, cart.size, onHome, onCatalog, onCart, onOrders, onProfile)
         }) { pad ->
-            LazyVerticalGrid(
-                columns = GridCells.Fixed(2), state = gridState, modifier = Modifier.fillMaxSize().padding(pad),
-                contentPadding = PaddingValues(start = 12.dp, end = 12.dp, bottom = 16.dp),
-                horizontalArrangement = Arrangement.spacedBy(10.dp), verticalArrangement = Arrangement.spacedBy(10.dp)
-            ) {
-                item(span = { GridItemSpan(2) }) { ProtoTopBar("Каталог", "Найдено: " + protoPlural(products.size, "позиция", "позиции", "позиций"), onBack) }
-                item(span = { GridItemSpan(2) }) {
-                    OutlinedTextField(
-                        value = query, onValueChange = onQuery,
-                        placeholder = { Text("Артикул или название", color = ProtoMuted) },
-                        leadingIcon = { Icon(Icons.Outlined.Search, null, tint = ProtoGold) },
-                        trailingIcon = { if (query.isNotEmpty()) IconButton(onClick = { onQuery("") }) { Icon(Icons.Outlined.Close, "Очистить", tint = ProtoMuted) } },
-                        singleLine = true, shape = RoundedCornerShape(28.dp),
-                        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
-                        modifier = Modifier.fillMaxWidth().focusRequester(focus), colors = protoFieldColors()
-                    )
-                }
-                item(span = { GridItemSpan(2) }) {
+            Column(Modifier.fillMaxSize().padding(pad)) {
+            // Неподвижная часть: шапка, поиск, «Изменить фильтр» и сортировка; список прокручивается ниже.
+            ProtoTopBar("Каталог", "Найдено: " + protoPlural(products.size, "позиция", "позиции", "позиций"), onBack)
+            Column(Modifier.padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                ProtoSearchField(query, onQuery, {}, focusRequester = focus)
+                run {
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         OutlinedButton(onClick = onOpenFilter, modifier = Modifier.weight(1f), border = BorderStroke(1.dp, ProtoGold), shape = RoundedCornerShape(24.dp)) {
-                            Icon(Icons.Outlined.Tune, null, tint = ProtoGold); Spacer(Modifier.width(6.dp)); Text("Фильтр", color = ProtoGold)
+                            Icon(Icons.Outlined.Tune, null, tint = ProtoGold); Spacer(Modifier.width(6.dp)); Text("Изменить фильтр", color = ProtoGold, maxLines = 1, fontSize = 13.sp)
                         }
                         Box(Modifier.weight(1f)) {
                             OutlinedButton(onClick = { sortOpen = true }, modifier = Modifier.fillMaxWidth(), border = BorderStroke(1.dp, ProtoBorder), shape = RoundedCornerShape(24.dp)) {
@@ -631,7 +631,7 @@ internal fun ProtoProductListScreen(
                         }
                     }
                 }
-                if (activeChips.isNotEmpty()) item(span = { GridItemSpan(2) }) {
+                if (activeChips.isNotEmpty()) run {
                     LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                         items(activeChips) { (label, remove) ->
                             InputChip(
@@ -642,6 +642,13 @@ internal fun ProtoProductListScreen(
                         }
                     }
                 }
+            }
+            Spacer(Modifier.height(14.dp))
+            LazyVerticalGrid(
+                columns = GridCells.Fixed(2), state = gridState, modifier = Modifier.weight(1f),
+                contentPadding = PaddingValues(start = 12.dp, end = 12.dp, bottom = 16.dp),
+                horizontalArrangement = Arrangement.spacedBy(10.dp), verticalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
                 if (sorted.isEmpty()) item(span = { GridItemSpan(2) }) {
                     ProtoEmptyState(Icons.Outlined.SearchOff, "Ничего не найдено", "Измените запрос или фильтр", actionLabel = "Открыть фильтр", onAction = onOpenFilter)
                 } else gridItems(sorted, key = { it.sku }) { p ->
@@ -651,6 +658,7 @@ internal fun ProtoProductListScreen(
                         onSetQty = { onSetQty(p, it) }
                     )
                 }
+            }
             }
         }
     }
@@ -709,10 +717,11 @@ internal fun ProtoProductDetailScreen(
                 else ProtoClientBottomBar(ProtoScreen.ProductDetail, 0, onHome, onCatalog, onCart, onOrders, onProfile)
             }
         }) { pad ->
-            LazyColumn(Modifier.fillMaxSize().padding(pad), contentPadding = PaddingValues(horizontal = 16.dp, vertical = 4.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                item { ProtoTopBar("Товар", null, onBack) }
+            Column(Modifier.fillMaxSize().padding(pad)) {
+            ProtoTopBar("Товар", null, onBack)
+            LazyColumn(Modifier.weight(1f), contentPadding = PaddingValues(horizontal = 16.dp, vertical = 4.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 item {
-                    Card(colors = CardDefaults.cardColors(containerColor = photoBackdrop), shape = RoundedCornerShape(22.dp), modifier = Modifier.fillMaxWidth().height(320.dp).clickable { preview = true }) {
+                    Card(colors = CardDefaults.cardColors(containerColor = photoBackdrop), shape = RoundedCornerShape(22.dp), modifier = Modifier.fillMaxWidth().height(260.dp).clickable { preview = true }) {
                         ProtoProductImage(p, Modifier.fillMaxSize().padding(10.dp), ContentScale.Fit)
                     }
                 }
@@ -747,6 +756,7 @@ internal fun ProtoProductDetailScreen(
                     }
                 }
                 item { ProtoSectionCard { Text("Характеристики", color = ProtoGoldSoft, fontSize = 16.sp, fontWeight = FontWeight.Bold); ProtoInfoRow("Категория", p.type); if (protoValidValue(p.quality)) ProtoInfoRow("Качество", p.quality); if (protoValidValue(p.size)) ProtoInfoRow("Размер", p.size); ProtoInfoRow("Срок под заказ", protoPlural(p.productionDays, "рабочий день", "рабочих дня", "рабочих дней")) } }
+            }
             }
         }
     }
