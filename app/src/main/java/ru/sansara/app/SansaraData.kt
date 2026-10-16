@@ -1335,6 +1335,20 @@ class SansaraRepository private constructor(
         return SansaraAdminAccount(id,name,false,true,role.name) to code
     }
 
+    /** Переименовать сотрудника: имя видно в списке и в приветствии на главной. Только главный аккаунт. */
+    suspend fun renameStaff(targetUserId:String,newName:String,actingUserId:String) {
+        val actor=dao.adminControl(actingUserId)
+        require(actor?.isMain==true) { "Менять имена может только главный аккаунт" }
+        val name=newName.trim()
+        require(name.isNotBlank()) { "Введите имя" }
+        val account=dao.accountByUserId(targetUserId) ?: error("Сотрудник не найден")
+        db.withTransaction {
+            dao.putAccounts(listOf(account.copy(firstName=name)))
+            val control=dao.adminControl(targetUserId)
+            if (control!=null) dao.putAdminControls(listOf(control.copy(displayName=name)))
+        }
+    }
+
     suspend fun setAdminEnabled(targetUserId:String,enabled:Boolean,actingUserId:String) {
         val actor=dao.adminControl(actingUserId)
         require(actor?.isMain==true) { "Отключать сотрудников может только главный аккаунт" }

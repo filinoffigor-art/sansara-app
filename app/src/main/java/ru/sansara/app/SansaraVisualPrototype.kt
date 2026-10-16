@@ -223,6 +223,11 @@ internal data class ProtoProductGroup(
 /** Группы, которые сейчас продаются под плиткой «Венки». */
 internal val protoWreathGroups = setOf("Венки","Корзины","Флоретки","Полянки")
 internal val protoWreathGroupsOrdered = listOf("Венки","Корзины","Флоретки","Полянки")
+/** Разделы, которые появятся после подключения каталогов Tilda. Пока в разделе нет товаров — плашка «В разработке»; появятся товары — плашка оживёт сама. */
+/** Статусы, с которыми заказ уходит из «Мои заказы» во вкладку «История». */
+internal val protoHistoryStatuses = setOf("Доставлен","Отменён","Отклонён")
+internal val protoUpcomingGroups = listOf("Гробы","Кресты","Одежда","Ленты","Услуги")
+internal val protoAllGroupsOrdered = protoWreathGroupsOrdered + protoUpcomingGroups
 
 /** Статус товара, снятого с публикации в Tilda: скрыт из каталога, но остаётся в старых заказах и на складе. */
 const val PRODUCT_UNPUBLISHED = "Снят с публикации"
@@ -362,6 +367,7 @@ fun SansaraVisualPrototype() {
     var backupStatus by remember { mutableStateOf("Резервная копия ещё не создавалась") }
     var registrationsTotalThisMonth by remember { mutableIntStateOf(0) }
     val prefs = remember { context.getSharedPreferences("sansara", Context.MODE_PRIVATE) }
+    var welcomeImageVersion by remember { mutableStateOf(prefs.getLong("welcome_promo_image_v", 0L)) }
     val notifications = remember {
         mutableStateListOf<ProtoNotification>().apply { addAll(protoLoadNotifications(prefs)) }
     }
@@ -995,7 +1001,7 @@ fun SansaraVisualPrototype() {
             )
             ProtoScreen.Catalog -> ProtoCatalogHomeScreen(
                 cartCount = cart.size,
-                groupCounts = protoWreathGroupsOrdered.associateWith { g -> catalogProducts.count { it.type == g } }.filterValues { it > 0 },
+                groupCounts = protoAllGroupsOrdered.associateWith { g -> catalogProducts.count { it.type == g } }.filterValues { it > 0 },
                 onBack = { back() },
                 onSearch = { value -> openProductList(query = value, focus = value.isBlank()) },
                 onGroup = { g -> openProductList(type = g) },
@@ -1304,7 +1310,8 @@ fun SansaraVisualPrototype() {
             ProtoScreen.AdminHome -> {
                 val today = LocalDate.now()
                 ProtoAdminHomeScreen(
-                    adminName = session?.firstName.orEmpty(),
+                    // Главный администратор — «BOSS», остальные — имя, которое задал главный.
+                    adminName = adminAccounts.firstOrNull { it.userId == session?.userId }?.let { if (it.isMain) "BOSS" else it.displayName } ?: session?.firstName.orEmpty(),
                     newOrders = orders.count { it.status == "Получен" },
                     deliveriesToday = orders.count { protoParseDate(it.deliveryDate) == today && it.status !in setOf("Доставлен", "Отменён") },
                     newRegistrations = registrations.count { it.status != "Отклонена" },
@@ -1572,6 +1579,15 @@ fun SansaraVisualPrototype() {
                 promoTitle = prefs.getString("welcome_promo_title", "").orEmpty(),
                 promoText = prefs.getString("welcome_promo_text", "").orEmpty(),
                 onPromoSave = { t, x -> prefs.edit().putString("welcome_promo_title", t).putString("welcome_promo_text", x).apply(); toast("Приветственный экран обновлён"); back() },
+                promoImageVersion = welcomeImageVersion,
+                onPromoImage = { uri ->
+                    scope.launch {
+                        val ok = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { protoSaveWelcomeImage(context, uri) }
+                        if (ok) { welcomeImageVersion = System.currentTimeMillis(); prefs.edit().putLong("welcome_promo_image_v", welcomeImageVersion).apply(); toast("Картинка сохранена") }
+                        else toast("Не удалось открыть картинку")
+                    }
+                },
+                onPromoImageReset = { protoWelcomeImageFile(context).delete(); welcomeImageVersion = 0L; prefs.edit().putLong("welcome_promo_image_v", 0L).apply(); toast("Возвращена стандартная картинка") },
                 onRate = { skus, rate ->
                     skus.forEach { productionRates[it] = rate }
                     scope.launch { skus.forEach { repository.setProductionRate(it, rate) } }
@@ -1646,7 +1662,14 @@ fun SansaraVisualPrototype() {
                             .onFailure { toast(it.message ?: "Ошибка") }
                     }
                 },
-                onIssuedSeen = { issuedAdminCode = null }
+                onIssuedSeen = { issuedAdminCode = null },
+                onRename = { admin, name ->
+                    scope.launch {
+                        runCatching { repository.renameStaff(admin.userId, name, session?.userId ?: "") }
+                            .onSuccess { refreshOperationsData(); toast("Имя сохранено") }
+                            .onFailure { toast(it.message ?: "Ошибка") }
+                    }
+                }
             )
             ProtoScreen.AdminWorkshop -> ProtoWorkshopTasksScreen(
                 tasks = workshopTasks,
@@ -2075,7 +2098,7 @@ fun SansaraVisualPrototype() {
             }
             ProtoScreen.RetailCatalog -> ProtoCatalogHomeScreen(
                 cartCount = retailCart.size,
-                groupCounts = protoWreathGroupsOrdered.associateWith { g -> retail.count { it.type == g } }.filterValues { it > 0 },
+                groupCounts = protoAllGroupsOrdered.associateWith { g -> retail.count { it.type == g } }.filterValues { it > 0 },
                 onBack = { back() },
                 onSearch = { q -> openProductList(query = q, focus = q.isBlank(), target = ProtoScreen.RetailProductList) },
                 onGroup = { g -> openProductList(type = g, target = ProtoScreen.RetailProductList) },
@@ -2330,7 +2353,8 @@ fun SansaraVisualPrototype() {
                 onRole = { if (BuildConfig.DEBUG) showRolePicker = true },
                 promoTitle = prefs.getString("welcome_promo_title", "").orEmpty(),
                 promoText = prefs.getString("welcome_promo_text", "").orEmpty(),
-                signedIn = session != null
+                signedIn = session != null,
+                promoImageVersion = welcomeImageVersion
             )
             ProtoScreen.Login -> {
                 val lockedMessage = if (loginLockedUntil > System.currentTimeMillis())
@@ -2562,11 +2586,11 @@ internal fun ProtoSecondaryButton(text:String,onClick:()->Unit,modifier:Modifier
 }
 
 @Composable
-internal fun ProtoWelcomeScreen(onLogin:()->Unit,onRegister:()->Unit,onRole:()->Unit,promoTitle:String="УВАЖЕНИЕ\nВ КАЖДОЙ\nДЕТАЛИ",promoText:String="",signedIn:Boolean=false) {
+internal fun ProtoWelcomeScreen(onLogin:()->Unit,onRegister:()->Unit,onRole:()->Unit,promoTitle:String="УВАЖЕНИЕ\nВ КАЖДОЙ\nДЕТАЛИ",promoText:String="",signedIn:Boolean=false,promoImageVersion:Long=0L) {
     val context=LocalContext.current
     Box(Modifier.fillMaxSize()){ProtoLiveBackground();Column(Modifier.fillMaxSize().padding(horizontal=18.dp)){
         Spacer(Modifier.height(18.dp));Image(painterResource(R.drawable.sansara_wordmark_large),"SANSARA",Modifier.fillMaxWidth().height(96.dp).padding(horizontal=6.dp).clickable{onRole()},contentScale=ContentScale.Fit);Spacer(Modifier.height(14.dp))
-        Card(colors=CardDefaults.cardColors(containerColor=ProtoPanel),border=BorderStroke(1.dp,ProtoBorder),shape=RoundedCornerShape(22.dp),modifier=Modifier.fillMaxWidth().weight(1f)){Box(Modifier.fillMaxSize()){Image(painterResource(R.drawable.mock_wreath),null,Modifier.fillMaxSize(),contentScale=ContentScale.Crop);Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha=.38f)));Column(Modifier.align(Alignment.CenterStart).padding(24.dp)){Text(promoTitle.ifBlank{"УВАЖЕНИЕ\nВ КАЖДОЙ\nДЕТАЛИ"},color=ProtoGoldSoft,fontSize=22.sp,lineHeight=32.sp,fontWeight=FontWeight.Medium,letterSpacing=3.sp);if(promoText.isNotBlank())Text(promoText,color=ProtoText,fontSize=15.sp,lineHeight=21.sp,modifier=Modifier.padding(top=12.dp))}}}
+        Card(colors=CardDefaults.cardColors(containerColor=ProtoPanel),border=BorderStroke(1.dp,ProtoBorder),shape=RoundedCornerShape(22.dp),modifier=Modifier.fillMaxWidth().weight(1f)){Box(Modifier.fillMaxSize()){val promoFile=remember(promoImageVersion){protoWelcomeImageFile(context).takeIf{promoImageVersion>0L&&it.exists()}};if(promoFile!=null)AsyncImage(model=coil.request.ImageRequest.Builder(context).data(promoFile).memoryCacheKey("welcome-$promoImageVersion").diskCacheKey("welcome-$promoImageVersion").build(),contentDescription=null,modifier=Modifier.fillMaxSize(),contentScale=ContentScale.Crop,error=painterResource(R.drawable.mock_wreath)) else Image(painterResource(R.drawable.mock_wreath),null,Modifier.fillMaxSize(),contentScale=ContentScale.Crop);Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha=.38f)));Column(Modifier.align(Alignment.CenterStart).padding(24.dp)){Text(promoTitle.ifBlank{"УВАЖЕНИЕ\nВ КАЖДОЙ\nДЕТАЛИ"},color=ProtoGoldSoft,fontSize=22.sp,lineHeight=32.sp,fontWeight=FontWeight.Medium,letterSpacing=3.sp);if(promoText.isNotBlank())Text(promoText,color=ProtoText,fontSize=15.sp,lineHeight=21.sp,modifier=Modifier.padding(top=12.dp))}}}
         Spacer(Modifier.height(18.dp));Text("Добро пожаловать",color=ProtoText,fontSize=31.sp,fontWeight=FontWeight.Bold)
         Text("Работаем с агентами и торговыми организациями. Заказывайте продукцию, отслеживайте наличие и оформляйте поставки в одном приложении.",color=ProtoMuted,fontSize=14.sp,lineHeight=20.sp,modifier=Modifier.padding(top=10.dp,bottom=18.dp))
         ProtoPrimaryButton(if(signedIn)"Войти в кабинет" else "Войти",onLogin);Spacer(Modifier.height(10.dp));ProtoSecondaryButton("Стать партнёром",onRegister)
@@ -2598,8 +2622,9 @@ internal fun ProtoOrderListScreen(
     var historyPeriod by remember { mutableStateOf("Все") }
     var expandedMonths by remember { mutableStateOf(setOf<String>()) }
 
-    val currentOrders=orders.filter { it.status !in setOf("Доставлен","Отменён") && matches(it) }
-    val allHistory=orders.filter { it.status in setOf("Доставлен","Отменён") && matches(it) }
+    val currentOrders=orders.filter { it.status !in protoHistoryStatuses && matches(it) }
+    val allHistory=orders.filter { it.status in protoHistoryStatuses && matches(it) }
+    val historyTotal=orders.count { it.status in protoHistoryStatuses }
     val clientList=clientOrders.orEmpty().filter { matches(it) }.sortedByDescending { protoOrderEpoch(it.dateTime) }
     val history=protoFilterOrdersByPeriod(allHistory,historyPeriod)
     val grouped=history.groupBy { protoOrderMonthKey(it.dateTime) }
@@ -2669,11 +2694,17 @@ internal fun ProtoOrderListScreen(
                         }
                     }
                     if(tab=="Клиентские"){
-                        if(clientList.isEmpty()) item{ProtoEmptyState(Icons.Outlined.People,"Клиентских заказов пока нет","Сюда попадают заказы, оформленные в режиме «Для клиентов»")}
+                        if(clientList.isEmpty()) item{ProtoEmptyState(Icons.Outlined.People,"Клиентских заказов пока нет","Сюда попадают заказы, оформленные в разделе «Продажи»")}
                         else items(clientList,key={"c-"+it.id}){order->ProtoOrderRow(order.copy(clientName=order.retailCustomerName.ifBlank{order.clientName})){onOpenClientOrder(order)}}
                     }else if(tab=="Мои заказы"){
                         if(currentOrders.isEmpty()){
-                            item{ProtoSectionCard{Text(if(qn.isBlank())"Текущих заказов пока нет" else "Заказ с номером «$qn» не найден",color=ProtoMuted)}}
+                            item{
+                                when {
+                                    qn.isNotBlank() -> ProtoSectionCard{Text("Заказ с номером «$qn» не найден",color=ProtoMuted)}
+                                    historyTotal > 0 -> ProtoEmptyState(Icons.Outlined.History,"Активных заказов нет","Все доставленные заказы попадают в раздел «История».",actionLabel="Перейти в историю заказов",onAction={ tab="История" })
+                                    else -> ProtoEmptyState(Icons.Outlined.ReceiptLong,"Заказов пока нет","Выберите товары в каталоге и оформите первый заказ.",actionLabel="Перейти в каталог",onAction=onCatalog)
+                                }
+                            }
                         }else{
                             items(currentOrders,key={it.id}){order->ProtoOrderRow(order){onOpen(order)}}
                         }
@@ -2839,7 +2870,7 @@ internal fun ProtoClientMenuOverlay(
                 listOf(
                     Triple("Чат с менеджером",Icons.Outlined.ChatBubbleOutline,onChat),
                     Triple("Профиль",Icons.Outlined.Person,onProfile),
-                    Triple("Для клиентов",Icons.Outlined.Storefront,onCustomers),
+                    Triple("Продажи",Icons.Outlined.Storefront,onCustomers),
                     Triple("Формирование отчётности",Icons.Outlined.Assessment,onReports),
                     Triple("Настройки",Icons.Outlined.Settings,onSettings)
                 ).forEach { (title,icon,action) ->
@@ -3511,7 +3542,7 @@ internal fun ProtoOrderRow(o:ProtoOrder,onClick:()->Unit){
 }
 
 @Composable
-internal fun ProtoMetricCard(title:String,value:String,subtitle:String,modifier:Modifier,onClick:()->Unit){Card(colors=CardDefaults.cardColors(containerColor=ProtoPanel),border=BorderStroke(1.dp,ProtoBorder),shape=RoundedCornerShape(14.dp),modifier=modifier.clickable(onClick=onClick)){Column(Modifier.padding(12.dp)){Text(title,color=ProtoMuted,fontSize=12.sp);Text(value,color=ProtoText,fontSize=25.sp,fontWeight=FontWeight.Bold);Text(subtitle,color=ProtoGoldSoft,fontSize=12.sp)}}}
+internal fun ProtoMetricCard(title:String,value:String,subtitle:String,modifier:Modifier,onClick:()->Unit,titleLines:Int=1){Card(colors=CardDefaults.cardColors(containerColor=ProtoPanel),border=BorderStroke(1.dp,ProtoBorder),shape=RoundedCornerShape(14.dp),modifier=modifier.clickable(onClick=onClick)){Column(Modifier.padding(12.dp)){Text(title,color=ProtoMuted,fontSize=12.sp,minLines=titleLines,maxLines=titleLines.coerceAtLeast(2));Text(value,color=ProtoText,fontSize=25.sp,fontWeight=FontWeight.Bold);Text(subtitle,color=ProtoGoldSoft,fontSize=12.sp)}}}
 
 @Composable
 internal fun ProtoQuickButton(label:String,icon:androidx.compose.ui.graphics.vector.ImageVector,modifier:Modifier,onClick:()->Unit){OutlinedButton(onClick=onClick,modifier=modifier.height(64.dp),border=BorderStroke(1.dp,ProtoBorder),contentPadding=PaddingValues(3.dp)){Column(horizontalAlignment=Alignment.CenterHorizontally){Icon(icon,null,tint=ProtoGold,modifier=Modifier.size(20.dp));Text(label,color=ProtoText,fontSize=11.sp,maxLines=1)}}}

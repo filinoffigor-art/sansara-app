@@ -111,12 +111,14 @@ internal fun ProtoRegistrationScreen(onBack: () -> Unit, onSubmit: (ProtoRegistr
     val listState = rememberLazyListState()
     val scope = rememberCoroutineScope()
     val trading = type == ProtoClientType.TRADING.label
-    val emailOk = email.trim().let { it.contains("@") && it.substringAfter("@").contains(".") }
+    // E-mail необязателен; если введён — проверяем формат.
+    val emailOk = email.trim().let { it.isEmpty() || (it.contains("@") && it.substringBefore("@").isNotBlank() && it.substringAfter("@").let { d -> d.contains(".") && !d.endsWith(".") }) }
 
     // Ошибки по полям; индекс = позиция элемента в списке, к нему прокручиваем.
     val errors = linkedMapOf<Int, String>()
     if (organization.isBlank()) errors[2] = if (trading) "Укажите название организации" else "Укажите ФИО агента или ИП"
-    if (inn.length !in setOf(10, 12)) errors[3] = "ИНН — 10 цифр (организация) или 12 цифр (ИП, агент)"
+    // ИНН обязателен для торгующей организации; агент может не указывать, но если указал — проверяем длину.
+    if ((trading || inn.isNotEmpty()) && inn.length !in setOf(10, 12)) errors[3] = if (trading) "ИНН — 10 цифр (организация) или 12 цифр (ИП)" else "ИНН — 10 или 12 цифр, либо оставьте поле пустым"
     if (lastName.isBlank()) errors[5] = "Укажите фамилию"
     if (firstName.isBlank()) errors[6] = "Укажите имя"
     if (phone.length != 10) errors[8] = "Номер из 10 цифр после +7"
@@ -165,13 +167,13 @@ internal fun ProtoRegistrationScreen(onBack: () -> Unit, onSubmit: (ProtoRegistr
                     }
                 }
                 item { field(organization, { organization = it }, if (trading) "Название организации" else "ФИО агента или ИП", 2) }             // 2
-                item { field(inn, { inn = it.filter(Char::isDigit).take(12) }, "ИНН", 3, KeyboardType.Number) }          // 3
+                item { field(inn, { inn = it.filter(Char::isDigit).take(12) }, if (trading) "ИНН" else "ИНН (необязательно)", 3, KeyboardType.Number) }          // 3
                 item { Text("Контактное лицо", color = ProtoGoldSoft, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(top = 6.dp)) } // 4
                 item { field(lastName, { lastName = it }, "Фамилия", 5) }                                                 // 5
                 item { field(firstName, { firstName = it }, "Имя", 6) }                                                   // 6
-                item { field(middleName, { middleName = it }, "Отчество (если есть)", 7) }                                // 7
+                item { field(middleName, { middleName = it }, "Отчество", 7) }                                // 7
                 item { field(phone, { phone = protoPhoneDigits(it) }, "Телефон", 8, KeyboardType.Phone, "+7 ") }          // 8
-                item { field(email, { email = it.trim() }, "E-mail", 9, KeyboardType.Email) }                             // 9
+                item { field(email, { email = it.trim() }, "E-mail (необязательно)", 9, KeyboardType.Email) }                             // 9
                 item { field(city, { city = it }, "Город", 10) }                                                          // 10
                 item { field(address, { address = it }, "Адрес доставки", 11) }                                         // 11
                 item { field(volume, { volume = it.filter(Char::isDigit).take(10) }, "Примерный объём продаж в месяц, ₽", 12, KeyboardType.Number) } // 12
@@ -358,7 +360,7 @@ internal fun ProtoClientHomeScreen(
         .filter { protoMatches(it, homeFilter.copy(query = ""), availableStock(it)) }
         .filter { p -> when (mode) { "В наличии" -> availableStock(p) > 0; "Под заказ" -> availableStock(p) <= 0; else -> true } }
         .sortedWith(compareByDescending<ProtoCatalogProduct> { availableStock(it) > 0 }.thenBy { it.sku })
-    val groupCounts = protoWreathGroupsOrdered.associateWith { g -> products.count { it.type == g } }.filterValues { it > 0 }
+    val groupCounts = protoAllGroupsOrdered.associateWith { g -> products.count { it.type == g } }.filterValues { it > 0 }
     val filterActive = (homeFilter.types.isNotEmpty() && homeFilter.types != protoWreathGroups) || homeFilter.qualities.isNotEmpty() || homeFilter.sizes.isNotEmpty() || homeFilter.availability.isNotEmpty() || homeFilter.minPrice != null || homeFilter.maxPrice != null
 
     Box(Modifier.fillMaxSize()) {
@@ -419,7 +421,7 @@ internal fun ProtoClientHomeScreen(
                             }
                         }
                         // Разделы в разработке — неактивны.
-                        items(listOf("Гробы", "Кресты")) { g ->
+                        items(protoUpcomingGroups.filter { it !in groupCounts }) { g ->
                             Card(colors = CardDefaults.cardColors(containerColor = ProtoPanel), border = BorderStroke(1.dp, ProtoBorder), shape = RoundedCornerShape(18.dp), modifier = Modifier.width(132.dp).height(132.dp)) {
                                 Box(Modifier.fillMaxSize()) {
                                     androidx.compose.foundation.Image(painterResource(protoPlaceholderForType(g)), null, Modifier.fillMaxSize(), contentScale = ContentScale.Crop, alpha = 0.35f)
@@ -520,7 +522,7 @@ internal fun ProtoCatalogHomeScreen(
 ) {
     var searchText by remember { mutableStateOf("") }
     var mode by remember { mutableStateOf("Все") }
-    val soon = protoProductGroups.filter { !it.enabled }
+    val soon = protoProductGroups.filter { !it.enabled && it.title !in groupCounts }
     Box(Modifier.fillMaxSize()) {
         ProtoLiveBackground()
         Scaffold(containerColor = Color.Transparent, bottomBar = {

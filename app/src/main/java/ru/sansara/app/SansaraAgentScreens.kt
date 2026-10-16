@@ -301,7 +301,7 @@ private fun HubButton(title: String, subtitle: String, icon: ImageVector, modifi
 
 @Composable
 internal fun ProtoAgentHubScreen(newCount: Int, totalCount: Int, ordersCount: Int, markupLabel: String, onBack: () -> Unit, onNew: () -> Unit, onBase: () -> Unit, onMarkup: () -> Unit, onOrders: () -> Unit) {
-    ProtoScaffold("Для клиентов", "Продажи вашим частным клиентам", onBack) {
+    ProtoScaffold("Продажи", "Заказы ваших клиентов, наценки и база", onBack) {
         item {
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 HubButton("Новый клиент", "Завести карточку и сразу перейти к заказу", Icons.Outlined.PersonAdd, Modifier.weight(1f), onNew)

@@ -18,6 +18,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
@@ -121,7 +122,7 @@ internal fun ProtoAdminHomeScreen(
             ) {
                 item { ProtoBrandHeader(unreadCount = unreadCount, onBell = onNotifications, edge = 0.dp) }
                 item {
-                    Text("Здравствуйте" + if (adminName.isNotBlank()) ", $adminName" else "", color = ProtoText, fontSize = 28.sp, fontWeight = FontWeight.Bold)
+                    Text("Здравствуйте" + if (adminName.isNotBlank()) ", $adminName" else "", color = ProtoText, fontSize = 28.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
                     Text("Администратор · " + currentDateLong(), color = ProtoGoldSoft, fontSize = 14.sp)
                 }
                 item { ProtoSearchBar("", onSearch, "Поиск по клиентам, заказам, товарам") }
@@ -138,10 +139,11 @@ internal fun ProtoAdminHomeScreen(
                     }
                 }
                 item {
-                    Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                        ProtoMetricCard("Заказы сегодня", ordersToday.toString(), "", Modifier.weight(1f), onOrders)
-                        ProtoMetricCard("Выпуск сегодня", producedToday.toString(), "шт.", Modifier.weight(1f), onProduction)
-                        ProtoMetricCard("Клиенты", activeClients.toString(), "активные", Modifier.weight(1f), onClients)
+                    // Три плашки одной высоты: подписи в две строки, значения на одной линии.
+                    Row(Modifier.height(IntrinsicSize.Min), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                        ProtoMetricCard("Заказы сегодня", ordersToday.toString(), "", Modifier.weight(1f).fillMaxHeight(), onOrders, titleLines = 2)
+                        ProtoMetricCard("Выпуск сегодня", producedToday.toString(), "шт.", Modifier.weight(1f).fillMaxHeight(), onProduction, titleLines = 2)
+                        ProtoMetricCard("Клиенты", activeClients.toString(), "активные", Modifier.weight(1f).fillMaxHeight(), onClients, titleLines = 2)
                     }
                 }
                 item { ProtoSectionTitle("Разделы") }
@@ -677,13 +679,38 @@ internal fun ProtoAdminSettingsDetailScreen(
     onRate: (List<String>, Int) -> Unit,
     promoTitle: String = "",
     promoText: String = "",
-    onPromoSave: (String, String) -> Unit = { _, _ -> }
+    onPromoSave: (String, String) -> Unit = { _, _ -> },
+    promoImageVersion: Long = 0L,
+    onPromoImage: (android.net.Uri) -> Unit = {},
+    onPromoImageReset: () -> Unit = {}
 ) {
+    val pickImage = androidx.activity.compose.rememberLauncherForActivityResult(androidx.activity.result.contract.ActivityResultContracts.PickVisualMedia()) { uri -> if (uri != null) onPromoImage(uri) }
+    // «Ставки сборки»: какие разделы раскрыты и строка поиска.
+    var expandedRateGroups by remember { mutableStateOf(setOf<String>()) }
+    var rateQuery by remember { mutableStateOf("") }
     ProtoScaffold(section, null, onBack) {
         when (section) {
             "Приветственный экран" -> item {
                 var title by remember(promoTitle) { mutableStateOf(promoTitle) }
                 var text by remember(promoText) { mutableStateOf(promoText) }
+                val ctx = LocalContext.current
+                ProtoSectionCard {
+                    Text("Картинка экрана «Добро пожаловать»", color = ProtoText, fontWeight = FontWeight.SemiBold)
+                    Text("Рекламная или информационная. Лучше вертикальная, текст поверх неё будет слева.", color = ProtoMuted, fontSize = 12.sp)
+                    // Предпросмотр в пропорциях карточки на экране приветствия.
+                    Box(Modifier.fillMaxWidth().aspectRatio(0.9f).padding(vertical = 8.dp).clip(RoundedCornerShape(18.dp)).background(ProtoPanel2)) {
+                        val file = protoWelcomeImageFile(ctx).takeIf { promoImageVersion > 0L && it.exists() }
+                        if (file != null) coil.compose.AsyncImage(model = coil.request.ImageRequest.Builder(ctx).data(file).memoryCacheKey("welcome-$promoImageVersion").build(), contentDescription = null, modifier = Modifier.fillMaxSize(), contentScale = androidx.compose.ui.layout.ContentScale.Crop)
+                        else androidx.compose.foundation.Image(painterResource(R.drawable.mock_wreath), null, Modifier.fillMaxSize(), contentScale = androidx.compose.ui.layout.ContentScale.Crop)
+                        Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = .38f)))
+                        Text((title.ifBlank { "УВАЖЕНИЕ\nВ КАЖДОЙ\nДЕТАЛИ" }), color = ProtoGoldSoft, fontSize = 18.sp, lineHeight = 26.sp, letterSpacing = 2.sp, modifier = Modifier.align(Alignment.CenterStart).padding(18.dp))
+                    }
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Button(onClick = { pickImage.launch(androidx.activity.result.PickVisualMediaRequest(androidx.activity.result.contract.ActivityResultContracts.PickVisualMedia.ImageOnly)) }, colors = ButtonDefaults.buttonColors(containerColor = ProtoGold), modifier = Modifier.weight(1f)) { Text("Выбрать картинку", color = Color.Black) }
+                        if (promoImageVersion > 0L) OutlinedButton(onClick = onPromoImageReset, border = BorderStroke(1.dp, ProtoGold), modifier = Modifier.weight(1f)) { Text("Вернуть стандартную", color = ProtoGold, maxLines = 1) }
+                    }
+                }
+                Spacer(Modifier.height(10.dp))
                 ProtoSectionCard {
                     Text("Текст на фото экрана «Добро пожаловать». Пусто — «Уважение в каждой детали».", color = ProtoMuted, fontSize = 13.sp)
                     OutlinedTextField(value = title, onValueChange = { title = it.take(60) }, label = { Text("Заголовок (до 3 строк)") }, modifier = Modifier.fillMaxWidth().padding(top = 8.dp), minLines = 2, maxLines = 3, colors = protoFieldColors())
@@ -753,23 +780,35 @@ internal fun ProtoAdminSettingsDetailScreen(
                 }
             }
             "Ставки сборки" -> {
-                item { Text("Ставка — сколько получает сборщица за одну штуку. Производство видит ставку, но не меняет её.", color = ProtoMuted, fontSize = 13.sp) }
-                val groups = products.groupBy { it.type.ifBlank { "Прочее" } }.toSortedMap()
+                item { Text("Ставка — сколько получает сборщица за одну штуку. Производство видит ставку, но не меняет её. Нажмите на раздел, чтобы раскрыть список.", color = ProtoMuted, fontSize = 13.sp) }
+                item { ProtoSearchField(rateQuery, { rateQuery = it }, {}, "Артикул или название") }
+                val q = rateQuery.trim()
+                val source = if (q.length >= 2) products.filter { protoSearchMatches(it, q) } else products
+                val order = protoAllGroupsOrdered
+                val groups = source.groupBy { it.type.ifBlank { "Прочее" } }.toList().sortedBy { (t, _) -> order.indexOf(t).let { i -> if (i < 0) 99 else i } }
+                if (groups.isEmpty()) item { Text("Ничего не найдено", color = ProtoMuted) }
                 groups.forEach { (type, list) ->
+                    // При поиске разделы с найденными товарами раскрываются сами.
+                    val expanded = type in expandedRateGroups || q.length >= 2
                     item(key = "rg-$type") {
                         var groupRate by remember(type) { mutableStateOf("") }
                         val rated = list.count { (rates[it.sku] ?: 0) > 0 }
-                        ProtoSectionCard {
-                            Text(type, color = ProtoText, fontWeight = FontWeight.Bold)
-                            Text("${list.size} артикулов · ставка задана у $rated", color = if (rated < list.size) ProtoOrange else ProtoMuted, fontSize = 12.sp)
+                        ProtoSectionCard(Modifier.clickable { expandedRateGroups = protoToggle(expandedRateGroups, type) }) {
                             Row(verticalAlignment = Alignment.CenterVertically) {
+                                Column(Modifier.weight(1f)) {
+                                    Text("$type · ${list.size}", color = ProtoText, fontWeight = FontWeight.Bold, fontSize = 16.sp)
+                                    Text(if (rated < list.size) "без ставки ${list.size - rated}" else "ставка задана у всех", color = if (rated < list.size) ProtoOrange else ProtoMuted, fontSize = 12.sp)
+                                }
+                                Icon(if (expanded) Icons.Outlined.ExpandLess else Icons.Outlined.ExpandMore, if (expanded) "Свернуть" else "Раскрыть", tint = ProtoGold)
+                            }
+                            if (expanded) Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(top = 6.dp)) {
                                 OutlinedTextField(value = groupRate, onValueChange = { groupRate = it.filter(Char::isDigit).take(5) }, label = { Text("Ставка для всех, ₽") }, singleLine = true, modifier = Modifier.weight(1f), keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), colors = protoFieldColors())
                                 Spacer(Modifier.width(8.dp))
                                 Button(onClick = { groupRate.toIntOrNull()?.let { onRate(list.map { it.sku }, it) }; groupRate = "" }, enabled = groupRate.isNotBlank(), colors = ButtonDefaults.buttonColors(containerColor = ProtoGold)) { Text("Применить", color = Color.Black) }
                             }
                         }
                     }
-                    items(list.sortedBy { it.sku }.take(80), key = { "r-" + it.sku }) { p ->
+                    if (expanded) items(list.sortedBy { it.sku }, key = { "r-" + it.sku }) { p ->
                         var v by remember(p.sku, rates[p.sku]) { mutableStateOf((rates[p.sku] ?: 0).takeIf { it > 0 }?.toString().orEmpty()) }
                         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                             Column(Modifier.weight(1f)) {
@@ -1259,10 +1298,28 @@ internal fun ProtoAdminAccountsScreen(
     onBack: () -> Unit,
     onAdd: (String, String, Boolean) -> Unit,
     onToggle: (SansaraAdminAccount) -> Unit,
-    onIssuedSeen: () -> Unit
+    onIssuedSeen: () -> Unit,
+    onRename: (SansaraAdminAccount, String) -> Unit = { _, _ -> }
 ) {
     val context = LocalContext.current
     var name by remember { mutableStateOf("") }
+    var renaming by remember { mutableStateOf<SansaraAdminAccount?>(null) }
+    var newName by remember { mutableStateOf("") }
+    renaming?.let { target ->
+        AlertDialog(
+            onDismissRequest = { renaming = null }, containerColor = ProtoPanel,
+            title = { Text("Имя сотрудника", color = ProtoText) },
+            text = {
+                Column {
+                    Text(if (target.isMain) "Главный аккаунт на главной экране всегда видит «Здравствуйте, BOSS»." else "Это имя будет в приветствии на главном экране сотрудника.", color = ProtoMuted, fontSize = 13.sp)
+                    Spacer(Modifier.height(8.dp))
+                    OutlinedTextField(newName, { newName = it.take(40) }, label = { Text("Имя") }, singleLine = true, colors = protoFieldColors(), modifier = Modifier.fillMaxWidth())
+                }
+            },
+            confirmButton = { TextButton(enabled = newName.isNotBlank(), onClick = { onRename(target, newName.trim()); renaming = null }) { Text("Сохранить", color = ProtoGold) } },
+            dismissButton = { TextButton(onClick = { renaming = null }) { Text("Отмена", color = ProtoMuted) } }
+        )
+    }
     var phone by remember { mutableStateOf("") }
     var production by remember { mutableStateOf(false) }
     val main = admins.firstOrNull { it.isMain }
@@ -1313,6 +1370,7 @@ internal fun ProtoAdminAccountsScreen(
                         Text(admin.displayName, color = ProtoText, fontWeight = FontWeight.Bold)
                         Text((if (admin.isMain) "Главный аккаунт" else if (admin.role == SansaraRole.PRODUCTION.name) "Производство" else "Администратор") + " · " + (if (admin.enabled) "активен" else "отключён"), color = if (admin.enabled) ProtoGoldSoft else ProtoRed, fontSize = 12.sp)
                     }
+                    if (canManage) IconButton(onClick = { newName = admin.displayName; renaming = admin }) { Icon(Icons.Outlined.Edit, "Изменить имя", tint = ProtoGoldSoft) }
                     if (!admin.isMain && canManage) Switch(checked = admin.enabled, onCheckedChange = { onToggle(admin) }, colors = SwitchDefaults.colors(checkedTrackColor = ProtoGold, checkedThumbColor = Color.Black))
                 }
             }

@@ -516,3 +516,26 @@ internal fun protoLoadFilter(prefs: android.content.SharedPreferences, key: Stri
     fun set(name: String): Set<String> = o.optJSONArray(name)?.let { a -> (0 until a.length()).map { a.getString(it) }.toSet() } ?: emptySet()
     ProtoCatalogFilter("", set("types"), set("qualities"), set("sizes"), set("availability"), o.optInt("min", -1).takeIf { it >= 0 }, o.optInt("max", -1).takeIf { it >= 0 })
 }.getOrDefault(ProtoCatalogFilter())
+
+// ───────────── Картинка приветственного экрана ─────────────
+
+internal fun protoWelcomeImageFile(context: android.content.Context) = java.io.File(context.filesDir, "welcome_promo.jpg")
+
+/** Сохраняет выбранную из галереи картинку для экрана «Добро пожаловать», уменьшив до 1600 точек по длинной стороне. */
+internal fun protoSaveWelcomeImage(context: android.content.Context, uri: android.net.Uri): Boolean = runCatching {
+    val resolver = context.contentResolver
+    val bounds = android.graphics.BitmapFactory.Options().apply { inJustDecodeBounds = true }
+    resolver.openInputStream(uri)?.use { android.graphics.BitmapFactory.decodeStream(it, null, bounds) }
+    val longSide = maxOf(bounds.outWidth, bounds.outHeight)
+    require(longSide > 0) { "Не удалось прочитать картинку" }
+    var sample = 1
+    while (longSide / (sample * 2) >= 1600) sample *= 2
+    val bitmap = resolver.openInputStream(uri)?.use { android.graphics.BitmapFactory.decodeStream(it, null, android.graphics.BitmapFactory.Options().apply { inSampleSize = sample }) }
+        ?: error("Не удалось прочитать картинку")
+    val scale = 1600f / maxOf(bitmap.width, bitmap.height)
+    val out = if (scale < 1f) android.graphics.Bitmap.createScaledBitmap(bitmap, (bitmap.width * scale).toInt(), (bitmap.height * scale).toInt(), true) else bitmap
+    protoWelcomeImageFile(context).outputStream().use { out.compress(android.graphics.Bitmap.CompressFormat.JPEG, 88, it) }
+    if (out !== bitmap) out.recycle()
+    bitmap.recycle()
+    true
+}.getOrDefault(false)
