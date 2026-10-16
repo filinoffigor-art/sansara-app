@@ -23,7 +23,7 @@ class SansaraWorkshopLogicTest {
     @Test
     fun partialPostingCarriesRemainderToNextDayAndCountsTime(): Unit = runBlocking {
         repo.seedDebugIfNeeded()
-        fun physical(sku: String) = repo.snapshot().let { s -> s.stockOverrides[sku] ?: s.products.first { it.sku == sku }.stock }
+        suspend fun physical(sku: String) = repo.snapshot().let { s -> s.stockOverrides[sku] ?: s.products.first { it.sku == sku }.stock }
         val product = repo.snapshot().products.first()
         val stockBefore = physical(product.sku)
         val lines = JSONArray().put(JSONObject().put("sku", product.sku).put("name", product.name).put("qty", 5)).toString()
