@@ -1,0 +1,1 @@
+android8 api=26 size=1080x1920 density=420 font=1.0 e277d7c52b9dbd28c44a2825e477c95e6d0aa122
