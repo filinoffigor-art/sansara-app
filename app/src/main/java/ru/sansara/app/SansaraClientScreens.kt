@@ -157,11 +157,12 @@ internal fun ProtoRegistrationScreen(onBack: () -> Unit, onSubmit: (ProtoRegistr
             LazyColumn(Modifier.weight(1f), state = listState, contentPadding = PaddingValues(horizontal = 18.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 item { Text("Тип клиента", color = ProtoText, fontWeight = FontWeight.SemiBold) }                         // 0
                 item {                                                                                                    // 1
-                    Row(Modifier.fillMaxWidth().height(52.dp).border(1.dp, ProtoGold, RoundedCornerShape(26.dp))) {
+                    // Узкий экран или крупный шрифт: «Торгующая организация» переносится на вторую строку, переключатель растёт по высоте.
+                    Row(Modifier.fillMaxWidth().height(IntrinsicSize.Min).heightIn(min = 52.dp).border(1.dp, ProtoGold, RoundedCornerShape(26.dp))) {
                         listOf(ProtoClientType.AGENT.label, ProtoClientType.TRADING.label).forEach { option ->
                             val active = type == option
-                            Box(Modifier.weight(1f).fillMaxHeight().clip(RoundedCornerShape(26.dp)).background(if (active) ProtoGold else Color.Transparent).clickable { type = option }, contentAlignment = Alignment.Center) {
-                                Text(option, color = if (active) Color.Black else ProtoText, fontWeight = FontWeight.SemiBold, fontSize = 13.sp, maxLines = 1)
+                            Box(Modifier.weight(1f).fillMaxHeight().clip(RoundedCornerShape(26.dp)).background(if (active) ProtoGold else Color.Transparent).clickable { type = option }.padding(horizontal = 10.dp, vertical = 6.dp), contentAlignment = Alignment.Center) {
+                                Text(option, color = if (active) Color.Black else ProtoText, fontWeight = FontWeight.SemiBold, fontSize = 13.sp, lineHeight = 16.sp, maxLines = 2, textAlign = androidx.compose.ui.text.style.TextAlign.Center)
                             }
                         }
                     }
@@ -805,16 +806,16 @@ internal fun ProtoProductDetailScreen(
                     Text("Арт. " + p.sku, color = ProtoGoldSoft, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
                 }
                 item {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Row(Modifier.weight(1f), verticalAlignment = Alignment.Bottom) {
-                            Text(protoMoney(protoUnitPrice(p.price, discount)), color = ProtoText, fontSize = 28.sp, fontWeight = FontWeight.Bold)
-                            if (discount > 0) Text(protoMoney(p.price), color = ProtoMuted, fontSize = 14.sp, textDecoration = androidx.compose.ui.text.style.TextDecoration.LineThrough, modifier = Modifier.padding(start = 8.dp, bottom = 4.dp))
-                        }
-                        Text(
-                            if (currentStock > 0) "В наличии $currentStock шт." else "Под заказ · готов к " + protoReadyLabel(p.productionDays),
-                            color = if (currentStock > 0) ProtoGreen else ProtoGoldSoft, fontSize = 13.sp, textAlign = TextAlign.End
-                        )
+                    // Цена — одной строкой без переносов, наличие — отдельной строкой под ней:
+                    // на узких экранах и с крупным шрифтом они больше не сжимают друг друга.
+                    Row(verticalAlignment = Alignment.Bottom) {
+                        Text(protoMoney(protoUnitPrice(p.price, discount)), color = ProtoText, fontSize = 28.sp, fontWeight = FontWeight.Bold, maxLines = 1, softWrap = false)
+                        if (discount > 0) Text(protoMoney(p.price), color = ProtoMuted, fontSize = 14.sp, maxLines = 1, softWrap = false, textDecoration = androidx.compose.ui.text.style.TextDecoration.LineThrough, modifier = Modifier.padding(start = 8.dp, bottom = 4.dp))
                     }
+                    Text(
+                        if (currentStock > 0) "В наличии $currentStock шт." else "Под заказ · готов к " + protoReadyLabel(p.productionDays),
+                        color = if (currentStock > 0) ProtoGreen else ProtoGoldSoft, fontSize = 13.sp, modifier = Modifier.padding(top = 2.dp)
+                    )
                     if (currentStock in 1 until qty) Text(
                         "В наличии $currentStock шт., остальные " + (qty - currentStock) + " шт. будут готовы к " + protoReadyLabel(p.productionDays),
                         color = ProtoOrange, fontSize = 13.sp, modifier = Modifier.padding(top = 4.dp)

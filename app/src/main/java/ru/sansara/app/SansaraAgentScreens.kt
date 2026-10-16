@@ -288,12 +288,12 @@ internal fun ProtoClientReportsScreen(
 
 @Composable
 private fun HubButton(title: String, subtitle: String, icon: ImageVector, modifier: Modifier, onClick: () -> Unit) {
-    Card(colors = CardDefaults.cardColors(containerColor = ProtoPanel), border = BorderStroke(1.dp, ProtoBorder), shape = RoundedCornerShape(20.dp), modifier = modifier.height(150.dp).clickable(onClick = onClick)) {
-        Column(Modifier.fillMaxSize().padding(14.dp), verticalArrangement = Arrangement.SpaceBetween) {
+    Card(colors = CardDefaults.cardColors(containerColor = ProtoPanel), border = BorderStroke(1.dp, ProtoBorder), shape = RoundedCornerShape(20.dp), modifier = modifier.fillMaxHeight().heightIn(min = 150.dp).clickable(onClick = onClick)) {
+        Column(Modifier.fillMaxWidth().fillMaxHeight().padding(14.dp), verticalArrangement = Arrangement.SpaceBetween) {
             Box(Modifier.size(44.dp).background(ProtoPanel2, CircleShape), contentAlignment = Alignment.Center) { Icon(icon, null, tint = ProtoGold) }
             Column {
                 Text(title, color = ProtoText, fontSize = 17.sp, fontWeight = FontWeight.Bold)
-                Text(subtitle, color = ProtoMuted, fontSize = 12.sp, maxLines = 2)
+                Text(subtitle, color = ProtoMuted, fontSize = 12.sp, maxLines = 3, modifier = Modifier.padding(top = 2.dp))
             }
         }
     }
@@ -303,13 +303,13 @@ private fun HubButton(title: String, subtitle: String, icon: ImageVector, modifi
 internal fun ProtoAgentHubScreen(newCount: Int, totalCount: Int, ordersCount: Int, markupLabel: String, onBack: () -> Unit, onNew: () -> Unit, onBase: () -> Unit, onMarkup: () -> Unit, onOrders: () -> Unit) {
     ProtoScaffold("Продажи", "Заказы ваших клиентов, наценки и база", onBack) {
         item {
-            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            Row(Modifier.height(IntrinsicSize.Min), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 HubButton("Новый клиент", "Завести карточку и сразу перейти к заказу", Icons.Outlined.PersonAdd, Modifier.weight(1f), onNew)
                 HubButton("База клиентов", if (newCount > 0) "$totalCount всего · $newCount новых" else "$totalCount всего", Icons.Outlined.Groups, Modifier.weight(1f), onBase)
             }
         }
         item {
-            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            Row(Modifier.height(IntrinsicSize.Min), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 HubButton("Наценка", markupLabel, Icons.Outlined.Percent, Modifier.weight(1f), onMarkup)
                 HubButton("История заказов", protoPlural(ordersCount, "заказ", "заказа", "заказов") + " клиентов", Icons.Outlined.ReceiptLong, Modifier.weight(1f), onOrders)
             }

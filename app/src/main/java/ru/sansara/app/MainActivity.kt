@@ -10,6 +10,12 @@ import androidx.activity.SystemBarStyle
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.content.ContextCompat
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.width
+import androidx.compose.ui.unit.dp
 
 class MainActivity : ComponentActivity() {
     private val notificationPermissionLauncher =
@@ -30,7 +36,19 @@ class MainActivity : ComponentActivity() {
         )
         pendingOpen.value = intent?.getStringExtra(SansaraNotify.EXTRA_OPEN_ORDER)
             ?: if (intent?.getBooleanExtra(SansaraNotify.EXTRA_OPEN_NOTIFICATIONS, false) == true) "" else null
-        setContent { SansaraVisualPrototype() }
+        setContent {
+            // Планшеты и телефоны в альбомной ориентации: интерфейс — по центру колонкой не шире 640 dp,
+            // по бокам фон приложения. На обычных телефонах (до 720 dp) — во всю ширину, как раньше.
+            androidx.compose.foundation.layout.BoxWithConstraints(
+                androidx.compose.ui.Modifier.fillMaxSize().background(ProtoBg)
+            ) {
+                val wide = maxWidth > 720.dp
+                androidx.compose.foundation.layout.Box(
+                    androidx.compose.ui.Modifier.align(androidx.compose.ui.Alignment.TopCenter).fillMaxHeight()
+                        .then(if (wide) androidx.compose.ui.Modifier.width(640.dp) else androidx.compose.ui.Modifier.fillMaxWidth())
+                ) { SansaraVisualPrototype() }
+            }
+        }
     }
 
     override fun onNewIntent(intent: android.content.Intent) {

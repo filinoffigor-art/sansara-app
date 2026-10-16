@@ -35,14 +35,15 @@ import java.time.format.DateTimeFormatter
 @Composable
 internal fun ProtoBrandRow(left: (@Composable () -> Unit)? = null, right: (@Composable () -> Unit)? = null, horizontalPadding: androidx.compose.ui.unit.Dp = 12.dp) {
     Box(Modifier.fillMaxWidth().height(64.dp).padding(horizontal = horizontalPadding)) {
-        Column(Modifier.align(Alignment.TopCenter).padding(top = 10.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+        // Надпись живёт между кнопками: на узких экранах (360 dp и меньше) она уменьшается, а не наезжает на «назад» и колокольчик.
+        Column(Modifier.align(Alignment.TopCenter).fillMaxWidth().padding(top = 10.dp, start = 50.dp, end = 50.dp), horizontalAlignment = Alignment.CenterHorizontally) {
             androidx.compose.foundation.Image(
                 painter = androidx.compose.ui.res.painterResource(R.drawable.sansara_wordmark_letters),
                 contentDescription = "SANSARA",
-                modifier = Modifier.height(22.dp),
+                modifier = Modifier.fillMaxWidth().height(22.dp),
                 contentScale = androidx.compose.ui.layout.ContentScale.Fit
             )
-            Text("Ваш оптовый партнёр", color = ProtoGoldSoft, fontSize = 11.sp, letterSpacing = 1.sp, modifier = Modifier.padding(top = 4.dp))
+            Text("Ваш оптовый партнёр", color = ProtoGoldSoft, fontSize = 11.sp, letterSpacing = 1.sp, maxLines = 1, softWrap = false, modifier = Modifier.padding(top = 4.dp))
         }
         // Центр надписи — 10 dp отступа + половина её высоты (11 dp) = 21 dp; кнопки 40 dp → сдвиг 1 dp.
         if (left != null) Box(Modifier.align(Alignment.TopStart).padding(top = 1.dp)) { left() }
@@ -683,11 +684,11 @@ internal fun ProtoContactActions(phone: String, text: String = "") {
     var choose by remember { mutableStateOf(false) }
     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         Button(onClick = { runCatching { context.startActivity(android.content.Intent(android.content.Intent.ACTION_DIAL, android.net.Uri.parse("tel:+" + protoIntlDigits(phone))).addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)) } },
-            enabled = phone.isNotBlank(), colors = ButtonDefaults.buttonColors(containerColor = ProtoGold), modifier = Modifier.weight(1f)) {
-            Icon(Icons.Outlined.Call, null, tint = Color.Black); Spacer(Modifier.width(6.dp)); Text("Позвонить", color = Color.Black)
+            enabled = phone.isNotBlank(), colors = ButtonDefaults.buttonColors(containerColor = ProtoGold), modifier = Modifier.weight(1f), contentPadding = PaddingValues(horizontal = 10.dp)) {
+            Icon(Icons.Outlined.Call, null, tint = Color.Black, modifier = Modifier.size(18.dp)); Spacer(Modifier.width(6.dp)); Text("Позвонить", color = Color.Black, maxLines = 1, softWrap = false, overflow = TextOverflow.Ellipsis)
         }
-        OutlinedButton(onClick = { choose = true }, enabled = phone.isNotBlank(), border = BorderStroke(1.dp, ProtoGold), modifier = Modifier.weight(1f)) {
-            Icon(Icons.Outlined.ChatBubbleOutline, null, tint = ProtoGold); Spacer(Modifier.width(6.dp)); Text("Написать", color = ProtoGold)
+        OutlinedButton(onClick = { choose = true }, enabled = phone.isNotBlank(), border = BorderStroke(1.dp, ProtoGold), modifier = Modifier.weight(1f), contentPadding = PaddingValues(horizontal = 10.dp)) {
+            Icon(Icons.Outlined.ChatBubbleOutline, null, tint = ProtoGold, modifier = Modifier.size(18.dp)); Spacer(Modifier.width(6.dp)); Text("Написать", color = ProtoGold, maxLines = 1, softWrap = false, overflow = TextOverflow.Ellipsis)
         }
     }
     if (choose) AlertDialog(

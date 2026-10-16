@@ -19,7 +19,7 @@ for spec in "1024 Home 11" "1024 Cart 12" "9001 AdminHome 21" "9001 AdminOrders 
   timeout 300 adb shell monkey -p ru.sansara.app -s $seed --throttle 80 --pct-syskeys 0 --pct-appswitch 0 --pct-anyevent 0 --ignore-security-exceptions -v $EVENTS > monkey_$seed.log 2>&1
   res=$(grep -E "Monkey finished|// CRASH|NOT RESPONDING|ANR" monkey_$seed.log | head -3 | tr '\n' ' ')
   echo "--- роль $code, старт $scr, seed $seed: ${res:-без итога}" >> $OUT
-  if adb logcat -d | grep -q "FATAL EXCEPTION"; then
+  if adb logcat -d | grep -A2 "FATAL EXCEPTION" | grep -q "Process: ru.sansara.app"; then
     crashes=$((crashes+1))
     adb logcat -d | grep -A 45 "FATAL EXCEPTION" | grep -E "AndroidRuntime" | head -60 >> $OUT
     adb exec-out screencap -p > shots/monkey_crash_$seed.png

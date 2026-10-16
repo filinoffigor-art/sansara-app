@@ -318,8 +318,8 @@ internal fun ProtoAdminClientScreen(
                 if (c.address.isNotBlank()) Text(c.address, color = ProtoMuted, fontSize = 13.sp, modifier = Modifier.padding(top = 2.dp))
                 Spacer(Modifier.height(10.dp))
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    OutlinedButton(onClick = onCall, modifier = Modifier.weight(1f), border = BorderStroke(1.dp, ProtoGold)) { Icon(Icons.Outlined.Call, null, tint = ProtoGold); Spacer(Modifier.width(6.dp)); Text("Позвонить", color = ProtoGold) }
-                    OutlinedButton(onClick = onChat, modifier = Modifier.weight(1f), border = BorderStroke(1.dp, ProtoGold)) { Icon(Icons.Outlined.ChatBubbleOutline, null, tint = ProtoGold); Spacer(Modifier.width(6.dp)); Text("Написать", color = ProtoGold) }
+                    OutlinedButton(onClick = onCall, modifier = Modifier.weight(1f), border = BorderStroke(1.dp, ProtoGold), contentPadding = PaddingValues(horizontal = 10.dp)) { Icon(Icons.Outlined.Call, null, tint = ProtoGold, modifier = Modifier.size(18.dp)); Spacer(Modifier.width(6.dp)); Text("Позвонить", color = ProtoGold, maxLines = 1, softWrap = false, overflow = TextOverflow.Ellipsis) }
+                    OutlinedButton(onClick = onChat, modifier = Modifier.weight(1f), border = BorderStroke(1.dp, ProtoGold), contentPadding = PaddingValues(horizontal = 10.dp)) { Icon(Icons.Outlined.ChatBubbleOutline, null, tint = ProtoGold, modifier = Modifier.size(18.dp)); Spacer(Modifier.width(6.dp)); Text("Написать", color = ProtoGold, maxLines = 1, softWrap = false, overflow = TextOverflow.Ellipsis) }
                 }
             }
         }

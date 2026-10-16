@@ -18,8 +18,8 @@ android {
         applicationId = "ru.sansara.app"
         minSdk = 26
         targetSdk = 35
-        versionCode = 36
-        versionName = "0.27.0-mother"
+        versionCode = 37
+        versionName = "0.27.1-mother"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         testInstrumentationRunnerArguments["clearPackageData"] = "true"
         buildConfigField("String", "ADMIN_PHONE", "\"+79263046019\"")
