@@ -1,0 +1,1 @@
+tablet api=34 size=1600x2560 density=320 font=1.0 e277d7c52b9dbd28c44a2825e477c95e6d0aa122

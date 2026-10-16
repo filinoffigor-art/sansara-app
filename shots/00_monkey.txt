@@ -1,0 +1,18 @@
+Стресс-прогон: 1500 событий на прогон, экран 1600x2560/320dpi, шрифт 1.0, Android API 34
+--- роль 1024, старт Home, seed 11: // Monkey finished 
+  память:            TOTAL PSS:   171953            TOTAL RSS:   289808      TOTAL SWAP (KB):        0
+--- роль 1024, старт Cart, seed 12: // Monkey finished 
+  память:            TOTAL PSS:   175047            TOTAL RSS:   292564      TOTAL SWAP (KB):        0
+--- роль 9001, старт AdminHome, seed 21: // Monkey finished 
+  память:            TOTAL PSS:   137734            TOTAL RSS:   254420      TOTAL SWAP (KB):        0
+--- роль 9001, старт AdminOrders, seed 22: // Monkey finished 
+  память:            TOTAL PSS:   162073            TOTAL RSS:   279032      TOTAL SWAP (KB):        0
+--- роль 9001, старт AdminSettings, seed 23: // Monkey finished 
+  память:            TOTAL PSS:   151840            TOTAL RSS:   268424      TOTAL SWAP (KB):        0
+--- роль 9002, старт Production, seed 31: // Monkey finished 
+  память:            TOTAL PSS:   155459            TOTAL RSS:   271892      TOTAL SWAP (KB):        0
+--- роль 9002, старт ProductionWorkshop, seed 32: // Monkey finished 
+  память:            TOTAL PSS:   143175            TOTAL RSS:   259876      TOTAL SWAP (KB):        0
+--- роль 9003, старт SalesHome, seed 41: // Monkey finished 
+  память:            TOTAL PSS:   156396            TOTAL RSS:   273236      TOTAL SWAP (KB):        0
+Падений: 0
