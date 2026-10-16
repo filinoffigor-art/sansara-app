@@ -78,6 +78,17 @@ jobs:
           profile: pixel_6
           disable-animations: true
           script: ONLY="${{ inputs.only }}" bash .github/scripts/shots.sh
+      - name: Stress test (monkey)
+        if: always()
+        timeout-minutes: 30
+        continue-on-error: true
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 34
+          arch: x86_64
+          profile: pixel_6
+          disable-animations: true
+          script: bash .github/scripts/monkey.sh
       - uses: actions/upload-artifact@v4
         if: always()
         with:

@@ -304,6 +304,7 @@ fun SansaraVisualPrototype() {
     var loginError by remember { mutableStateOf<String?>(null) }
     var rejectionNotice by remember { mutableStateOf<String?>(null) }
     var adminSetupNeeded by remember { mutableStateOf(false) }
+    var crashReport by remember { mutableStateOf(SansaraCrashLog.pending(context)) }
     var adminSetupError by remember { mutableStateOf<String?>(null) }
     var homeFilter by remember { mutableStateOf(protoLoadFilter(context.getSharedPreferences("sansara", Context.MODE_PRIVATE), "home_filter")) }
     var filterTarget by remember { mutableStateOf("catalog") }
@@ -2426,6 +2427,16 @@ fun SansaraVisualPrototype() {
                     }
                 },
                 confirmButton = { TextButton(onClick = { approvedCodes = null; smsSent.clear() }) { Text("Готово", color = ProtoGold) } }
+            )
+        }
+
+        crashReport?.let { report ->
+            AlertDialog(
+                onDismissRequest = { SansaraCrashLog.markSeen(context); crashReport = null }, containerColor = ProtoPanel,
+                title = { Text("Приложение было закрыто из-за ошибки", color = ProtoText) },
+                text = { Text("Мы записали причину. Отправьте отчёт разработчику — это поможет быстрее исправить ошибку. Ваши данные не пострадали.", color = ProtoMuted, lineHeight = 20.sp) },
+                confirmButton = { TextButton(onClick = { protoShare(context, report, "Отправить отчёт об ошибке"); SansaraCrashLog.markSeen(context); crashReport = null }) { Text("Отправить отчёт", color = ProtoGold) } },
+                dismissButton = { TextButton(onClick = { SansaraCrashLog.markSeen(context); crashReport = null }) { Text("Закрыть", color = ProtoMuted) } }
             )
         }
 

@@ -17,6 +17,7 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        SansaraCrashLog.install(this)
         SansaraReminderScheduler.ensureChannel(this)
         SansaraAdminOpsReminderScheduler.ensureChannel(this)
         SansaraAdminOpsReminderScheduler.scheduleAll(this)
