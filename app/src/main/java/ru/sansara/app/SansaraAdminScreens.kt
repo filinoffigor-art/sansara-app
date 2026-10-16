@@ -141,9 +141,9 @@ internal fun ProtoAdminHomeScreen(
                 item {
                     // Три плашки одной высоты: подписи в две строки, значения на одной линии.
                     Row(Modifier.height(IntrinsicSize.Min), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                        ProtoMetricCard("Заказы сегодня", ordersToday.toString(), "", Modifier.weight(1f).fillMaxHeight(), onOrders, titleLines = 2)
-                        ProtoMetricCard("Выпуск сегодня", producedToday.toString(), "шт.", Modifier.weight(1f).fillMaxHeight(), onProduction, titleLines = 2)
-                        ProtoMetricCard("Клиенты", activeClients.toString(), "активные", Modifier.weight(1f).fillMaxHeight(), onClients, titleLines = 2)
+                        ProtoMetricCard("Заказы сегодня", ordersToday.toString(), "", Modifier.weight(1f).fillMaxHeight(), titleLines = 2, onClick = onOrders)
+                        ProtoMetricCard("Выпуск сегодня", producedToday.toString(), "шт.", Modifier.weight(1f).fillMaxHeight(), titleLines = 2, onClick = onProduction)
+                        ProtoMetricCard("Клиенты", activeClients.toString(), "активные", Modifier.weight(1f).fillMaxHeight(), titleLines = 2, onClick = onClients)
                     }
                 }
                 item { ProtoSectionTitle("Разделы") }
