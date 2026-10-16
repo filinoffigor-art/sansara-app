@@ -717,3 +717,32 @@ internal fun protoSaveBroadcast(prefs: android.content.SharedPreferences, b: Pro
     list.forEach { x -> arr.put(org.json.JSONObject().put("date", x.date).put("audience", x.audience).put("title", x.title).put("text", x.text).put("count", x.count)) }
     prefs.edit().putString("broadcasts", arr.toString()).apply()
 }
+
+// ───────────── Поиск по артикулу для «Моего склада» ─────────────
+
+/** Кириллические буквы, похожие на латинские (и наоборот), приводим к одному виду; убираем пробелы, дефисы, точки. */
+internal fun protoSkuKey(raw: String): String {
+    val map = mapOf('а' to 'a', 'в' to 'b', 'е' to 'e', 'ё' to 'e', 'к' to 'k', 'м' to 'm', 'н' to 'h', 'о' to 'o', 'р' to 'p', 'с' to 'c', 'т' to 't', 'у' to 'y', 'х' to 'x')
+    return raw.lowercase().filter { it.isLetterOrDigit() }.map { map[it] ?: it }.joinToString("")
+}
+
+/**
+ * Совпадение по артикулу при любом вводе: регистр, дефисы и пробелы не важны, кириллица/латиница-двойники
+ * считаются одинаковыми, учитывается ввод в неправильной раскладке. Название тоже ищется.
+ */
+internal fun protoSkuMatches(p: ProtoCatalogProduct, query: String): Boolean {
+    if (query.isBlank()) return false
+    val sku = protoSkuKey(p.sku)
+    val variants = (listOf(query) + protoQueryVariants(query)).map { protoSkuKey(it) }.filter { it.isNotEmpty() }.distinct()
+    return variants.any { v -> sku.contains(v) } || protoSearchMatches(p, query)
+}
+
+/** Разбор QR-кода товара: «SANSARA:<артикул>[:<код экземпляра>]» или просто артикул. */
+internal fun protoParseProductQr(raw: String): Pair<String, String> {
+    val t = raw.trim()
+    if (t.startsWith("SANSARA:", ignoreCase = true)) {
+        val parts = t.substringAfter(":").split(":")
+        return parts.getOrElse(0) { "" }.trim() to parts.getOrElse(1) { "" }.trim()
+    }
+    return t to ""
+}

@@ -140,6 +140,27 @@ data class AssemblerEntity(
     val comment: String = ""
 )
 
+/** Продажа со своего склада, когда остатки ведутся в другой программе: в остатках не учитывается, только в истории. */
+const val OWN_EXTERNAL_SALE = "Продажа (внешний учёт)"
+
+/** «Мой склад» агента или торгующей организации: приход, продажа, корректировка (qty со знаком). */
+@Entity(tableName = "own_stock_ops")
+data class OwnStockOpEntity(
+    @PrimaryKey val id: String,
+    val clientId: String,
+    val sku: String,
+    val name: String,
+    val qty: Int,
+    val kind: String,
+    val reason: String = "",
+    /** Уникальный код экземпляра из QR (когда у каждого венка будет свой код) — защита от повторного прихода. */
+    val serial: String = "",
+    val customer: String = "",
+    val orderRef: String = "",
+    val actor: String = "",
+    val createdAt: Long = System.currentTimeMillis()
+)
+
 @Entity(tableName = "production_rates")
 data class ProductionRateEntity(
     @PrimaryKey val sku: String,
@@ -622,6 +643,15 @@ interface SansaraDao {
     @Query("SELECT * FROM client_history WHERE clientId = :clientId ORDER BY createdAt DESC")
     suspend fun clientHistory(clientId: String): List<ClientHistoryEntity>
 
+    @Query("SELECT * FROM own_stock_ops WHERE clientId = :clientId ORDER BY createdAt DESC")
+    suspend fun ownStockOps(clientId: String): List<OwnStockOpEntity>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun putOwnStockOps(items: List<OwnStockOpEntity>)
+
+    @Query("SELECT COUNT(*) FROM own_stock_ops WHERE clientId = :clientId AND serial = :serial AND serial != ''")
+    suspend fun ownSerialCount(clientId: String, serial: String): Int
+
     @Query("DELETE FROM client_history WHERE id IN (:ids)")
     suspend fun deleteClientHistory(ids: List<String>)
 
@@ -662,9 +692,10 @@ interface SansaraDao {
         AdminDailyStatusEntity::class,
         ShipmentEntity::class,
         ExpenseEntity::class,
-        ClientHistoryEntity::class
+        ClientHistoryEntity::class,
+        OwnStockOpEntity::class
     ],
-    version = 12,
+    version = 13,
     exportSchema = false
 )
 abstract class SansaraDatabase : RoomDatabase() {
@@ -750,6 +781,13 @@ abstract class SansaraDatabase : RoomDatabase() {
             }
         }
 
+        // 0.27: «Мой склад» клиентов. Новая таблица, существующие данные не трогаются.
+        private val MIGRATION_12_13 = object : Migration(12, 13) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("CREATE TABLE IF NOT EXISTS `own_stock_ops` (`id` TEXT NOT NULL, `clientId` TEXT NOT NULL, `sku` TEXT NOT NULL, `name` TEXT NOT NULL, `qty` INTEGER NOT NULL, `kind` TEXT NOT NULL, `reason` TEXT NOT NULL, `serial` TEXT NOT NULL, `customer` TEXT NOT NULL, `orderRef` TEXT NOT NULL, `actor` TEXT NOT NULL, `createdAt` INTEGER NOT NULL, PRIMARY KEY(`id`))")
+            }
+        }
+
         // 0.27: сборщицы — телефон, дата рождения, комментарий. Только добавление колонок.
         private val MIGRATION_11_12 = object : Migration(11, 12) {
             override fun migrate(db: SupportSQLiteDatabase) {
@@ -777,7 +815,7 @@ abstract class SansaraDatabase : RoomDatabase() {
                     SansaraDatabase::class.java,
                     "sansara.db"
                 )
-                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12)
+                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12, MIGRATION_12_13)
                     .build()
                     .also { instance = it }
             }
@@ -1679,6 +1717,29 @@ class SansaraRepository private constructor(
             dao.putClientHistory(listOf(historyEntry(clientId,"Заявка одобрена: статус «"+status+"», скидка "+discount+"%",actor)))
         }
         return ApprovalResult(client,primaryCode,secondaryCode)
+    }
+
+    // ───── «Мой склад» ─────
+
+    suspend fun ownStockOps(clientId:String):List<OwnStockOpEntity> = dao.ownStockOps(clientId)
+
+    /** Остатки своего склада по артикулам (только положительные). */
+    suspend fun ownStock(clientId:String):Map<String,Int> = dao.ownStockOps(clientId).filter{it.kind!=OWN_EXTERNAL_SALE}.groupBy{it.sku}.mapValues{(_,l)->l.sumOf{it.qty}}.filterValues{it>0}
+
+    /**
+     * Движение по своему складу. Приход — qty>0, продажа/списание — qty<0.
+     * Экземпляр с уникальным кодом из QR оприходуется только один раз.
+     */
+    suspend fun addOwnStockOp(clientId:String,sku:String,name:String,qty:Int,kind:String,reason:String="",serial:String="",customer:String="",orderRef:String="",actor:String=""):OwnStockOpEntity {
+        require(qty!=0) { "Количество не может быть нулевым" }
+        if (serial.isNotBlank()) require(dao.ownSerialCount(clientId,serial)==0) { "Этот экземпляр (код $serial) уже оприходован" }
+        if (qty<0) {
+            val have=dao.ownStockOps(clientId).filter{it.sku==sku && it.kind!=OWN_EXTERNAL_SALE}.sumOf{it.qty}
+            require(have+qty>=0 || kind==OWN_EXTERNAL_SALE) { "На складе только $have шт." }
+        }
+        val op=OwnStockOpEntity("OS-"+java.util.UUID.randomUUID().toString().replace("-","").take(10).uppercase(),clientId,sku,name,qty,kind,reason.trim(),serial.trim(),customer,orderRef,actor)
+        dao.putOwnStockOps(listOf(op))
+        return op
     }
 
     /** Код входа сотрудника для карточки (видит только главный администратор). */

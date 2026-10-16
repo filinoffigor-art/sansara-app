@@ -18,8 +18,8 @@ android {
         applicationId = "ru.sansara.app"
         minSdk = 26
         targetSdk = 35
-        versionCode = 35
-        versionName = "0.26.1-mother"
+        versionCode = 36
+        versionName = "0.27.0-mother"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         testInstrumentationRunnerArguments["clearPackageData"] = "true"
         buildConfigField("String", "ADMIN_PHONE", "\"+79263046019\"")
@@ -91,6 +91,8 @@ dependencies {
     implementation("androidx.room:room-ktx:2.7.2")
     kapt("androidx.room:room-compiler:2.7.2")
     implementation("io.coil-kt:coil-compose:2.7.0")
+    // Сканер QR для «Моего склада»: работает без сервисов Google (подходит и для телефонов без них).
+    implementation("com.journeyapps:zxing-android-embedded:4.3.0")
     debugImplementation("androidx.compose.ui:ui-tooling")
     debugImplementation("androidx.compose.ui:ui-test-manifest")
     androidTestImplementation(platform("androidx.compose:compose-bom:2024.12.01"))

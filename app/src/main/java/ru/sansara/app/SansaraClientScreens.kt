@@ -962,7 +962,8 @@ internal fun ProtoCheckoutScreen(
     onOrders: () -> Unit,
     onProfile: () -> Unit,
     retailMode: Boolean = false,
-    onRetailExit: () -> Unit = {}
+    onRetailExit: () -> Unit = {},
+    header: (@Composable () -> Unit)? = null
 ) {
     var method by remember { mutableStateOf("Доставка") }
     var address by remember(defaultAddress) { mutableStateOf(defaultAddress) }
@@ -993,6 +994,7 @@ internal fun ProtoCheckoutScreen(
             Column(Modifier.fillMaxSize().padding(pad)) {
                 ProtoTopBar("Оформление заказа", protoPlural(cartPositions, "позиция", "позиции", "позиций") + " · $totalPieces шт. · " + protoMoney(finalTotal), onBack)
                 LazyColumn(Modifier.weight(1f), contentPadding = PaddingValues(horizontal = 16.dp, vertical = 4.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    if (header != null) item { header() }
                     item {
                         ProtoSectionCard {
                             Text("Контактное лицо", color = ProtoGoldSoft, fontWeight = FontWeight.SemiBold)

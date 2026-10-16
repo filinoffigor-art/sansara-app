@@ -94,7 +94,8 @@ internal enum class ProtoScreen {
     AdminHome, AdminSearch, AdminClients, AdminClient, AdminOrders, AdminOrderDetail, AdminNotifications, AdminCatalog, AdminSettings, AdminSettingsDetail, AdminAttention, OnlineController, LowStockList, AdminChats, AdminChat, AdminProductionChat, AdminReports, AdminWorkshop, AdminAdmins, AdminAttendance, AdminProduct, AgentBase, AgentMarkup, AgentProductMarkup, AgentOrders,
     Production, ProductionCategory, ProductionCatalog, ProductionEntry, ProductionHistory, ProductionReport, ProductionPayments, ProductionProfile, ProductionWorkshop, ProductionAttendance, ProductionChat,
     Server, StockList, ReserveList, NewClients, Export, AdminAssemblers,
-    SalesHome, SalesShipmentNew, SalesShipments, SalesClients, SalesClient, AdminPayments, AdminDashboard, SalesProfile
+    SalesHome, SalesShipmentNew, SalesShipments, SalesClients, SalesClient, AdminPayments, AdminDashboard, SalesProfile,
+    OwnStock
 }
 
 internal enum class ProtoClientType(val label: String) { AGENT("Агент"), TRADING("Торгующая организация") }
@@ -391,6 +392,16 @@ fun SansaraVisualPrototype() {
     var godEyePicker by remember { mutableStateOf<List<SansaraSession>?>(null) }
     var godEyeConfirm by remember { mutableStateOf<Pair<String, () -> Unit>?>(null) }
     var adminDialog by remember { mutableStateOf<String?>(null) }
+    /** Откуда отгружается заказ своему клиенту: «SANSARA» или «OWN» (мой склад). */
+    var retailWarehouse by remember { mutableStateOf("SANSARA") }
+    /** Нехватка на своём складе: (со своего склада, заказом в SANSARA, действие «разделить», действие «всё в SANSARA»). */
+    var ownSplitPrompt by remember { mutableStateOf<Triple<String, () -> Unit, () -> Unit>?>(null) }
+    var ownSaleDone by remember { mutableStateOf<String?>(null) }
+    /** «Мой склад» текущего клиента. */
+    val ownOps = remember { mutableStateListOf<OwnStockOpEntity>() }
+    var ownExternalTick by remember { mutableStateOf(0) }
+    /** Режим «склад ведётся в другой программе» хранится для каждой компании отдельно. */
+    fun ownExternal(clientId: String): Boolean = ownExternalTick >= 0 && context.getSharedPreferences("sansara", Context.MODE_PRIVATE).getBoolean("own_external_$clientId", false)
     var showUpdateDialog by remember { mutableStateOf(false) }
     var updateVersion by remember { mutableStateOf(0) }
     /** В режиме «Глаз бога» перед любым изменением спрашиваем подтверждение. */
@@ -1956,6 +1967,33 @@ fun SansaraVisualPrototype() {
 
     @Composable fun protoGroupE() {
         when (screen) {
+            ProtoScreen.OwnStock -> {
+                val c = currentClient()
+                LaunchedEffect(c.id) { ownOps.clear(); ownOps.addAll(repository.ownStockOps(c.id)) }
+                fun reload() = scope.launch { ownOps.clear(); ownOps.addAll(repository.ownStockOps(c.id)) }
+                ProtoOwnStockScreen(
+                    products = catalogProducts,
+                    ops = ownOps,
+                    external = ownExternal(c.id),
+                    onBack = { back() },
+                    onExternal = { on -> guarded(if (on) "включить внешний учёт склада" else "выключить внешний учёт склада") { prefs.edit().putBoolean("own_external_" + c.id, on).apply(); ownExternalTick++ } },
+                    onReceive = { p, qty, serial -> guarded("оприходовать $qty шт.") {
+                        scope.launch {
+                            runCatching { repository.addOwnStockOp(c.id, p.sku, p.name, qty, "Приход", serial = serial, actor = actor(session?.firstName ?: c.contact)) }
+                                .onSuccess { reload(); toast("Оприходовано: " + protoTitle(p) + " · " + qty + " шт.") }
+                                .onFailure { toast(it.message ?: "Ошибка") }
+                        }
+                    } },
+                    onAdjust = { p, delta, reason -> guarded("провести корректировку") {
+                        scope.launch {
+                            runCatching { repository.addOwnStockOp(c.id, p.sku, p.name, delta, "Корректировка", reason = reason, actor = actor(session?.firstName ?: c.contact)) }
+                                .onSuccess { reload(); toast("Корректировка проведена") }
+                                .onFailure { toast(it.message ?: "Ошибка") }
+                        }
+                    } },
+                    onScanError = { toast(it) }
+                )
+            }
             ProtoScreen.Production -> {
                 val productionDateKey = selectedProductionDate.format(DateTimeFormatter.ofPattern("dd.MM.yyyy"))
                 ProtoProductionHomeScreen(
@@ -2365,12 +2403,38 @@ fun SansaraVisualPrototype() {
                     pickupPoints = pickupPoints(),
                     cancelKind = protoOrderKind(cartLines.map { (rp, q) -> ProtoOrderLine(rp.sku, rp.name, q, rp.price, stockQty = retailStock(rp).coerceAtMost(q)) }),
                     onBack = { back() },
+                    header = {
+                        LaunchedEffect(owner.id) { ownOps.clear(); ownOps.addAll(repository.ownStockOps(owner.id)) }
+                        val external = ownExternal(owner.id)
+                        val own = ownOps.filter { it.kind != OWN_EXTERNAL_SALE }.groupBy { it.sku }.mapValues { (_, l) -> l.sumOf { it.qty } }
+                        ProtoSectionCard {
+                            Text("Откуда отгружаем", color = ProtoGoldSoft, fontWeight = FontWeight.SemiBold)
+                            Spacer(Modifier.height(6.dp))
+                            ProtoChipRow(listOf("Склад SANSARA", "Мой склад"), if (retailWarehouse == "OWN") "Мой склад" else "Склад SANSARA") { retailWarehouse = if (it == "Мой склад") "OWN" else "SANSARA" }
+                            if (retailWarehouse == "OWN") {
+                                val short = cartLines.filter { (rp, q) -> q > (own[rp.sku] ?: 0) }
+                                Text(when {
+                                    external -> "Остатки ведутся в другой программе — продажа без проверки остатков."
+                                    short.isEmpty() -> "На вашем складе всё есть."
+                                    else -> "Не хватает на вашем складе: " + short.joinToString { (rp, q) -> protoTitle(rp) + " — " + (q - (own[rp.sku] ?: 0)) + " шт." } + ". Можно разделить заказ."
+                                }, color = if (!external && short.isNotEmpty()) ProtoOrange else ProtoMuted, fontSize = 13.sp, modifier = Modifier.padding(top = 6.dp))
+                            } else Text("Заказ уйдёт в SANSARA, сроки — как обычно.", color = ProtoMuted, fontSize = 13.sp, modifier = Modifier.padding(top = 6.dp))
+                        }
+                    },
                     onSubmit = { method, address, comment, recipient, phone, date, time ->
-                        if (orderingBlocked()) go(ProtoScreen.Suspended) else scope.launch {
+                        // Продажа со своего склада: списываем с «Моего склада», в SANSARA ничего не уходит.
+                        fun sellOwn(items: List<Pair<ProtoCatalogProduct, Int>>, externalSale: Boolean) = scope.launch {
+                            val ref = "П-" + java.time.LocalDateTime.now().format(DateTimeFormatter.ofPattern("ddMMHHmm"))
+                            items.forEach { (rp, q) -> runCatching { repository.addOwnStockOp(owner.id, rp.sku, rp.name, -q, if (externalSale) OWN_EXTERNAL_SALE else "Продажа", customer = customerName, orderRef = ref, actor = actor(session?.firstName ?: owner.contact)) } }
+                            ownOps.clear(); ownOps.addAll(repository.ownStockOps(owner.id))
+                            items.forEach { (rp, q) -> retailCart[rp.sku]?.let { left -> if (left - q <= 0) retailCart.remove(rp.sku) else retailCart[rp.sku] = left - q } }
+                            ownSaleDone = customerName + ": " + items.sumOf { it.second } + " шт. на " + protoMoney(items.sumOf { (rp, q) -> rp.price * q }) + " — со своего склада (" + ref + ")"
+                        }
+                        fun placeSansara(items: List<Pair<ProtoCatalogProduct, Int>>) = scope.launch {
                             val id = repository.nextOrderId()
                             val now = nowStamp()
                             // В заказ — закупочная цена агента (базовая цена со скидкой агента), розничная цена — справочно.
-                            val lines = cartLines.mapNotNull { (rp, q) -> baseOf(rp)?.let { base -> ProtoOrderLine(base.sku, base.name, q, base.price, owner.discount, retailPrice = rp.price, stockQty = availableStock(base).coerceAtMost(q)) } }
+                            val lines = items.mapNotNull { (rp, q) -> baseOf(rp)?.let { base -> ProtoOrderLine(base.sku, base.name, q, base.price, owner.discount, retailPrice = rp.price, stockQty = availableStock(base).coerceAtMost(q)) } }
                             val order = ProtoOrder(
                                 id = id,
                                 clientName = owner.name + " / " + customerName,
@@ -2393,6 +2457,23 @@ fun SansaraVisualPrototype() {
                             addNotification("ADMIN", "ADMIN", "Новый заказ " + id, order.clientName + " · " + protoMoney(order.total), orderId = id)
                             history.clear(); history.add(ProtoScreen.RetailHome)
                             screen = ProtoScreen.RetailOrderSent
+                        }
+                        if (orderingBlocked() && retailWarehouse != "OWN") go(ProtoScreen.Suspended)
+                        else if (retailWarehouse != "OWN") guarded("оформить заказ для клиента") { placeSansara(cartLines) }
+                        else guarded("провести продажу со своего склада") {
+                            val external = ownExternal(owner.id)
+                            val own = ownOps.filter { it.kind != OWN_EXTERNAL_SALE }.groupBy { it.sku }.mapValues { (_, l) -> l.sumOf { it.qty } }
+                            if (external) sellOwn(cartLines, true)
+                            else {
+                                val fromOwn = cartLines.mapNotNull { (rp, q) -> minOf(q, own[rp.sku] ?: 0).takeIf { it > 0 }?.let { rp to it } }
+                                val rest = cartLines.mapNotNull { (rp, q) -> (q - (own[rp.sku] ?: 0)).takeIf { it > 0 }?.let { rp to it } }
+                                if (rest.isEmpty()) sellOwn(cartLines, false)
+                                else ownSplitPrompt = Triple(
+                                    "Со своего склада: " + fromOwn.sumOf { it.second } + " шт.\nЗаказом в SANSARA: " + rest.joinToString { (rp, q) -> protoTitle(rp) + " — " + q + " шт." },
+                                    { if (fromOwn.isNotEmpty()) sellOwn(fromOwn, false); placeSansara(rest) },
+                                    { placeSansara(cartLines) }
+                                )
+                            }
                         }
                     },
                     onHome = rHome, onCatalog = rCatalog, onCart = rCart, onOrders = rOrders, onProfile = {},
@@ -2595,7 +2676,7 @@ fun SansaraVisualPrototype() {
             ProtoScreen.Notifications, ProtoScreen.ClientChat, ProtoScreen.ClientReports, ProtoScreen.ClientSettings, ProtoScreen.Profile, ProtoScreen.Suspended -> protoGroupB()
             ProtoScreen.AdminHome, ProtoScreen.AdminSearch, ProtoScreen.AdminClients, ProtoScreen.AdminClient, ProtoScreen.AdminOrders, ProtoScreen.AdminOrderDetail, ProtoScreen.AdminChats, ProtoScreen.AdminChat, ProtoScreen.AdminProductionChat, ProtoScreen.AdminNotifications, ProtoScreen.AdminCatalog, ProtoScreen.AdminSettings, ProtoScreen.AdminSettingsDetail, ProtoScreen.AdminAttention, ProtoScreen.OnlineController, ProtoScreen.LowStockList, ProtoScreen.AdminAssemblers, ProtoScreen.AdminAdmins, ProtoScreen.AdminWorkshop, ProtoScreen.AdminAttendance, ProtoScreen.AdminProduct -> protoGroupC()
             ProtoScreen.SalesHome, ProtoScreen.SalesShipmentNew, ProtoScreen.SalesShipments, ProtoScreen.AdminPayments, ProtoScreen.SalesClients, ProtoScreen.SalesClient, ProtoScreen.AdminReports, ProtoScreen.AdminDashboard, ProtoScreen.SalesProfile -> protoGroupD()
-            ProtoScreen.Production, ProtoScreen.ProductionCategory, ProtoScreen.ProductionCatalog, ProtoScreen.ProductionEntry, ProtoScreen.ProductionHistory, ProtoScreen.ProductionReport, ProtoScreen.ProductionPayments, ProtoScreen.ProductionProfile, ProtoScreen.ProductionWorkshop, ProtoScreen.ProductionAttendance, ProtoScreen.ProductionChat, ProtoScreen.Server, ProtoScreen.StockList, ProtoScreen.ReserveList, ProtoScreen.NewClients, ProtoScreen.Export, ProtoScreen.AgentClients, ProtoScreen.AgentClientDetail, ProtoScreen.AgentBase, ProtoScreen.AgentMarkup, ProtoScreen.AgentProductMarkup, ProtoScreen.AgentOrders -> protoGroupE()
+            ProtoScreen.Production, ProtoScreen.ProductionCategory, ProtoScreen.ProductionCatalog, ProtoScreen.ProductionEntry, ProtoScreen.ProductionHistory, ProtoScreen.ProductionReport, ProtoScreen.ProductionPayments, ProtoScreen.ProductionProfile, ProtoScreen.ProductionWorkshop, ProtoScreen.ProductionAttendance, ProtoScreen.ProductionChat, ProtoScreen.Server, ProtoScreen.StockList, ProtoScreen.ReserveList, ProtoScreen.NewClients, ProtoScreen.Export, ProtoScreen.AgentClients, ProtoScreen.AgentClientDetail, ProtoScreen.AgentBase, ProtoScreen.AgentMarkup, ProtoScreen.AgentProductMarkup, ProtoScreen.AgentOrders, ProtoScreen.OwnStock -> protoGroupE()
             ProtoScreen.RetailHome, ProtoScreen.RetailCatalog, ProtoScreen.RetailFilter, ProtoScreen.RetailProductList, ProtoScreen.RetailProductDetail, ProtoScreen.RetailCart, ProtoScreen.RetailCheckout, ProtoScreen.RetailOrderList, ProtoScreen.RetailOrderDetail, ProtoScreen.RetailNotifications, ProtoScreen.RetailOrderSent -> protoGroupF()
         }
         }
@@ -2611,6 +2692,7 @@ fun SansaraVisualPrototype() {
                     if(currentClient().status=="Приостановлен") go(ProtoScreen.Suspended) else go(ProtoScreen.Profile)
                 },
                 onCustomers = { showClientMenu=false; refreshAgentData(); go(ProtoScreen.AgentClients) },
+                onOwnStock = { showClientMenu=false; go(ProtoScreen.OwnStock) },
                 onReports = { showClientMenu=false; go(ProtoScreen.ClientReports) },
                 onSettings = { showClientMenu=false; go(ProtoScreen.ClientSettings) },
                 onUpdate = { showClientMenu=false; showUpdateDialog = true },
@@ -2643,6 +2725,23 @@ fun SansaraVisualPrototype() {
         }
 
         if (showUpdateDialog) ProtoUpdateDialog(onDismiss = { showUpdateDialog = false })
+        ownSplitPrompt?.let { (text, split, allSansara) ->
+            AlertDialog(
+                onDismissRequest = { ownSplitPrompt = null }, containerColor = ProtoPanel,
+                title = { Text("На вашем складе не хватает", color = ProtoText) },
+                text = { Text(text + "\n\nРазделить заказ: что есть — продать со своего склада, недостающее — заказать в SANSARA?", color = ProtoMuted, lineHeight = 20.sp) },
+                confirmButton = { TextButton(onClick = { ownSplitPrompt = null; split() }) { Text("Разделить", color = ProtoGold) } },
+                dismissButton = { Row { TextButton(onClick = { ownSplitPrompt = null; allSansara() }) { Text("Всё в SANSARA", color = ProtoGoldSoft) }; TextButton(onClick = { ownSplitPrompt = null }) { Text("Отмена", color = ProtoMuted) } } }
+            )
+        }
+        ownSaleDone?.let { text ->
+            AlertDialog(
+                onDismissRequest = { ownSaleDone = null }, containerColor = ProtoPanel,
+                title = { Text("Продажа проведена", color = ProtoText) },
+                text = { Text(text + ". Списано с «Моего склада».", color = ProtoMuted, lineHeight = 20.sp) },
+                confirmButton = { TextButton(onClick = { ownSaleDone = null; if (screen == ProtoScreen.RetailCheckout) { history.clear(); screen = ProtoScreen.RetailHome } }) { Text("Готово", color = ProtoGold) } }
+            )
+        }
         when (adminDialog) {
             "Рассылка" -> ProtoBroadcastDialog(
                 clients = clients,
@@ -3118,7 +3217,8 @@ internal fun ProtoClientMenuOverlay(
     onReports:()->Unit,
     onSettings:()->Unit,
     onUpdate:()->Unit={},
-    updateAvailable:Boolean=false
+    updateAvailable:Boolean=false,
+    onOwnStock:()->Unit={}
 ){
     Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha=.72f)).clickable{onDismiss()}){
         Surface(
@@ -3136,6 +3236,7 @@ internal fun ProtoClientMenuOverlay(
                     Triple("Чат с менеджером",Icons.Outlined.ChatBubbleOutline,onChat),
                     Triple("Профиль",Icons.Outlined.Person,onProfile),
                     Triple("Продажи",Icons.Outlined.Storefront,onCustomers),
+                    Triple("Мой склад",Icons.Outlined.Warehouse,onOwnStock),
                     Triple("Формирование отчётности",Icons.Outlined.Assessment,onReports),
                     Triple("Настройки",Icons.Outlined.Settings,onSettings),
                     Triple(if(updateAvailable)"Обновление · доступно" else "Обновление",Icons.Outlined.SystemUpdate,onUpdate)
