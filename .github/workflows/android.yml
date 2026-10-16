@@ -107,19 +107,10 @@ jobs:
             exit 1
           fi
           "$ANDROID_HOME/build-tools/35.0.0/aapt" dump badging "$RUNNER_TEMP/apk/SANSARA-$VER.apk" | head -n 2 | while IFS= read -r l; do echo "::notice::$l"; done
-          cp .github/keys/backup_pub.pem "$RUNNER_TEMP/backup_pub.pem" 2>/dev/null || true
           git config user.name ci; git config user.email ci@example.com
           git checkout --orphan ci-apk
           git rm -rf . >/dev/null 2>&1 || true
           cp "$RUNNER_TEMP"/apk/*.apk .
-          # Резервная копия ключа подписи, зашифрованная открытым ключом владельца (расшифровать можно только закрытым).
-          KS="${SANSARA_KEYSTORE_PATH:-$HOME/.android/debug.keystore}"
-          if [ -f "$RUNNER_TEMP/backup_pub.pem" ] && [ -f "$KS" ]; then
-            openssl rand -hex 32 > "$RUNNER_TEMP/k.bin"
-            openssl enc -aes-256-cbc -pbkdf2 -salt -in "$KS" -out keystore.enc -pass file:"$RUNNER_TEMP/k.bin"
-            openssl pkeyutl -encrypt -pubin -inkey "$RUNNER_TEMP/backup_pub.pem" -in "$RUNNER_TEMP/k.bin" -out keystore.key.enc
-            rm -f "$RUNNER_TEMP/k.bin"
-          fi
           echo "$GITHUB_SHA $VER" > BUILD.txt
-          [ -f keystore.enc ] && git add keystore.enc keystore.key.enc || true; git add *.apk BUILD.txt && git commit -qm "apk $VER $GITHUB_SHA"
+          git add *.apk BUILD.txt && git commit -qm "apk $VER $GITHUB_SHA"
           git push -f origin ci-apk
