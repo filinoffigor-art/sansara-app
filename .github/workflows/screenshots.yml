@@ -35,7 +35,19 @@ jobs:
       - uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.9'
-      - run: gradle :app:assembleDebug --stacktrace
+      - name: Restore persistent debug keystore cache
+        uses: actions/cache/restore@v4
+        with:
+          path: ~/.android/debug.keystore
+          key: sansara-debug-keystore-v1
+      - name: Use the same signing key as release builds
+        run: |
+          echo "ANDROID_USER_HOME=$HOME/.android" >> "$GITHUB_ENV"
+          if [ -f "$HOME/.android/debug.keystore" ]; then echo "::notice::Ключ подписи восстановлен из кэша"; else echo "::warning::Ключа подписи нет в кэше — проверка обновления будет неверной"; fi
+      - run: gradle :app:assembleDebug :app:assembleRelease --stacktrace
+      - name: Fetch previous release for upgrade test
+        run: |
+          git fetch -q --depth 1 origin ci-prev-apk && mkdir -p prev && git archive FETCH_HEAD | tar -x -C prev && ls -la prev || echo "нет прошлой версии"
       - name: Enable KVM
         run: |
           echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
@@ -78,6 +90,17 @@ jobs:
           profile: pixel_6
           disable-animations: true
           script: ONLY="${{ inputs.only }}" bash .github/scripts/shots.sh
+      - name: Upgrade over previous release
+        if: always()
+        timeout-minutes: 20
+        continue-on-error: true
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 34
+          arch: x86_64
+          profile: pixel_6
+          disable-animations: true
+          script: bash .github/scripts/upgrade.sh
       - name: Stress test (monkey)
         if: always()
         timeout-minutes: 30
