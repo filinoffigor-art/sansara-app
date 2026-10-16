@@ -1673,6 +1673,12 @@ private fun ProtoOrder.toEntity():OrderEntity {
         put("clientId",this@toEntity.clientId)
         put("retailCustomerId",this@toEntity.retailCustomerId)
         put("retailCustomerName",this@toEntity.retailCustomerName)
+        put("clientType",this@toEntity.clientType)
+        put("payments",JSONArray().apply {
+            this@toEntity.payments.forEach { pay ->
+                put(JSONObject().apply { put("amount",pay.amount); put("date",pay.date); put("method",pay.method); put("comment",pay.comment); put("by",pay.by) })
+            }
+        })
     }
     val events=JSONArray().apply {
         this@toEntity.history.forEach { event ->
@@ -1680,6 +1686,7 @@ private fun ProtoOrder.toEntity():OrderEntity {
                 put("status",event.status)
                 put("dateTime",event.dateTime)
                 put("actor",event.actor)
+                if (event.note.isNotBlank()) put("note",event.note)
             })
         }
     }
@@ -1706,7 +1713,7 @@ private fun OrderEntity.toProto():ProtoOrder {
     val eventArray=JSONArray(historyJson)
     val events=(0 until eventArray.length()).map { i ->
         eventArray.getJSONObject(i).let {
-            ProtoOrderEvent(it.getString("status"),it.getString("dateTime"),it.getString("actor"))
+            ProtoOrderEvent(it.getString("status"),it.getString("dateTime"),it.getString("actor"),it.optString("note"))
         }
     }
     return ProtoOrder(
@@ -1725,7 +1732,11 @@ private fun OrderEntity.toProto():ProtoOrder {
         deliveryTime=payload?.optString("deliveryTime").orEmpty(),
         clientId=payload?.optString("clientId").orEmpty(),
         retailCustomerId=payload?.optString("retailCustomerId").orEmpty(),
-        retailCustomerName=payload?.optString("retailCustomerName").orEmpty()
+        retailCustomerName=payload?.optString("retailCustomerName").orEmpty(),
+        clientType=payload?.optString("clientType").orEmpty(),
+        payments=payload?.optJSONArray("payments")?.let { arr ->
+            (0 until arr.length()).mapNotNull { i -> arr.optJSONObject(i)?.let { p -> ProtoPayment(p.optInt("amount"),p.optString("date"),p.optString("method"),p.optString("comment"),p.optString("by")) } }
+        }.orEmpty()
     )
 }
 

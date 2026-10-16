@@ -176,7 +176,10 @@ fun protoLineTotal(price: Int, qty: Int, discountPct: Int): Int = qty * protoUni
 
 /** Цена за штуку со скидкой партнёра — её клиент видит в каталоге; сумма строки = цена × количество. */
 fun protoUnitPrice(price: Int, discountPct: Int): Int = price * (100 - discountPct.coerceIn(0, 100)) / 100
-data class ProtoOrderEvent(val status: String, val dateTime: String, val actor: String)
+data class ProtoOrderEvent(val status: String, val dateTime: String, val actor: String, val note: String = "")
+
+/** Платёж по заказу, отмеченный администратором (позже — автоматически по банку). */
+data class ProtoPayment(val amount: Int, val date: String, val method: String, val comment: String = "", val by: String = "")
 
 data class ProtoOrder(
     val id: String,
@@ -194,8 +197,18 @@ data class ProtoOrder(
     val deliveryTime: String = "",
     val clientId: String = "",
     val retailCustomerId: String = "",
-    val retailCustomerName: String = ""
+    val retailCustomerName: String = "",
+    val payments: List<ProtoPayment> = emptyList(),
+    /** «Агент» или «Торгующая организация» на момент оформления. */
+    val clientType: String = ""
 ) {
+    val paid: Int get() = payments.sumOf { it.amount }
+    val due: Int get() = (total - paid).coerceAtLeast(0)
+    val paymentStatus: String get() = when {
+        paid <= 0 -> "Не оплачен"
+        paid < total -> "Оплачен частично"
+        else -> "Оплачен полностью"
+    }
     val pieces: Int get() = lines.sumOf { it.qty }
     val baseTotal: Int get() = lines.sumOf { it.qty * it.price }
     val total: Int get() = lines.sumOf { it.lineTotal }
@@ -368,6 +381,10 @@ fun SansaraVisualPrototype() {
     var registrationsTotalThisMonth by remember { mutableIntStateOf(0) }
     val prefs = remember { context.getSharedPreferences("sansara", Context.MODE_PRIVATE) }
     var welcomeImageVersion by remember { mutableStateOf(prefs.getLong("welcome_promo_image_v", 0L)) }
+    var minOrderTrading by remember { mutableStateOf(prefs.getInt("min_order_trading", 35_000)) }
+    /** Минимальная сумма заказа: только для торгующих организаций, у агентов минимума нет. */
+    fun minOrderFor(c: ProtoClient): Int = if (c.clientType.contains("Торг", ignoreCase = true)) minOrderTrading else 0
+    var belowMinPrompt by remember { mutableStateOf<Triple<Int, Int, () -> Unit>?>(null) }
     val notifications = remember {
         mutableStateListOf<ProtoNotification>().apply { addAll(protoLoadNotifications(prefs)) }
     }
@@ -505,6 +522,18 @@ fun SansaraVisualPrototype() {
         ?: ProtoClient("C-OFFLINE","SANSARA","Партнёр","", "Активный",0,0,0,"",false,"ещё не входил",firstName="Партнёр")
     fun discountedPrice(p: ProtoCatalogProduct): Int = p.price * (100 - currentClient().discount) / 100
     fun nowStamp(): String = LocalDateTime.now().format(DateTimeFormatter.ofPattern("dd.MM.yyyy HH:mm"))
+    /** Изменить заказ по номеру, сохранить и вернуть новую версию (null — заказ не найден). */
+    fun updateOrder(id: String?, transform: (ProtoOrder) -> ProtoOrder): ProtoOrder? {
+        val idx = orders.indexOfFirst { it.id == id }
+        if (idx < 0) return null
+        val updated = transform(orders[idx])
+        orders[idx] = updated
+        persistAll()
+        return updated
+    }
+    fun adminActorName(): String = session?.firstName?.ifBlank { null } ?: "Администратор"
+    /** Тип клиента заказа: сохранённый при оформлении, иначе — из карточки клиента. */
+    fun orderClientType(o: ProtoOrder): String = o.clientType.ifBlank { clients.firstOrNull { it.id == o.clientId || it.name == o.clientName }?.clientType.orEmpty() }
     fun orderingBlocked(): Boolean { val c = currentClient(); return c.status == "Приостановлен" || !c.orderingEnabled }
     fun setCartQty(p: ProtoCatalogProduct, q: Int) {
         if (orderingBlocked()) { toast("Оформление заказов временно приостановлено"); go(ProtoScreen.Suspended); return }
@@ -1118,7 +1147,8 @@ fun SansaraVisualPrototype() {
                 onRestore = { p, q -> cart[p.sku] = q; persistAll() },
                 onOpenProduct = { openProduct(it, fromCart = true) },
                 onCheckout = { if (orderingBlocked()) go(ProtoScreen.Suspended) else go(ProtoScreen.Checkout) },
-                onHome = goHome, onCatalog = goCatalog, onOrders = goOrders, onProfile = goChat
+                onHome = goHome, onCatalog = goCatalog, onOrders = goOrders, onProfile = goChat,
+                minOrder = minOrderFor(client)
             )
             ProtoScreen.Checkout -> {
                 val cartLines = cart.mapNotNull { (sku, q) -> products.firstOrNull { it.sku == sku }?.let { it to q } }
@@ -1145,17 +1175,20 @@ fun SansaraVisualPrototype() {
                         if (orderingBlocked()) {
                             go(ProtoScreen.Suspended)
                         } else {
-                            scope.launch {
+                            // Заказ торгующей организации меньше минимальной суммы уходит на согласование администратору.
+                            fun place(needsApproval: Boolean) = scope.launch {
                                 val lines = cartLines.map { (p, q) -> ProtoOrderLine(p.sku, p.name, q, p.price, client.discount, stockQty = availableStock(p).coerceAtMost(q)) }
                                 val id = repository.nextOrderId()
                                 val now = nowStamp()
+                                val firstStatus = if (needsApproval) "На согласовании" else "Получен"
                                 val newOrder = ProtoOrder(
                                     id = id,
                                     clientName = client.name,
                                     dateTime = now,
                                     lines = lines,
-                                    status = "Получен",
-                                    history = listOf(ProtoOrderEvent("Получен", now, client.contact)),
+                                    status = firstStatus,
+                                    history = listOf(ProtoOrderEvent(firstStatus, now, client.contact, if (needsApproval) "Сумма ниже минимальной (" + protoMoney(minOrderFor(client)) + ")" else "")),
+                                    clientType = client.clientType,
                                     deliveryMethod = method,
                                     deliveryAddress = address,
                                     comment = comment,
@@ -1168,13 +1201,17 @@ fun SansaraVisualPrototype() {
                                 orders.add(0, newOrder)
                                 selectedOrderId = id
                                 cart.clear()
-                                addNotification("ADMIN", "ADMIN", "Новый заказ " + id, client.name + " · " + protoMoney(newOrder.total) + " · " + deliveryDate, orderId = id)
+                                if (needsApproval) addNotification("ADMIN", "ADMIN", "Согласовать заказ " + id, client.name + " · " + protoMoney(newOrder.total) + " — ниже минимальной суммы " + protoMoney(minOrderFor(client)), orderId = id)
+                                else addNotification("ADMIN", "ADMIN", "Новый заказ " + id, client.name + " · " + protoMoney(newOrder.total) + " · " + deliveryDate, orderId = id)
                                 persistAll()
                                 sendOrderEvent(newOrder)
                                 (context as? MainActivity)?.requestNotificationPermission()
                                 history.clear(); history.add(ProtoScreen.Home)
                                 screen = ProtoScreen.OrderSent
                             }
+                            val minimum = minOrderFor(client)
+                            if (minimum > 0 && finalTotal < minimum) belowMinPrompt = Triple(finalTotal, minimum) { place(true) }
+                            else place(false)
                         }
                     },
                     onHome = goHome, onCatalog = goCatalog, onCart = goCart, onOrders = goOrders, onProfile = goChat
@@ -1324,6 +1361,8 @@ fun SansaraVisualPrototype() {
                     unreadCount = notifications.count { it.audienceRole == "ADMIN" && !it.read },
                     onSearch = { go(ProtoScreen.AdminSearch) },
                     onNewOrders = { adminOrdersStatus = "Получен"; adminOrdersDate = "Все даты"; go(ProtoScreen.AdminOrders) },
+                    approvals = orders.count { it.status == "На согласовании" },
+                    onApprovals = { adminOrdersStatus = "На согласовании"; adminOrdersDate = "Все даты"; go(ProtoScreen.AdminOrders) },
                     onDeliveriesToday = { adminOrdersStatus = "Все"; adminOrdersDate = "Сегодня"; go(ProtoScreen.AdminOrders) },
                     onRegistrations = { go(ProtoScreen.AdminAttention) },
                     onPayments = { refreshShipments(); go(ProtoScreen.AdminPayments) },
@@ -1387,7 +1426,7 @@ fun SansaraVisualPrototype() {
                     onOpenOrder = { selectedOrderId = it.id; go(ProtoScreen.AdminOrderDetail) }
                 )
             }
-            ProtoScreen.AdminOrders -> ProtoAdminOrdersScreen(orders, initialStatus = adminOrdersStatus, initialDate = adminOrdersDate, onBack = { back() }, onOpen = { selectedOrderId = it.id; go(ProtoScreen.AdminOrderDetail) })
+            ProtoScreen.AdminOrders -> ProtoAdminOrdersScreen(orders, initialStatus = adminOrdersStatus, initialDate = adminOrdersDate, onBack = { back() }, onOpen = { selectedOrderId = it.id; go(ProtoScreen.AdminOrderDetail) }, clientTypeOf = { orderClientType(it) }, clientPhoneOf = { o -> o.contactPhone.ifBlank { clients.firstOrNull { c -> c.id == o.clientId }?.phone.orEmpty() } })
             ProtoScreen.AdminOrderDetail -> ProtoOrderDetailScreen(orders.firstOrNull { it.id == selectedOrderId }, products = products, isAdmin = true, onBack = { back() }, onStatus = { st ->
                 val idx = orders.indexOfFirst { it.id == selectedOrderId }
                 if (idx >= 0) {
@@ -1436,6 +1475,53 @@ fun SansaraVisualPrototype() {
                         persistAll()
                         toast("Заказ " + oldOrder.id + " отменён")
                     }
+                }
+            }, clientTypeLabel = orders.firstOrNull { it.id == selectedOrderId }?.let { orderClientType(it) }.orEmpty(),
+            onPayment = { amount, method, date, comment ->
+                updateOrder(selectedOrderId) { o ->
+                    val paid = o.copy(payments = o.payments + ProtoPayment(amount, date, method, comment, adminActorName()))
+                    paid.copy(history = paid.history + ProtoOrderEvent("Оплата", nowStamp(), adminActorName(), protoMoney(amount) + " · " + method + " · " + paid.paymentStatus.lowercase()))
+                }?.let { o ->
+                    addNotification("CLIENT", o.clientId.ifBlank { o.clientName }, "Оплата по заказу " + o.id, "Получено " + protoMoney(amount) + ". " + o.paymentStatus + if (o.due > 0) ", осталось " + protoMoney(o.due) else "", orderId = o.id)
+                    toast("Оплата отмечена: " + o.paymentStatus.lowercase())
+                }
+            },
+            onApprove = {
+                updateOrder(selectedOrderId) { o -> o.copy(status = "Получен", history = o.history + ProtoOrderEvent("Согласован", nowStamp(), adminActorName(), "Сумма ниже минимальной — согласовано")) }?.let { o ->
+                    addNotification("CLIENT", o.clientId.ifBlank { o.clientName }, "Заказ " + o.id + " согласован", "Заказ принят в работу", orderId = o.id)
+                    toast("Заказ согласован")
+                }
+            },
+            onReject = { reason ->
+                updateOrder(selectedOrderId) { o -> o.copy(status = "Отклонён", history = o.history + ProtoOrderEvent("Отклонён", nowStamp(), adminActorName(), reason)) }?.let { o ->
+                    addNotification("CLIENT", o.clientId.ifBlank { o.clientName }, "Заказ " + o.id + " не согласован", reason + ". Товары можно вернуть в корзину из заказа.", orderId = o.id)
+                    toast("Заказ отклонён")
+                }
+            },
+            onShiftDelivery = { days ->
+                updateOrder(selectedOrderId) { o ->
+                    val newDate = protoParseDate(o.deliveryDate)?.plusDays(days.toLong())?.format(DateTimeFormatter.ofPattern("dd.MM.yyyy")) ?: o.deliveryDate
+                    o.copy(deliveryDate = newDate, history = o.history + ProtoOrderEvent("Доставка перенесена", nowStamp(), adminActorName(), o.deliveryDate + " → " + newDate))
+                }?.let { o ->
+                    addNotification("CLIENT", o.clientId.ifBlank { o.clientName }, "Заказ " + o.id + ": новая дата", "Доставка перенесена на " + o.deliveryDate, orderId = o.id)
+                    toast("Доставка перенесена на " + o.deliveryDate)
+                }
+            },
+            onEdit = { newLines, reason ->
+                val before = orders.firstOrNull { it.id == selectedOrderId }
+                updateOrder(selectedOrderId) { o ->
+                    // Если товар уже списан со склада (сборка), возвращаем/списываем разницу.
+                    if (protoOrderFlow.indexOf(o.status) >= 2) {
+                        (o.lines.map { it.sku } + newLines.map { it.sku }).distinct().forEach { sku ->
+                            val diff = (newLines.firstOrNull { it.sku == sku }?.qty ?: 0) - (o.lines.firstOrNull { it.sku == sku }?.qty ?: 0)
+                            if (diff != 0) products.firstOrNull { it.sku == sku }?.let { p -> stockOverrides[p.sku] = (physicalStock(p) - diff).coerceAtLeast(0) }
+                        }
+                    }
+                    val summary = protoOrderDiff(o.lines, newLines)
+                    o.copy(lines = newLines, history = o.history + ProtoOrderEvent("Изменён", nowStamp(), adminActorName(), "$reason. $summary. Сумма " + protoMoney(o.total) + " → " + protoMoney(newLines.sumOf { it.lineTotal })))
+                }?.let { o ->
+                    addNotification("CLIENT", o.clientId.ifBlank { o.clientName }, "Заказ " + o.id + " изменён", reason + ". Новая сумма " + protoMoney(o.total) + (if (before != null) " (было " + protoMoney(before.total) + ")" else ""), orderId = o.id)
+                    toast("Заказ изменён")
                 }
             }, onCallClient = {
                 orders.firstOrNull { it.id == selectedOrderId }?.let { o ->
@@ -1549,7 +1635,8 @@ fun SansaraVisualPrototype() {
                         "Экспорт данных" -> go(ProtoScreen.Export)
                         else -> { settingsSection = section; go(ProtoScreen.AdminSettingsDetail) }
                     }
-                }, onCall = { protoDial(context) }, onLogout = { signOut() }
+                }, onCall = { protoDial(context) }, onLogout = { signOut() },
+                minOrder = minOrderTrading
             )
             ProtoScreen.AdminSettingsDetail -> ProtoAdminSettingsDetailScreen(
                 section = settingsSection, threshold = lowStockThreshold,
@@ -1580,6 +1667,8 @@ fun SansaraVisualPrototype() {
                 promoText = prefs.getString("welcome_promo_text", "").orEmpty(),
                 onPromoSave = { t, x -> prefs.edit().putString("welcome_promo_title", t).putString("welcome_promo_text", x).apply(); toast("Приветственный экран обновлён"); back() },
                 promoImageVersion = welcomeImageVersion,
+                minOrder = minOrderTrading,
+                onMinOrder = { v -> minOrderTrading = v; prefs.edit().putInt("min_order_trading", v).apply(); toast(if (v > 0) "Минимальный заказ: " + protoMoney(v) else "Минимальный заказ отключён"); back() },
                 onPromoImage = { uri ->
                     scope.launch {
                         val ok = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { protoSaveWelcomeImage(context, uri) }
@@ -2454,6 +2543,15 @@ fun SansaraVisualPrototype() {
             )
         }
 
+        belowMinPrompt?.let { (sum, minimum, send) ->
+            AlertDialog(
+                onDismissRequest = { belowMinPrompt = null }, containerColor = ProtoPanel,
+                title = { Text("Сумма заказа ниже минимальной", color = ProtoText) },
+                text = { Text("Минимальная сумма заказа для торгующих организаций — " + protoMoney(minimum) + ". В вашем заказе — " + protoMoney(sum) + ".\n\nСумма не соответствует условиям работы с компанией SANSARA. Вы можете дополнить заказ или отправить его администратору на согласование.", color = ProtoMuted, lineHeight = 20.sp) },
+                confirmButton = { TextButton(onClick = { belowMinPrompt = null; send() }) { Text("Отправить на согласование", color = ProtoGold) } },
+                dismissButton = { TextButton(onClick = { belowMinPrompt = null; history.clear(); history.add(ProtoScreen.Home); screen = ProtoScreen.Catalog }) { Text("Дополнить заказ", color = ProtoMuted) } }
+            )
+        }
         crashReport?.let { report ->
             AlertDialog(
                 onDismissRequest = { SansaraCrashLog.markSeen(context); crashReport = null }, containerColor = ProtoPanel,
@@ -3704,7 +3802,8 @@ internal fun protoStatusColor(status:String):Color = when(status){
     "Подтверждён"->ProtoGold
     "Собирается","Доставляется"->ProtoOrange
     "Доставлен"->ProtoGreen
-    "Отменён"->ProtoRed
+    "Отменён","Отклонён"->ProtoRed
+    "На согласовании"->ProtoOrange
     else->ProtoGoldSoft
 }
 internal fun protoIconForType(type:String)=when(type){"Венки","Венки круглые"->Icons.Outlined.LocalFlorist;"Корзины"->Icons.Outlined.ShoppingBasket;"Полянки","Флоретки"->Icons.Outlined.Spa;"Ленты"->Icons.Outlined.ReceiptLong;else->Icons.Outlined.Inventory2}

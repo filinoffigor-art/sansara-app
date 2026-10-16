@@ -861,7 +861,8 @@ internal fun ProtoCartScreen(
     onOrders: () -> Unit,
     onProfile: () -> Unit,
     retailMode: Boolean = false,
-    onRetailExit: () -> Unit = {}
+    onRetailExit: () -> Unit = {},
+    minOrder: Int = 0
 ) {
     val lines = cart.mapNotNull { (sku, q) -> products.firstOrNull { it.sku == sku }?.let { it to q } }
     val base = lines.sumOf { it.first.price * it.second }
@@ -926,6 +927,10 @@ internal fun ProtoCartScreen(
                             Text(protoMoney(total), color = ProtoText, fontSize = 22.sp, fontWeight = FontWeight.Bold)
                         }
                     }
+                    if (minOrder > 0 && total < minOrder) Text(
+                        "До минимального заказа (" + protoMoney(minOrder) + ") не хватает " + protoMoney(minOrder - total),
+                        color = ProtoOrange, fontSize = 13.sp, textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 2.dp)
+                    )
                     ProtoPrimaryButton("Оформить заказ · " + protoMoney(total), onCheckout, modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp))
                 }
             }
@@ -1170,10 +1175,45 @@ internal fun ProtoOrderDetailScreen(
     cartCount: Int = 0,
     onChat: (() -> Unit)? = null,
     onCallClient: (() -> Unit)? = null,
-    onToWorkshop: (() -> Unit)? = null
+    onToWorkshop: (() -> Unit)? = null,
+    clientTypeLabel: String = "",
+    onPayment: ((Int, String, String, String) -> Unit)? = null,
+    onApprove: (() -> Unit)? = null,
+    onReject: ((String) -> Unit)? = null,
+    onShiftDelivery: ((Int) -> Unit)? = null,
+    onEdit: ((List<ProtoOrderLine>, String) -> Unit)? = null
 ) {
     val o = order ?: return
-    val finished = o.status == "Доставлен" || o.status == "Отменён"
+    val finished = o.status in protoHistoryStatuses
+    val awaitingApproval = o.status == "На согласовании"
+    var paymentDialog by remember(o.id) { mutableStateOf(false) }
+    var rejectDialog by remember(o.id) { mutableStateOf(false) }
+    var shiftDialog by remember(o.id) { mutableStateOf(false) }
+    var editDialog by remember(o.id) { mutableStateOf(false) }
+    if (paymentDialog && onPayment != null) ProtoPaymentDialog(o, onDismiss = { paymentDialog = false }) { amount, method, date, comment -> paymentDialog = false; onPayment(amount, method, date, comment) }
+    if (rejectDialog && onReject != null) {
+        var reason by remember { mutableStateOf("") }
+        AlertDialog(
+            onDismissRequest = { rejectDialog = false }, containerColor = ProtoPanel,
+            title = { Text("Отклонить заказ № " + o.id + "?", color = ProtoText) },
+            text = { Column { Text("Клиент получит уведомление с вашим комментарием и сможет вернуть товары в корзину.", color = ProtoMuted, fontSize = 13.sp); OutlinedTextField(reason, { reason = it.take(200) }, label = { Text("Комментарий для клиента") }, modifier = Modifier.fillMaxWidth().padding(top = 8.dp), minLines = 2, colors = protoFieldColors()) } },
+            confirmButton = { TextButton(enabled = reason.isNotBlank(), onClick = { rejectDialog = false; onReject(reason.trim()) }) { Text("Отклонить", color = ProtoRed) } },
+            dismissButton = { TextButton(onClick = { rejectDialog = false }) { Text("Назад", color = ProtoMuted) } }
+        )
+    }
+    if (shiftDialog && onShiftDelivery != null) AlertDialog(
+        onDismissRequest = { shiftDialog = false }, containerColor = ProtoPanel,
+        title = { Text("Перенести доставку", color = ProtoText) },
+        text = {
+            Column {
+                Text("Сейчас: " + o.deliveryDate.ifBlank { "дата не указана" } + ". Клиент получит уведомление с новой датой.", color = ProtoMuted, fontSize = 13.sp)
+                if (clientTypeLabel.contains("Агент", true)) Text("Это заказ агента — срочный, из наличия. Переносите только по согласованию.", color = ProtoOrange, fontSize = 13.sp, modifier = Modifier.padding(top = 6.dp))
+            }
+        },
+        confirmButton = { Row { TextButton(onClick = { shiftDialog = false; onShiftDelivery(1) }) { Text("+1 день", color = ProtoGold) }; TextButton(onClick = { shiftDialog = false; onShiftDelivery(2) }) { Text("+2 дня", color = ProtoGold) } } },
+        dismissButton = { TextButton(onClick = { shiftDialog = false }) { Text("Отмена", color = ProtoMuted) } }
+    )
+    if (editDialog && onEdit != null) ProtoOrderEditDialog(o, products, onDismiss = { editDialog = false }) { lines, reason -> editDialog = false; onEdit(lines, reason) }
     val next = protoOrderFlow.getOrNull(protoOrderFlow.indexOf(o.status) + 1)
     var confirmCancel by remember(o.id) { mutableStateOf(false) }
     var refusal by remember(o.id) { mutableStateOf<String?>(null) }
@@ -1213,11 +1253,21 @@ internal fun ProtoOrderDetailScreen(
             ProtoSectionCard {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text("Статус", color = ProtoGoldSoft, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
+                    if (isAdmin && clientTypeLabel.isNotBlank()) { ProtoClientTypeBadge(clientTypeLabel); Spacer(Modifier.width(6.dp)) }
                     ProtoStatusPill(o.status)
                 }
                 Spacer(Modifier.height(6.dp))
-                ProtoOrderTimeline(o)
-                if (isAdmin && !finished && next != null) {
+                if (awaitingApproval) {
+                    Text("Сумма заказа ниже минимальной. Заказ ждёт согласования администратора.", color = ProtoOrange, fontSize = 13.sp)
+                    if (isAdmin && onApprove != null && onReject != null) Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(top = 10.dp)) {
+                        Button(onClick = onApprove, colors = ButtonDefaults.buttonColors(containerColor = ProtoGold), modifier = Modifier.weight(1f)) { Text("Согласовать", color = Color.Black) }
+                        OutlinedButton(onClick = { rejectDialog = true }, border = BorderStroke(1.dp, ProtoRed), modifier = Modifier.weight(1f)) { Text("Отклонить", color = ProtoRed) }
+                    }
+                } else if (o.status == "Отклонён") {
+                    val why = o.history.lastOrNull { it.status == "Отклонён" }?.note.orEmpty()
+                    Text("Заказ не согласован" + if (why.isNotBlank()) ": $why" else "", color = ProtoRed, fontSize = 13.sp)
+                } else ProtoOrderTimeline(o)
+                if (isAdmin && !finished && !awaitingApproval && next != null) {
                     Spacer(Modifier.height(10.dp))
                     ProtoPrimaryButton("Перевести: $next", { onStatus(next) })
                 }
@@ -1242,9 +1292,9 @@ internal fun ProtoOrderDetailScreen(
                     Column(Modifier.weight(1f)) {
                         Text(line.name, color = ProtoText, fontWeight = FontWeight.SemiBold, maxLines = 2, overflow = TextOverflow.Ellipsis)
                         Text("Арт. " + line.sku, color = ProtoGoldSoft, fontSize = 12.sp)
-                        Text(line.qty.toString() + " шт. × " + protoMoney(line.price), color = ProtoMuted, fontSize = 13.sp)
+                        Text(line.qty.toString() + " шт. × " + protoMoney(protoUnitPrice(line.price, line.discountPct)), color = ProtoMuted, fontSize = 13.sp)
                     }
-                    Text(protoMoney(line.price * line.qty), color = ProtoGoldSoft, fontWeight = FontWeight.Bold)
+                    Text(protoMoney(line.lineTotal), color = ProtoGoldSoft, fontWeight = FontWeight.Bold)
                 }
             }
         }
@@ -1256,14 +1306,31 @@ internal fun ProtoOrderDetailScreen(
                 ProtoInfoRow("Итого", protoMoney(o.total))
             }
         }
+        if (o.status != "Отменён" && o.status != "Отклонён") item {
+            ProtoSectionCard {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text("Оплата", color = ProtoGoldSoft, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
+                    ProtoPill(o.paymentStatus, when (o.paymentStatus) { "Оплачен полностью" -> ProtoGreen; "Оплачен частично" -> ProtoOrange; else -> ProtoMuted })
+                }
+                if (o.paid > 0) {
+                    ProtoInfoRow("Оплачено", protoMoney(o.paid))
+                    if (o.due > 0) ProtoInfoRow("Осталось оплатить", protoMoney(o.due))
+                    o.payments.forEach { p -> Text(p.date + " · " + p.method + " · " + protoMoney(p.amount) + if (p.comment.isNotBlank()) " · " + p.comment else "", color = ProtoMuted, fontSize = 12.sp, modifier = Modifier.padding(top = 3.dp)) }
+                } else Text("К оплате " + protoMoney(o.total), color = ProtoMuted, fontSize = 13.sp, modifier = Modifier.padding(top = 4.dp))
+                if (isAdmin && onPayment != null && o.due > 0) { Spacer(Modifier.height(8.dp)); ProtoSecondaryButton("Отметить оплату", { paymentDialog = true }) }
+            }
+        }
         item {
             Column(verticalArrangement = Arrangement.spacedBy(9.dp)) {
                 if (isAdmin) {
                     if (onCallClient != null) ProtoSecondaryButton("Позвонить клиенту", onCallClient)
+                    val editable = !finished && o.status !in setOf("Доставляется")
+                    if (editable && onEdit != null) ProtoSecondaryButton("Изменить заказ", { editDialog = true })
+                    if (!finished && onShiftDelivery != null && o.deliveryDate.isNotBlank()) ProtoSecondaryButton("Перенести доставку", { shiftDialog = true })
                     if (!finished && onToWorkshop != null) ProtoSecondaryButton("Задание в цех из этого заказа", onToWorkshop)
                     if (!finished && onCancel != null) OutlinedButton(onClick = { confirmCancel = true }, modifier = Modifier.fillMaxWidth().height(48.dp), border = BorderStroke(1.dp, ProtoRed), shape = RoundedCornerShape(24.dp)) { Text("Отменить заказ", color = ProtoRed) }
                 } else if (finished) {
-                    if (onRepeat != null) ProtoPrimaryButton("Заказать повторно", { guarded(onRepeat) })
+                    if (onRepeat != null) ProtoPrimaryButton(if (o.status == "Отклонён") "Вернуть товары в корзину" else "Заказать повторно", { guarded(onRepeat) })
                     if (onEditRepeat != null) ProtoSecondaryButton("Изменить и заказать", { guarded(onEditRepeat) })
                 } else {
                     if (onChat != null) ProtoSecondaryButton("Написать менеджеру", onChat)
@@ -1289,7 +1356,7 @@ internal fun ProtoOrderDetailScreen(
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Icon(Icons.Outlined.History, null, tint = if (event.status == "Отменён") ProtoRed else ProtoGold)
                         Spacer(Modifier.width(9.dp))
-                        Column(Modifier.weight(1f)) { Text(event.status, color = if (event.status == "Отменён") ProtoRed else ProtoText, fontWeight = FontWeight.SemiBold); Text(event.dateTime, color = ProtoMuted, fontSize = 12.sp) }
+                        Column(Modifier.weight(1f)) { Text(event.status, color = if (event.status == "Отменён" || event.status == "Отклонён") ProtoRed else ProtoText, fontWeight = FontWeight.SemiBold); if (event.note.isNotBlank()) Text(event.note, color = ProtoText, fontSize = 13.sp); Text(event.dateTime, color = ProtoMuted, fontSize = 12.sp) }
                         Text(event.actor, color = ProtoGoldSoft, fontSize = 12.sp)
                     }
                 }
@@ -1367,6 +1434,99 @@ internal fun ProtoPopularScreen(
                     }
                 }
                 if (row.size == 1) Spacer(Modifier.weight(1f))
+            }
+        }
+    }
+}
+
+// ───────────── Заказ: тип клиента, оплата, корректировка ─────────────
+
+/** Метка «Агент» / «Торг. орг.» в списке и карточке заказа. */
+@Composable
+internal fun ProtoClientTypeBadge(type: String) {
+    val agent = type.contains("Агент", ignoreCase = true)
+    ProtoPill(if (agent) "Агент" else "Торг. орг.", if (agent) ProtoGold else ProtoGoldSoft)
+}
+
+@Composable
+internal fun ProtoPaymentDialog(order: ProtoOrder, onDismiss: () -> Unit, onSave: (Int, String, String, String) -> Unit) {
+    var amount by remember { mutableStateOf(order.due.toString()) }
+    var method by remember { mutableStateOf("Расчётный счёт") }
+    var date by remember { mutableStateOf(currentDateShort()) }
+    var comment by remember { mutableStateOf("") }
+    val value = amount.toIntOrNull() ?: 0
+    val dateOk = protoParseDate(date) != null
+    AlertDialog(
+        onDismissRequest = onDismiss, containerColor = ProtoPanel,
+        title = { Text("Оплата по заказу № " + order.id, color = ProtoText) },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                Text("К оплате " + protoMoney(order.total) + (if (order.paid > 0) " · уже оплачено " + protoMoney(order.paid) else ""), color = ProtoMuted, fontSize = 13.sp)
+                OutlinedTextField(amount, { amount = it.filter(Char::isDigit).take(9) }, label = { Text("Сумма, ₽") }, singleLine = true, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), colors = protoFieldColors(), modifier = Modifier.fillMaxWidth())
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    listOf("Расчётный счёт", "СБП", "Наличные").forEach { m ->
+                        val sel = method == m
+                        Surface(onClick = { method = m }, shape = RoundedCornerShape(16.dp), color = if (sel) ProtoGold else Color.Transparent, border = BorderStroke(1.dp, if (sel) ProtoGold else ProtoBorder)) {
+                            Text(m, color = if (sel) Color.Black else ProtoText, fontSize = 12.sp, modifier = Modifier.padding(horizontal = 9.dp, vertical = 7.dp))
+                        }
+                    }
+                }
+                OutlinedTextField(date, { date = it.take(10) }, label = { Text("Дата (дд.мм.гггг)") }, singleLine = true, isError = !dateOk, colors = protoFieldColors(), modifier = Modifier.fillMaxWidth())
+                OutlinedTextField(comment, { comment = it.take(120) }, label = { Text("Комментарий (необязательно)") }, singleLine = true, colors = protoFieldColors(), modifier = Modifier.fillMaxWidth())
+                if (value > order.due && order.due > 0) Text("Сумма больше остатка (" + protoMoney(order.due) + ") — переплата будет видна в заказе.", color = ProtoOrange, fontSize = 12.sp)
+            }
+        },
+        confirmButton = { TextButton(enabled = value > 0 && dateOk, onClick = { onSave(value, method, date, comment.trim()) }) { Text("Сохранить", color = ProtoGold) } },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Отмена", color = ProtoMuted) } }
+    )
+}
+
+/** Корректировка состава заказа администратором: количество, удаление и добавление позиций, обязательная причина. */
+@Composable
+internal fun ProtoOrderEditDialog(order: ProtoOrder, products: List<ProtoCatalogProduct>, onDismiss: () -> Unit, onSave: (List<ProtoOrderLine>, String) -> Unit) {
+    val lines = remember(order.id) { mutableStateListOf<ProtoOrderLine>().apply { addAll(order.lines) } }
+    var reason by remember { mutableStateOf("") }
+    var query by remember { mutableStateOf("") }
+    val discount = order.discountPct
+    val suggestions = if (query.trim().length < 2) emptyList() else products.filter { p -> protoSearchMatches(p, query) && lines.none { it.sku == p.sku } }.take(5)
+    val changed = lines.toList() != order.lines
+    val total = lines.sumOf { it.lineTotal }
+    androidx.compose.ui.window.Dialog(onDismissRequest = onDismiss, properties = androidx.compose.ui.window.DialogProperties(usePlatformDefaultWidth = false)) {
+        Surface(color = ProtoPanel, shape = RoundedCornerShape(20.dp), modifier = Modifier.fillMaxWidth(0.94f).fillMaxHeight(0.9f)) {
+            Column(Modifier.padding(16.dp)) {
+                Text("Изменить заказ № " + order.id, color = ProtoText, fontSize = 20.sp, fontWeight = FontWeight.Bold)
+                Text("Сумма, скидка и резерв пересчитаются. Клиент получит уведомление.", color = ProtoMuted, fontSize = 12.sp)
+                LazyColumn(Modifier.weight(1f).padding(vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    items(lines.toList(), key = { it.sku }) { line ->
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Column(Modifier.weight(1f)) {
+                                Text(line.name, color = ProtoText, fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                Text("Арт. " + line.sku + " · " + protoMoney(line.lineTotal), color = ProtoGoldSoft, fontSize = 12.sp)
+                            }
+                            ProtoQtyButton(Icons.Outlined.Remove, { val i = lines.indexOfFirst { it.sku == line.sku }; if (i >= 0 && line.qty > 1) lines[i] = line.copy(qty = line.qty - 1) }, 34.dp)
+                            Text(line.qty.toString(), color = ProtoText, fontWeight = FontWeight.Bold, modifier = Modifier.padding(horizontal = 8.dp))
+                            ProtoQtyButton(Icons.Outlined.Add, { val i = lines.indexOfFirst { it.sku == line.sku }; if (i >= 0) lines[i] = line.copy(qty = line.qty + 1) }, 34.dp)
+                            IconButton(onClick = { lines.removeAll { it.sku == line.sku } }) { Icon(Icons.Outlined.DeleteOutline, "Удалить позицию", tint = ProtoRed) }
+                        }
+                    }
+                    item {
+                        OutlinedTextField(query, { query = it }, label = { Text("Добавить товар: артикул или название") }, singleLine = true, colors = protoFieldColors(), modifier = Modifier.fillMaxWidth().padding(top = 6.dp))
+                    }
+                    items(suggestions, key = { "s-" + it.sku }) { p ->
+                        Row(Modifier.fillMaxWidth().clickable { lines.add(ProtoOrderLine(p.sku, p.name, 1, p.price, discount)); query = "" }.padding(vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+                            Icon(Icons.Outlined.Add, null, tint = ProtoGold)
+                            Spacer(Modifier.width(6.dp))
+                            Text(protoTitle(p) + " · " + p.sku, color = ProtoText, fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        }
+                    }
+                }
+                ProtoInfoRow("Было", protoMoney(order.total))
+                ProtoInfoRow("Станет", protoMoney(total))
+                OutlinedTextField(reason, { reason = it.take(200) }, label = { Text("Причина изменения (обязательно)") }, colors = protoFieldColors(), modifier = Modifier.fillMaxWidth())
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(top = 8.dp)) {
+                    OutlinedButton(onClick = onDismiss, border = BorderStroke(1.dp, ProtoBorder), modifier = Modifier.weight(1f)) { Text("Отмена", color = ProtoMuted) }
+                    Button(onClick = { onSave(lines.toList(), reason.trim()) }, enabled = changed && lines.isNotEmpty() && reason.isNotBlank(), colors = ButtonDefaults.buttonColors(containerColor = ProtoGold), modifier = Modifier.weight(1f)) { Text("Сохранить", color = Color.Black) }
+                }
             }
         }
     }

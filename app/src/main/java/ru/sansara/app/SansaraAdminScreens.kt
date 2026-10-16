@@ -3,6 +3,7 @@ package ru.sansara.app
 import android.content.Intent
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -110,7 +111,9 @@ internal fun ProtoAdminHomeScreen(
     onAttendance: () -> Unit,
     onReports: () -> Unit,
     onDashboard: () -> Unit,
-    onNotifications: () -> Unit
+    onNotifications: () -> Unit,
+    approvals: Int = 0,
+    onApprovals: () -> Unit = {}
 ) {
     Box(Modifier.fillMaxSize()) {
         ProtoLiveBackground()
@@ -130,6 +133,7 @@ internal fun ProtoAdminHomeScreen(
                     ProtoSectionCard {
                         Text("Сегодня", color = ProtoGoldSoft, fontSize = 17.sp, fontWeight = FontWeight.Bold)
                         Spacer(Modifier.height(4.dp))
+                        if (approvals > 0) TodayRow(Icons.Outlined.Gavel, "Заказы на согласовании", approvals, ProtoOrange, onApprovals)
                         TodayRow(Icons.Outlined.ReceiptLong, "Новые заказы — подтвердить", newOrders, ProtoGold, onNewOrders)
                         TodayRow(Icons.Outlined.LocalShipping, "Получение сегодня", deliveriesToday, ProtoGold, onDeliveriesToday)
                         TodayRow(Icons.Outlined.PersonAdd, "Заявки на регистрацию", newRegistrations, ProtoGold, onRegistrations)
@@ -431,32 +435,90 @@ internal fun ProtoAdminClientScreen(
 // ───────────── Заказы ─────────────
 
 @Composable
-internal fun ProtoAdminOrdersScreen(orders: List<ProtoOrder>, initialStatus: String, initialDate: String, onBack: () -> Unit, onOpen: (ProtoOrder) -> Unit) {
+internal fun ProtoAdminOrdersScreen(orders: List<ProtoOrder>, initialStatus: String, initialDate: String, onBack: () -> Unit, onOpen: (ProtoOrder) -> Unit, clientTypeOf: (ProtoOrder) -> String = { it.clientType }, clientPhoneOf: (ProtoOrder) -> String = { it.contactPhone }) {
     var q by remember { mutableStateOf("") }
     var status by remember(initialStatus) { mutableStateOf(initialStatus) }
     var dateFilter by remember(initialDate) { mutableStateOf(initialDate) }
-    val statuses = listOf("Все", "Получен", "Подтверждён", "Собирается", "Доставляется", "Доставлен", "Отменён")
+    var kind by remember { mutableStateOf("Все") }
+    val statuses = listOf("Все", "На согласовании", "Получен", "Подтверждён", "Собирается", "Доставляется", "Доставлен", "Отменён", "Отклонён")
     val today = LocalDate.now()
-    val filtered = orders.filter { o ->
-        val qq = q.trim()
-        val queryOk = qq.isBlank() || o.id.contains(qq, true) || o.clientName.contains(qq, true) || o.retailCustomerName.contains(qq, true)
+    fun isAgent(o: ProtoOrder) = clientTypeOf(o).contains("Агент", ignoreCase = true)
+    val qq = q.trim()
+    val qDigits = qq.filter(Char::isDigit)
+    // Быстрый поиск: последние цифры номера («2384» → S-002384), клиент, получатель или телефон.
+    fun queryOk(o: ProtoOrder) = qq.isBlank() ||
+        (qDigits.isNotEmpty() && qDigits.length == qq.length && (o.id.filter(Char::isDigit).endsWith(qDigits) || clientPhoneOf(o).filter(Char::isDigit).endsWith(qDigits))) ||
+        o.id.contains(qq, true) || o.clientName.contains(qq, true) || o.retailCustomerName.contains(qq, true) || o.recipient.contains(qq, true)
+    val base = orders.filter { o ->
         val statusOk = status == "Все" || o.status == status
         val d = protoParseDate(o.deliveryDate)
         val dateOk = when (dateFilter) {
             "Сегодня" -> d == today
             "Завтра" -> d == today.plusDays(1)
             "Неделя" -> d != null && !d.isBefore(today) && d.isBefore(today.plusDays(7))
-            "Просрочены" -> d != null && d.isBefore(today) && o.status !in setOf("Доставлен", "Отменён")
+            "Просрочены" -> d != null && d.isBefore(today) && o.status !in protoHistoryStatuses
             else -> true
         }
-        queryOk && statusOk && dateOk
-    }.sortedByDescending { protoOrderEpoch(it.dateTime) }
-    ProtoScaffold("Заказы", protoPlural(filtered.size, "заказ", "заказа", "заказов") + " · " + protoMoney(filtered.filter { it.status != "Отменён" }.sumOf { it.total }), onBack) {
-        item { ProtoField(q, { q = it }, "Поиск по номеру или клиенту") }
+        queryOk(o) && statusOk && dateOk
+    }
+    val agents = base.count { isAgent(it) }
+    val filtered = base.filter { when (kind) { "Агенты" -> isAgent(it); "Торг. орг." -> !isAgent(it); else -> true } }
+        // Сначала заказы в работе по сроку доставки (просроченные и сегодняшние — вверху), потом завершённые — новые сверху.
+        .sortedWith(compareBy<ProtoOrder> { it.status in protoHistoryStatuses }
+            .thenBy { if (it.status in protoHistoryStatuses) 0L else (protoParseDate(it.deliveryDate)?.toEpochDay() ?: Long.MAX_VALUE) }
+            .thenByDescending { protoOrderEpoch(it.dateTime) })
+    ProtoScaffold("Заказы", protoPlural(filtered.size, "заказ", "заказа", "заказов") + " · " + protoMoney(filtered.filter { it.status !in setOf("Отменён", "Отклонён") }.sumOf { it.total }), onBack) {
+        item { ProtoSearchField(q, { q = it }, {}, "Последние 4 цифры номера, клиент или телефон") }
+        item {
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                listOf("Все" to base.size, "Агенты" to agents, "Торг. орг." to base.size - agents).forEach { (label, n) ->
+                    val sel = kind == label
+                    Box(Modifier.weight(1f).height(42.dp).clip(RoundedCornerShape(21.dp)).background(if (sel) ProtoGold else ProtoPanel).border(1.dp, if (sel) ProtoGold else ProtoBorder, RoundedCornerShape(21.dp)).clickable { kind = label }, contentAlignment = Alignment.Center) {
+                        Text("$label · $n", color = if (sel) Color.Black else ProtoText, fontWeight = FontWeight.SemiBold, fontSize = 13.sp, maxLines = 1)
+                    }
+                }
+            }
+        }
         item { ProtoChipRow(statuses, status) { status = it } }
         item { ProtoChipRow(listOf("Все даты", "Сегодня", "Завтра", "Неделя", "Просрочены"), dateFilter) { dateFilter = it } }
-        if (filtered.isEmpty()) item { ProtoEmptyState(Icons.Outlined.ReceiptLong, "Заказов нет", "Измените фильтр статуса или даты") }
-        else items(filtered, key = { it.id }) { o -> ProtoOrderRow(o) { onOpen(o) } }
+        if (filtered.isEmpty()) item { ProtoEmptyState(Icons.Outlined.ReceiptLong, if (qq.isNotBlank()) "Заказ «$qq» не найден" else "Заказов нет", "Измените поиск или фильтры") }
+        else items(filtered, key = { it.id }) { o -> ProtoAdminOrderRow(o, clientTypeOf(o)) { onOpen(o) } }
+    }
+}
+
+/** Строка заказа у администратора: тип клиента, срок доставки (просрочен/сегодня выделены), оплата. */
+@Composable
+internal fun ProtoAdminOrderRow(o: ProtoOrder, clientType: String, onClick: () -> Unit) {
+    val today = LocalDate.now()
+    val d = protoParseDate(o.deliveryDate)
+    val active = o.status !in protoHistoryStatuses
+    val overdue = active && d != null && d.isBefore(today)
+    val dueToday = active && d == today
+    ProtoSectionCard(Modifier.clickable(onClick = onClick).then(if (overdue) Modifier.border(1.dp, ProtoRed, RoundedCornerShape(18.dp)) else if (dueToday) Modifier.border(1.dp, ProtoOrange, RoundedCornerShape(18.dp)) else Modifier)) {
+        Row {
+            Column(Modifier.weight(1f)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text("№ " + o.id, color = ProtoGoldSoft, fontWeight = FontWeight.Bold)
+                    Spacer(Modifier.width(6.dp))
+                    if (clientType.isNotBlank()) ProtoClientTypeBadge(clientType)
+                }
+                Text(o.clientName + if (o.retailCustomerName.isNotBlank()) " → " + o.retailCustomerName else "", color = ProtoText, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text("${o.pieces} шт. · оформлен ${o.dateTime.substringBefore(" ")}", color = ProtoMuted, fontSize = 12.sp)
+                if (o.deliveryDate.isNotBlank()) Text(
+                    (if (overdue) "Просрочен · " else if (dueToday) "Сегодня · " else "") + (if (o.deliveryMethod == "Самовывоз") "самовывоз " else "доставка ") + o.deliveryDate + (if (o.deliveryTime.isNotBlank()) " · " + o.deliveryTime else ""),
+                    color = if (overdue) ProtoRed else if (dueToday) ProtoOrange else ProtoText, fontSize = 12.sp, fontWeight = if (overdue || dueToday) FontWeight.SemiBold else FontWeight.Normal
+                )
+            }
+            Column(horizontalAlignment = Alignment.End) {
+                Text(protoMoney(o.total), color = ProtoGoldSoft, fontWeight = FontWeight.Bold)
+                Spacer(Modifier.height(4.dp))
+                ProtoPill(o.status, protoStatusColor(o.status))
+                if (o.status !in setOf("Отменён", "Отклонён")) {
+                    Spacer(Modifier.height(4.dp))
+                    Text(when (o.paymentStatus) { "Оплачен полностью" -> "оплачен"; "Оплачен частично" -> "оплачен частично"; else -> "не оплачен" }, color = when (o.paymentStatus) { "Оплачен полностью" -> ProtoGreen; "Оплачен частично" -> ProtoOrange; else -> ProtoMuted }, fontSize = 11.sp)
+                }
+            }
+        }
     }
 }
 
@@ -608,7 +670,7 @@ internal fun ProtoAdminProductScreen(
 // ───────────── Настройки ─────────────
 
 @Composable
-internal fun ProtoAdminSettingsMenuScreen(syncStatus: String, lastSync: String, lowStockThreshold: Int, pickupCount: Int, onBack: () -> Unit, onOpen: (String) -> Unit, onCall: () -> Unit, onLogout: () -> Unit) {
+internal fun ProtoAdminSettingsMenuScreen(syncStatus: String, lastSync: String, lowStockThreshold: Int, pickupCount: Int, onBack: () -> Unit, onOpen: (String) -> Unit, onCall: () -> Unit, onLogout: () -> Unit, minOrder: Int = 35_000) {
     val rows = listOf(
         Triple("Профиль компании", Icons.Outlined.Business, "Данные SANSARA и контакты"),
         Triple("Приветственный экран", Icons.Outlined.Campaign, "Рекламный текст при запуске приложения"),
@@ -622,6 +684,7 @@ internal fun ProtoAdminSettingsMenuScreen(syncStatus: String, lastSync: String, 
         Triple("Клиенты", Icons.Outlined.PersonSearch, "Доступ, статусы и скидки"),
         Triple("Каталог и синхронизация", Icons.Outlined.Sync, "$syncStatus · $lastSync"),
         Triple("Telegram интеграция", Icons.Outlined.Send, "Заказы через серверный прокси"),
+        Triple("Минимальный заказ", Icons.Outlined.ShoppingCartCheckout, "Торгующие организации: " + protoMoney(minOrder)),
         Triple("Порог низких остатков", Icons.Outlined.Warning, "Сейчас: $lowStockThreshold шт."),
         Triple("Экспорт данных", Icons.Outlined.FileDownload, "CSV за период"),
         Triple("О приложении", Icons.Outlined.Info, "SANSARA · версия ${BuildConfig.VERSION_NAME}")
@@ -681,6 +744,8 @@ internal fun ProtoAdminSettingsDetailScreen(
     promoText: String = "",
     onPromoSave: (String, String) -> Unit = { _, _ -> },
     promoImageVersion: Long = 0L,
+    minOrder: Int = 35_000,
+    onMinOrder: (Int) -> Unit = {},
     onPromoImage: (android.net.Uri) -> Unit = {},
     onPromoImageReset: () -> Unit = {}
 ) {
@@ -690,6 +755,14 @@ internal fun ProtoAdminSettingsDetailScreen(
     var rateQuery by remember { mutableStateOf("") }
     ProtoScaffold(section, null, onBack) {
         when (section) {
+            "Минимальный заказ" -> item {
+                var v by remember(minOrder) { mutableStateOf(minOrder.toString()) }
+                ProtoSectionCard {
+                    Text("Минимальная сумма заказа для торгующих организаций (со скидкой). Заказ меньше этой суммы клиент может отправить только на согласование. У агентов минимума нет.", color = ProtoMuted, fontSize = 13.sp)
+                    OutlinedTextField(v, { v = it.filter(Char::isDigit).take(7) }, label = { Text("Сумма, ₽ (0 — без минимума)") }, singleLine = true, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), colors = protoFieldColors(), modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp))
+                    ProtoPrimaryButton("Сохранить", { onMinOrder(v.toIntOrNull() ?: 0) })
+                }
+            }
             "Приветственный экран" -> item {
                 var title by remember(promoTitle) { mutableStateOf(promoTitle) }
                 var text by remember(promoText) { mutableStateOf(promoText) }

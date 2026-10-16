@@ -539,3 +539,18 @@ internal fun protoSaveWelcomeImage(context: android.content.Context, uri: androi
     bitmap.recycle()
     true
 }.getOrDefault(false)
+
+/** Коротко «было → стало» по позициям заказа для истории изменений. */
+internal fun protoOrderDiff(old: List<ProtoOrderLine>, new: List<ProtoOrderLine>): String {
+    val parts = mutableListOf<String>()
+    (old.map { it.sku } + new.map { it.sku }).distinct().forEach { sku ->
+        val a = old.firstOrNull { it.sku == sku }
+        val b = new.firstOrNull { it.sku == sku }
+        when {
+            a == null && b != null -> parts += "добавлен $sku × ${b.qty}"
+            a != null && b == null -> parts += "удалён $sku"
+            a != null && b != null && a.qty != b.qty -> parts += "$sku: ${a.qty} → ${b.qty} шт."
+        }
+    }
+    return parts.joinToString("; ").ifBlank { "без изменений" }
+}
