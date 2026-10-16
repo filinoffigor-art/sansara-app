@@ -91,4 +91,13 @@ class SansaraLogicTest {
         assertFalse(protoCancelState(ProtoOrder("6", "x", stamp(1), listOf(made), "Собирается")).allowed)
         assertTrue(protoCancelState(ProtoOrder("7", "x", stamp(1), listOf(made), "Собирается")).message.contains("производство"))
     }
+
+    // ── Сеть: обрыв связи не должен ронять приложение (отчёт со S24 Ultra, 16.10.2026) ──
+
+    @Test fun backendNeverThrowsOnNetworkFailure() = kotlinx.coroutines.runBlocking {
+        val refused = SansaraBackend.postEvent("http://127.0.0.1:1/", "presence", mapOf("x" to 1))
+        assertFalse(refused.ok)
+        val badUrl = SansaraBackend.postEvent("https://", "order", emptyMap())
+        assertFalse(badUrl.ok)
+    }
 }

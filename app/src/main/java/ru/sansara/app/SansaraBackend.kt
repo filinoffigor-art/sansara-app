@@ -14,7 +14,24 @@ data class BackendPostResult(val ok: Boolean, val message: String)
  * to the two separate Telegram bots and the central data store.
  */
 object SansaraBackend {
-    suspend fun postEvent(baseUrl: String, event: String, payload: Map<String, Any?>): BackendPostResult = withContext(Dispatchers.IO) {
+    /**
+     * Никогда не бросает исключение: обрыв связи, тайм-аут или ошибка сервера возвращаются как неуспешный результат.
+     * Раньше тайм-аут сети (SocketTimeoutException) ронял всё приложение.
+     */
+    suspend fun postEvent(baseUrl: String, event: String, payload: Map<String, Any?>): BackendPostResult =
+        try {
+            postEventUnsafe(baseUrl, event, payload)
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
+        } catch (e: java.net.SocketTimeoutException) {
+            BackendPostResult(false, "Сервер не ответил вовремя — проверьте интернет")
+        } catch (e: java.io.IOException) {
+            BackendPostResult(false, "Нет связи с сервером: " + (e.message ?: "сеть недоступна"))
+        } catch (e: Exception) {
+            BackendPostResult(false, "Ошибка обмена с сервером: " + (e.message ?: e.javaClass.simpleName))
+        }
+
+    private suspend fun postEventUnsafe(baseUrl: String, event: String, payload: Map<String, Any?>): BackendPostResult = withContext(Dispatchers.IO) {
         if (baseUrl.isBlank()) return@withContext BackendPostResult(false, "Backend API не настроен")
         if (!baseUrl.startsWith("https://") && !baseUrl.startsWith("http://")) return@withContext BackendPostResult(false, "Некорректный BACKEND_API_URL")
 
