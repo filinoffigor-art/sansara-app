@@ -2,12 +2,13 @@
 # Стресс-прогон: случайные нажатия, прокрутки и ввод во всех ролях. Падения и зависания — в shots/00_monkey.txt.
 mkdir -p shots
 OUT=shots/00_monkey.txt
-adb shell wm size 1080x2340 || true
-adb shell wm density 450 || true
+adb shell wm size ${WM_SIZE:-1080x2340} || true
+adb shell wm density ${WM_DENSITY:-450} || true
+adb shell settings put system font_scale ${FONT_SCALE:-1.0} || true
 adb install -r app/build/outputs/apk/debug/app-debug.apk >/dev/null
 adb shell pm grant ru.sansara.app android.permission.POST_NOTIFICATIONS || true
 EVENTS=${MONKEY_EVENTS:-3000}
-echo "Стресс-прогон: $EVENTS событий на прогон, экран 1080x2340/450dpi" > $OUT
+echo "Стресс-прогон: $EVENTS событий на прогон, экран ${WM_SIZE:-1080x2340}/${WM_DENSITY:-450}dpi, шрифт ${FONT_SCALE:-1.0}, Android API $(adb shell getprop ro.build.version.sdk | tr -d '\r')" > $OUT
 crashes=0
 for spec in "1024 Home 11" "1024 Cart 12" "9001 AdminHome 21" "9001 AdminOrders 22" "9001 AdminSettings 23" "9002 Production 31" "9002 ProductionWorkshop 32" "9003 SalesHome 41"; do
   set -- $spec; code=$1; scr=$2; seed=$3
