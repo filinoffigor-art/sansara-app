@@ -1,0 +1,127 @@
+UI-тесты (экран 1080x2340, 450 dpi):
+ru.sansara.app.SansaraOwnStockLogicTest 0.166s
+ru.sansara.app.SansaraOwnStockLogicTest 0.153s
+ru.sansara.app.SansaraRoleSmokeTest 8.453s
+ru.sansara.app.SansaraRoleSmokeTest 5.076s
+ru.sansara.app.SansaraRoleSmokeTest 3.867s
+ru.sansara.app.SansaraRoleSmokeTest 3.49s
+ru.sansara.app.SansaraRoleSmokeTest 14.025s
+ru.sansara.app.SansaraRoleSmokeTest 5.426s
+ru.sansara.app.SansaraRoleSmokeTest 6.322s
+ru.sansara.app.SansaraRoleSmokeTest 5.934s
+ru.sansara.app.SansaraRoleSmokeTest 8.001s
+ru.sansara.app.SansaraRoleSmokeTest 4.74s
+ru.sansara.app.SansaraRoleSmokeTest 20.001s
+ru.sansara.app.SansaraWorkshopLogicTest 1.483s
+провалов: 0
+---- XML ----
+== app/build/outputs/androidTest-results/connected/debug/TEST-emulator-5554 - 14-_app-.xml
+<?xml version='1.0' encoding='UTF-8' ?>
+<testsuite name="ru.sansara.app.SansaraOwnStockLogicTest" tests="14" failures="0" errors="0" skipped="0" time="111.002" timestamp="2026-10-16T17:52:07" hostname="localhost">
+  <properties>
+    <property name="device" value="emulator-5554 - 14" />
+    <property name="flavor" value="" />
+    <property name="project" value=":app" />
+  </properties>
+  <testcase name="ownStockReceiveSellAndSerialProtection" classname="ru.sansara.app.SansaraOwnStockLogicTest" time="0.166" />
+  <testcase name="staffCodeAndGodEyeOnlyForMainAdmin" classname="ru.sansara.app.SansaraOwnStockLogicTest" time="0.153" />
+  <testcase name="agentRegistersWithoutInnAndEmail" classname="ru.sansara.app.SansaraRoleSmokeTest" time="8.453" />
+  <testcase name="loginPersistsAndWelcomeShownOnEveryLaunch" classname="ru.sansara.app.SansaraRoleSmokeTest" time="5.076" />
+  <testcase name="wrongCodeShowsClearError" classname="ru.sansara.app.SansaraRoleSmokeTest" time="3.867" />
+  <testcase name="adminGreetingIsBoss" classname="ru.sansara.app.SansaraRoleSmokeTest" time="3.49" />
+  <testcase name="smallTradingOrderGoesToApprovalAndAdminApproves" classname="ru.sansara.app.SansaraRoleSmokeTest" time="14.025" />
+  <testcase name="godEyeEntersClientAndReturnsToBoss" classname="ru.sansara.app.SansaraRoleSmokeTest" time="5.426" />
+  <testcase name="searchUnderstandsWrongKeyboardLayout" classname="ru.sansara.app.SansaraRoleSmokeTest" time="6.322" />
+  <testcase name="homeFilterAppliesOnlyByButtonAndCloseCancels" classname="ru.sansara.app.SansaraRoleSmokeTest" time="5.934" />
+  <testcase name="adminIssuesProductionCodeAndProductionLogsIn" classname="ru.sansara.app.SansaraRoleSmokeTest" time="8.001" />
+  <testcase name="cartPricesIncludePartnerDiscount" classname="ru.sansara.app.SansaraRoleSmokeTest" time="4.74" />
+  <testcase name="registrationWithSecondContactApprovedAndBothCodesWork" classname="ru.sansara.app.SansaraRoleSmokeTest" time="20.001" />
+  <testcase name="partialPostingCarriesRemainderToNextDayAndCountsTime" classname="ru.sansara.app.SansaraWorkshopLogicTest" time="1.483" />
+</testsuite>
+---- строки о тестах ----
+13        android:label="Tests for ru.sansara.app"
+30            android:name="androidx.test.core.app.InstrumentationActivityInvoker$BootstrapActivity"
+38            android:name="androidx.test.core.app.InstrumentationActivityInvoker$EmptyActivity"
+46            android:name="androidx.test.core.app.InstrumentationActivityInvoker$EmptyFloatingActivity"
+Resolve mutations for :app:javaPreCompileDebugAndroidTest (Thread[included builds,5,main]) started.
+:app:javaPreCompileDebugAndroidTest (Thread[included builds,5,main]) started.
+AAPT2 aapt2-8.7.3-12006047-linux Daemon #0: starting
+Resolve mutations for :app:mergeExtDexDebugAndroidTest (Thread[Execution worker Thread 2,5,main]) started.
+:app:mergeExtDexDebugAndroidTest (Thread[Execution worker Thread 2,5,main]) started.
+Resolve mutations for :app:mergeLibDexDebugAndroidTest (Thread[Execution worker,5,main]) started.
+:app:mergeLibDexDebugAndroidTest (Thread[Execution worker,5,main]) started.
+Resolve mutations for :app:validateSigningDebugAndroidTest (Thread[Execution worker,5,main]) started.
+:app:validateSigningDebugAndroidTest (Thread[Execution worker,5,main]) started.
+Finished executing kotlin compiler using IN_PROCESS strategy
+Caching disabled for BuildToolsApiClasspathEntrySnapshotTransform: /home/runner/work/sansara-app/sansara-app/app/build/tmp/kapt3/classes/debugAndroidTest because:
+Finished executing kotlin compiler using IN_PROCESS strategy
+Resolve mutations for :app:dexBuilderDebugAndroidTest (Thread[included builds,5,main]) started.
+:app:dexBuilderDebugAndroidTest (Thread[included builds,5,main]) started.
+Resolve mutations for :app:mergeProjectDexDebugAndroidTest (Thread[included builds,5,main]) started.
+:app:mergeProjectDexDebugAndroidTest (Thread[included builds,5,main]) started.
+Resolve mutations for :app:packageDebugAndroidTest (Thread[Execution worker Thread 3,5,main]) started.
+:app:packageDebugAndroidTest (Thread[Execution worker Thread 3,5,main]) started.
+Resolve mutations for :app:connectedDebugAndroidTest (Thread[Execution worker Thread 3,5,main]) started.
+:app:connectedDebugAndroidTest (Thread[Execution worker Thread 3,5,main]) started.
+Downloading https://dl.google.com/dl/android/maven2/com/google/testing/platform/android-driver-instrumentation/0.0.9-alpha02/android-driver-instrumentation-0.0.9-alpha02.pom to /home/runner/.gradle/.tmp/gradle_download252144234492281206bin
+Downloading https://dl.google.com/dl/android/maven2/com/google/testing/platform/android-driver-instrumentation/0.0.9-alpha02/android-driver-instrumentation-0.0.9-alpha02.jar to /home/runner/.gradle/.tmp/gradle_download12433381772250082222bin
+[EmulatorConsole]: Failed to start Emulator console for 5554
+emulator-5554 with id test is not a Gradle Managed Device
+INFO: Configuring Android Instrumentation driver: android_instrumentation_runtime {
+  instrumentation_info {
+  instrumentation_args {
+INFO: No installables found in test fixture. Nothing to install.
+INFO: Running Android Instrumentation driver.
+Starting 14 tests on emulator-5554 - 14
+ru.sansara.app.SansaraOwnStockLogicTest > ownStockReceiveSellAndSerialProtection[emulator-5554 - 14] [32mSUCCESS [0m
+ru.sansara.app.SansaraOwnStockLogicTest > staffCodeAndGodEyeOnlyForMainAdmin[emulator-5554 - 14] [32mSUCCESS [0m
+emulator-5554 - 14 Tests 2/14 completed. (0 skipped) (0 failed)
+ru.sansara.app.SansaraRoleSmokeTest > agentRegistersWithoutInnAndEmail[emulator-5554 - 14] [32mSUCCESS [0m
+ru.sansara.app.SansaraRoleSmokeTest > loginPersistsAndWelcomeShownOnEveryLaunch[emulator-5554 - 14] [32mSUCCESS [0m
+emulator-5554 - 14 Tests 4/14 completed. (0 skipped) (0 failed)
+ru.sansara.app.SansaraRoleSmokeTest > wrongCodeShowsClearError[emulator-5554 - 14] [32mSUCCESS [0m
+ru.sansara.app.SansaraRoleSmokeTest > adminGreetingIsBoss[emulator-5554 - 14] [32mSUCCESS [0m
+emulator-5554 - 14 Tests 6/14 completed. (0 skipped) (0 failed)
+ru.sansara.app.SansaraRoleSmokeTest > smallTradingOrderGoesToApprovalAndAdminApproves[emulator-5554 - 14] [32mSUCCESS [0m
+emulator-5554 - 14 Tests 7/14 completed. (0 skipped) (0 failed)
+ru.sansara.app.SansaraRoleSmokeTest > godEyeEntersClientAndReturnsToBoss[emulator-5554 - 14] [32mSUCCESS [0m
+emulator-5554 - 14 Tests 8/14 completed. (0 skipped) (0 failed)
+ru.sansara.app.SansaraRoleSmokeTest > searchUnderstandsWrongKeyboardLayout[emulator-5554 - 14] [32mSUCCESS [0m
+ru.sansara.app.SansaraRoleSmokeTest > homeFilterAppliesOnlyByButtonAndCloseCancels[emulator-5554 - 14] [32mSUCCESS [0m
+emulator-5554 - 14 Tests 10/14 completed. (0 skipped) (0 failed)
+ru.sansara.app.SansaraRoleSmokeTest > adminIssuesProductionCodeAndProductionLogsIn[emulator-5554 - 14] [32mSUCCESS [0m
+emulator-5554 - 14 Tests 11/14 completed. (0 skipped) (0 failed)
+ru.sansara.app.SansaraRoleSmokeTest > cartPricesIncludePartnerDiscount[emulator-5554 - 14] [32mSUCCESS [0m
+emulator-5554 - 14 Tests 12/14 completed. (0 skipped) (0 failed)
+ru.sansara.app.SansaraRoleSmokeTest > registrationWithSecondContactApprovedAndBothCodesWork[emulator-5554 - 14] [32mSUCCESS [0m
+ru.sansara.app.SansaraWorkshopLogicTest > partialPostingCarriesRemainderToNextDayAndCountsTime[emulator-5554 - 14] [32mSUCCESS [0m
+emulator-5554 - 14 Tests 14/14 completed. (0 skipped) (0 failed)
+INFO: Uninstalling ru.sansara.app.test for device emulator-5554.
+Finished 14 tests on emulator-5554 - 14
+[XmlResultReporter]: XML test result file generated at /home/runner/work/sansara-app/sansara-app/app/build/outputs/androidTest-results/connected/debug/TEST-emulator-5554 - 14-_app-.xml. Total tests 14, passed 14, 
+---- хвост журнала ----
+Transforming ui-test-release.aar (androidx.compose.ui:ui-test-android:1.7.6) with AarToClassTransform
+Transforming junit-1.2.1.aar (androidx.test.ext:junit:1.2.1) with AarToClassTransform
+Transforming rules-1.6.1.aar (androidx.test:rules:1.6.1) with AarToClassTransform
+Transforming espresso-core-3.5.0.aar (androidx.test.espresso:espresso-core:3.5.0) with AarToClassTransform
+Transforming runner-1.6.2.aar (androidx.test:runner:1.6.2) with AarToClassTransform
+Transforming core-1.6.1.aar (androidx.test:core:1.6.1) with AarToClassTransform
+Transforming storage-1.5.0.aar (androidx.test.services:storage:1.5.0) with AarToClassTransform
+Transforming monitor-1.7.2.aar (androidx.test:monitor:1.7.2) with AarToClassTransform
+Transforming concurrent-futures-ktx-1.1.0.jar (androidx.concurrent:concurrent-futures-ktx:1.1.0) with IdentityTransform
+Transforming kotlinx-coroutines-test-jvm-1.8.1.jar (org.jetbrains.kotlinx:kotlinx-coroutines-test-jvm:1.8.1) with IdentityTransform
+Transforming annotation-1.0.1.aar (androidx.test:annotation:1.0.1) with AarToClassTransform
+Transforming junit-4.13.2.jar (junit:junit:4.13.2) with IdentityTransform
+Transforming hamcrest-integration-1.3.jar (org.hamcrest:hamcrest-integration:1.3) with IdentityTransform
+Transforming hamcrest-library-1.3.jar (org.hamcrest:hamcrest-library:1.3) with IdentityTransform
+Transforming hamcrest-core-1.3.jar (org.hamcrest:hamcrest-core:1.3) with IdentityTransform
+Transforming espresso-idling-resource-3.5.0.aar (androidx.test.espresso:espresso-idling-resource:3.5.0) with AarToClassTransform
+Transforming javawriter-2.1.1.jar (com.squareup:javawriter:2.1.1) with IdentityTransform
+Transforming javax.inject-1.jar (javax.inject:javax.inject:1) with IdentityTransform
+Transforming jsr305-2.0.2.jar (com.google.code.findbugs:jsr305:2.0.2) with IdentityTransform
+AAPT2 aapt2-8.7.3-12006047-linux Daemon #0: shutdown
+gradle/actions: Writing build results to /home/runner/work/_temp/.gradle-actions/build-results/__reactivecircus_android-emulator-runner-1792172982273.json
+
+BUILD SUCCESSFUL in 2m 27s
+71 actionable tasks: 32 executed, 39 up-to-date
+exit=0
