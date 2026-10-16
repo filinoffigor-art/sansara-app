@@ -2585,7 +2585,7 @@ fun SansaraVisualPrototype() {
 
         belowMinPrompt?.let { (sum, minimum, send) ->
             AlertDialog(
-                onDismissRequest = { belowMinPrompt = null }, containerColor = ProtoPanel,
+                onDismissRequest = {}, containerColor = ProtoPanel,
                 title = { Text("Сумма заказа ниже минимальной", color = ProtoText) },
                 text = { Text("Минимальная сумма заказа для торгующих организаций — " + protoMoney(minimum) + ". В вашем заказе — " + protoMoney(sum) + ".\n\nСумма не соответствует условиям работы с компанией SANSARA. Вы можете дополнить заказ или отправить его администратору на согласование.", color = ProtoMuted, lineHeight = 20.sp) },
                 confirmButton = { TextButton(onClick = { belowMinPrompt = null; send() }) { Text("Отправить на согласование", color = ProtoGold) } },

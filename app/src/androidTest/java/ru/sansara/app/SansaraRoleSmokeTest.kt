@@ -224,4 +224,72 @@ class SansaraRoleSmokeTest {
         login(code)
         waitText("Выпуск")
     }
+
+    private fun addOneItemToCart() {
+        scrollTo("В корзину")
+        compose.onAllNodes(hasScrollToNodeAction()).onFirst().performTouchInput { swipeUp(startY = centerY, endY = top) }
+        compose.waitForIdle()
+        val count = compose.onAllNodes(hasText("В корзину") and hasClickAction()).fetchSemanticsNodes().size
+        for (i in 0 until count) {
+            if (compose.onAllNodes(hasText("1 шт.", substring = true)).fetchSemanticsNodes().isNotEmpty()) break
+            runCatching { compose.onAllNodes(hasText("В корзину") and hasClickAction())[0].performClick() }
+            compose.waitForIdle()
+            runCatching { compose.waitUntil(3_000) { compose.onAllNodes(hasText("1 шт.", substring = true)).fetchSemanticsNodes().isNotEmpty() } }
+            if (compose.onAllNodes(hasText("1 шт.", substring = true)).fetchSemanticsNodes().isEmpty())
+                compose.onAllNodes(hasScrollToNodeAction()).onFirst().performTouchInput { swipeUp(startY = centerY, endY = centerY - height / 4f) }
+        }
+        waitText("1 шт.")
+    }
+
+    @Test
+    fun adminGreetingIsBoss() {
+        login("9001")
+        waitText("Здравствуйте, BOSS")
+    }
+
+    @Test
+    fun agentRegistersWithoutInnAndEmail() {
+        waitText("Добро пожаловать")
+        click("Стать партнёром")
+        waitText("Регистрация партнёра")
+        type("ФИО агента или ИП", "ИП Без Инн")
+        type("Фамилия", "Агентов")
+        type("Имя", "Пётр")
+        type("Телефон", "9165556677")
+        type("Город", "Тула")
+        type("Адрес доставки", "ул. Агентская, 5")
+        type("Примерный объём продаж в месяц, ₽", "100000")
+        scrollTo("Согласен на обработку")
+        click("Согласен на обработку персональных данных", substring = true)
+        click("Отправить заявку")
+        waitText("Заявка отправлена")
+    }
+
+    @Test
+    fun smallTradingOrderGoesToApprovalAndAdminApproves() {
+        login("1024")                              // торгующая организация, минимум 35 000 ₽
+        waitText("Наш ассортимент")
+        addOneItemToCart()
+        click("Корзина")
+        waitText("не хватает")
+        click("Оформить заказ", substring = true)
+        waitText("Оформление заказа")
+        click("Отправить заказ", substring = true)
+        click("Согласен, отправить")
+        waitText("Сумма заказа ниже минимальной")
+        click("Отправить на согласование")
+        waitText("Смотреть заказ")
+        clickDesc("Меню")
+        click("Профиль")
+        click("Выйти")
+        login("9001")
+        waitText("Заказы на согласовании")
+        click("Заказы на согласовании")
+        val row = hasText("№ S-", substring = true) and hasText("На согласовании", substring = true) and hasClickAction()
+        compose.waitUntil(15_000) { compose.onAllNodes(row).fetchSemanticsNodes().isNotEmpty() }
+        compose.onAllNodes(row).onFirst().performClick()
+        compose.waitForIdle()
+        click("Согласовать")
+        waitText("Перевести: Подтверждён")
+    }
 }
