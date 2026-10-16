@@ -255,7 +255,17 @@ data class WorkshopTaskEntity(
     val actualQty: Int,
     val createdBy: String,
     val createdAt: Long = System.currentTimeMillis(),
-    val updatedAt: Long = System.currentTimeMillis()
+    val updatedAt: Long = System.currentTimeMillis(),
+    /** Когда задание впервые взяли в работу (0 — ещё не брали). */
+    val startedAt: Long = 0L,
+    /** Накопленное время сборки без пауз, мс (суммируется и при переносе на следующий день). */
+    val workMs: Long = 0L,
+    /** Идёт отсчёт с этого момента (0 — на паузе или не начато). */
+    val runningSince: Long = 0L,
+    /** Дата задания, с которого перенесён остаток (пусто — новое задание). */
+    val carriedFrom: String = "",
+    /** Комментарий мастера цеха. */
+    val masterComment: String = ""
 )
 
 @Entity(tableName = "shipments")
@@ -605,6 +615,12 @@ interface SansaraDao {
     @Query("SELECT * FROM client_history WHERE clientId = :clientId ORDER BY createdAt DESC")
     suspend fun clientHistory(clientId: String): List<ClientHistoryEntity>
 
+    @Query("DELETE FROM client_history WHERE id IN (:ids)")
+    suspend fun deleteClientHistory(ids: List<String>)
+
+    @Query("DELETE FROM client_history WHERE clientId = :clientId")
+    suspend fun clearClientHistory(clientId: String)
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun putClientHistory(items: List<ClientHistoryEntity>)
 
@@ -641,7 +657,7 @@ interface SansaraDao {
         ExpenseEntity::class,
         ClientHistoryEntity::class
     ],
-    version = 10,
+    version = 11,
     exportSchema = false
 )
 abstract class SansaraDatabase : RoomDatabase() {
@@ -727,6 +743,17 @@ abstract class SansaraDatabase : RoomDatabase() {
             }
         }
 
+        // 0.26: задания в цех — время сборки, паузы, перенос остатка, комментарий мастера. Только добавление колонок.
+        private val MIGRATION_10_11 = object : Migration(10, 11) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE workshop_tasks ADD COLUMN startedAt INTEGER NOT NULL DEFAULT 0")
+                db.execSQL("ALTER TABLE workshop_tasks ADD COLUMN workMs INTEGER NOT NULL DEFAULT 0")
+                db.execSQL("ALTER TABLE workshop_tasks ADD COLUMN runningSince INTEGER NOT NULL DEFAULT 0")
+                db.execSQL("ALTER TABLE workshop_tasks ADD COLUMN carriedFrom TEXT NOT NULL DEFAULT ''")
+                db.execSQL("ALTER TABLE workshop_tasks ADD COLUMN masterComment TEXT NOT NULL DEFAULT ''")
+            }
+        }
+
         fun get(context: Context): SansaraDatabase =
             instance ?: synchronized(this) {
                 instance ?: Room.databaseBuilder(
@@ -734,7 +761,7 @@ abstract class SansaraDatabase : RoomDatabase() {
                     SansaraDatabase::class.java,
                     "sansara.db"
                 )
-                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10)
+                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11)
                     .build()
                     .also { instance = it }
             }
@@ -1462,6 +1489,64 @@ class SansaraRepository private constructor(
         return task
     }
 
+    /** «Взять в работу» / «Пауза» / «Продолжить». */
+    suspend fun setWorkshopTaskRunning(id:String,run:Boolean) {
+        val task=dao.workshopTasks().firstOrNull{it.id==id} ?: error("Задание не найдено")
+        val now=System.currentTimeMillis()
+        val updated=if (run) {
+            if (task.runningSince>0) task else task.copy(status="В работе",startedAt=if (task.startedAt>0) task.startedAt else now,runningSince=now,updatedAt=now)
+        } else {
+            if (task.runningSince<=0) task else task.copy(status="На паузе",workMs=task.workMs+(now-task.runningSince).coerceAtLeast(0),runningSince=0,updatedAt=now)
+        }
+        dao.putWorkshopTasks(listOf(updated))
+    }
+
+    /**
+     * Провести задание: собранное оприходуется на склад (с оплатой сборщице по ставке), в задании отмечается сделанное.
+     * Если собрано не всё — задание «Частично собрано», остаток переносится на следующий день с отметкой о переносе.
+     */
+    suspend fun postWorkshopTask(id:String,doneBySku:Map<String,Int>,masterComment:String,assemblerId:String,assemblerName:String,rates:Map<String,Int>,userId:String):Pair<WorkshopTaskEntity,WorkshopTaskEntity?> {
+        val task=dao.workshopTasks().firstOrNull{it.id==id} ?: error("Задание не найдено")
+        val lines=JSONArray(task.linesJson.ifBlank{"[]"})
+        val now=System.currentTimeMillis()
+        val posting=mutableListOf<ProductionPostingLine>()
+        val remainder=JSONArray()
+        for (i in 0 until lines.length()) {
+            val o=lines.getJSONObject(i)
+            val sku=o.optString("sku")
+            val plan=o.optInt("qty",0)
+            val doneBefore=o.optInt("done",0)
+            val add=(doneBySku[sku] ?: 0).coerceIn(0,(plan-doneBefore).coerceAtLeast(0))
+            if (add>0) posting+=ProductionPostingLine(sku,o.optString("name"),assemblerId,assemblerName,add,rates[sku] ?: 0)
+            o.put("done",doneBefore+add)
+            val left=plan-doneBefore-add
+            if (left>0) remainder.put(JSONObject(o.toString()).put("qty",left).put("done",0))
+        }
+        require(posting.isNotEmpty() || masterComment.isNotBlank()) { "Укажите, сколько собрано" }
+        val today=java.time.LocalDate.now()
+        if (posting.isNotEmpty()) postProductionReceipt(today.format(DateTimeFormatter.ofPattern("dd.MM.yyyy")),userId,posting)
+        val elapsed=if (task.runningSince>0) (now-task.runningSince).coerceAtLeast(0) else 0L
+        val partial=remainder.length()>0
+        val closed=task.copy(
+            linesJson=lines.toString(),actualQty=task.actualQty+posting.sumOf{it.qty},
+            status=if (partial) "Частично собрано" else "Собрано",
+            workMs=task.workMs+elapsed,runningSince=0,startedAt=if (task.startedAt>0) task.startedAt else now,
+            masterComment=masterComment.trim().ifBlank{task.masterComment},updatedAt=now
+        )
+        var carried:WorkshopTaskEntity?=null
+        if (partial) {
+            val base=protoParseDate(task.taskDate)?.let { if (it.isAfter(today)) it else today } ?: today
+            carried=WorkshopTaskEntity(
+                id="WT-"+java.util.UUID.randomUUID().toString().replace("-","").take(10).uppercase(),
+                taskDate=base.plusDays(1).format(DateTimeFormatter.ofPattern("dd.MM.yyyy")),
+                linesJson=remainder.toString(),comment=task.comment,commentOnly=false,status="Получено",actualQty=0,
+                createdBy=task.createdBy,workMs=closed.workMs,carriedFrom=task.carriedFrom.ifBlank{task.taskDate}
+            )
+        }
+        dao.putWorkshopTasks(listOfNotNull(closed,carried))
+        return closed to carried
+    }
+
     suspend fun updateWorkshopTaskFact(id:String,actualQty:Int,status:String) {
         val task=dao.workshopTasks().firstOrNull{it.id==id} ?: error("Задание не найдено")
         dao.putWorkshopTasks(listOf(task.copy(actualQty=actualQty.coerceAtLeast(0),status=status,updatedAt=System.currentTimeMillis())))
@@ -1565,6 +1650,12 @@ class SansaraRepository private constructor(
     }
 
     suspend fun clientHistory(clientId:String):List<ClientHistoryEntity> = dao.clientHistory(clientId)
+
+    /** Удаление истории клиента — только главный администратор. ids == null — вся история. */
+    suspend fun deleteClientHistory(clientId:String,ids:List<String>?,actingUserId:String) {
+        require(dao.adminControl(actingUserId)?.isMain==true) { "Удалять историю может только главный администратор" }
+        if (ids==null) dao.clearClientHistory(clientId) else if (ids.isNotEmpty()) dao.deleteClientHistory(ids)
+    }
 
     suspend fun addClientHistory(clientId:String,text:String,actor:String) {
         dao.putClientHistory(listOf(historyEntry(clientId,text,actor)))

@@ -1426,7 +1426,17 @@ fun SansaraVisualPrototype() {
                                 .onFailure { toast(it.message ?: "Не удалось выдать код") }
                         }
                     },
-                    onOpenOrder = { selectedOrderId = it.id; go(ProtoScreen.AdminOrderDetail) }
+                    onOpenOrder = { selectedOrderId = it.id; go(ProtoScreen.AdminOrderDetail) },
+                    canDeleteHistory = adminAccounts.firstOrNull { it.userId == session?.userId }?.isMain == true,
+                    onDeleteHistory = { ids ->
+                        selectedClientId?.let { cid ->
+                            scope.launch {
+                                runCatching { repository.deleteClientHistory(cid, ids, session?.userId ?: "") }
+                                    .onSuccess { loadClientDetails(cid); toast(if (ids == null) "История очищена" else "Удалено записей: " + ids.size) }
+                                    .onFailure { toast(it.message ?: "Ошибка") }
+                            }
+                        }
+                    }
                 )
             }
             ProtoScreen.AdminOrders -> ProtoAdminOrdersScreen(orders, initialStatus = adminOrdersStatus, initialDate = adminOrdersDate, onBack = { back() }, onOpen = { selectedOrderId = it.id; go(ProtoScreen.AdminOrderDetail) }, clientTypeOf = { orderClientType(it) }, clientPhoneOf = { o -> o.contactPhone.ifBlank { clients.firstOrNull { c -> c.id == o.clientId }?.phone.orEmpty() } })
@@ -1977,6 +1987,7 @@ fun SansaraVisualPrototype() {
 
             ProtoScreen.ProductionWorkshop -> ProtoWorkshopTasksScreen(
                 tasks=workshopTasks,
+                products=catalogProducts,
                 productionMode=true,
                 onBack={back()},
                 onCreate={_,_,_,_->},
@@ -1984,6 +1995,32 @@ fun SansaraVisualPrototype() {
                     scope.launch {
                         repository.updateWorkshopTaskFact(task.id,qty,status)
                         refreshOperationsData()
+                    }
+                },
+                assemblers=assemblers,
+                onRun={task,run->
+                    scope.launch {
+                        runCatching { repository.setWorkshopTaskRunning(task.id,run) }
+                            .onSuccess { refreshOperationsData(); if (run && task.startedAt <= 0L) addNotification("ADMIN","ADMIN","Задание в цех взято в работу","Задание на "+task.taskDate) }
+                            .onFailure { toast(it.message ?: "Ошибка") }
+                    }
+                },
+                onPost={task,done,comment,who->
+                    scope.launch {
+                        runCatching { repository.postWorkshopTask(task.id,done,comment,who?.id.orEmpty(),who?.name.orEmpty(),productionRates.toMap(),session?.userId ?: "U-PRODUCTION") }
+                            .onSuccess { (closed,carried) ->
+                                applySnapshot(repository.snapshot())
+                                refreshOperationsData()
+                                val time=protoDuration(closed.workMs)
+                                if (carried!=null) {
+                                    toast("Проведено частично. Остаток перенесён на "+carried.taskDate)
+                                    addNotification("ADMIN","ADMIN","Задание собрано частично","Задание на "+task.taskDate+": собрано "+closed.actualQty+" шт. за "+time+", остаток перенесён на "+carried.taskDate)
+                                } else {
+                                    toast("Задание собрано за "+time)
+                                    addNotification("ADMIN","ADMIN","Задание в цех собрано","Задание на "+task.taskDate+": "+closed.actualQty+" шт., время сборки "+time)
+                                }
+                            }
+                            .onFailure { toast(it.message ?: "Ошибка") }
                     }
                 }
             )

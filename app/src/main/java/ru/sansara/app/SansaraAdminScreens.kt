@@ -259,9 +259,23 @@ internal fun ProtoAdminClientScreen(
     onCall: () -> Unit,
     onChat: () -> Unit,
     onReissueCode: () -> Unit,
-    onOpenOrder: (ProtoOrder) -> Unit
+    onOpenOrder: (ProtoOrder) -> Unit,
+    canDeleteHistory: Boolean = false,
+    onDeleteHistory: (List<String>?) -> Unit = {}
 ) {
     val c = client ?: return
+    // История изменений свёрнута; главный администратор может удалить отдельные записи или всю историю.
+    var historyOpen by remember(c.id) { mutableStateOf(false) }
+    var selecting by remember(c.id) { mutableStateOf(false) }
+    var picked by remember(c.id) { mutableStateOf(setOf<String>()) }
+    var confirmClear by remember(c.id) { mutableStateOf(false) }
+    if (confirmClear) AlertDialog(
+        onDismissRequest = { confirmClear = false }, containerColor = ProtoPanel,
+        title = { Text("Очистить всю историю?", color = ProtoText) },
+        text = { Text("Все записи об изменениях клиента будут удалены без возможности восстановления.", color = ProtoMuted) },
+        confirmButton = { TextButton(onClick = { confirmClear = false; selecting = false; picked = emptySet(); onDeleteHistory(null) }) { Text("Очистить", color = ProtoRed) } },
+        dismissButton = { TextButton(onClick = { confirmClear = false }) { Text("Отмена", color = ProtoMuted) } }
+    )
     val context = LocalContext.current
     var confirmReissue by remember { mutableStateOf(false) }
     var suspendDialog by remember { mutableStateOf(false) }
@@ -418,14 +432,39 @@ internal fun ProtoAdminClientScreen(
                 }
             }
         }
-        item { ProtoSectionTitle("История изменений") }
-        if (history.isEmpty()) item { Text("Изменений пока не было", color = ProtoMuted, fontSize = 13.sp) }
-        items(history.take(15), key = { it.id }) { h ->
-            Row(Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
-                Text(protoChatTime(h.createdAt), color = ProtoMuted, fontSize = 12.sp, modifier = Modifier.width(92.dp))
-                Column(Modifier.weight(1f)) {
-                    Text(h.text, color = ProtoText, fontSize = 13.sp)
-                    Text(h.actor, color = ProtoMuted, fontSize = 12.sp)
+        item {
+            ProtoSectionCard(Modifier.clickable { historyOpen = !historyOpen; if (!historyOpen) { selecting = false; picked = emptySet() } }) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Column(Modifier.weight(1f)) {
+                        Text("История изменений", color = ProtoText, fontWeight = FontWeight.Bold, fontSize = 17.sp)
+                        Text(if (history.isEmpty()) "Изменений пока не было" else protoPlural(history.size, "запись", "записи", "записей"), color = ProtoMuted, fontSize = 12.sp)
+                    }
+                    Icon(if (historyOpen) Icons.Outlined.ExpandLess else Icons.Outlined.ExpandMore, if (historyOpen) "Свернуть" else "Раскрыть", tint = ProtoGold)
+                }
+            }
+        }
+        if (historyOpen && history.isNotEmpty()) {
+            if (canDeleteHistory) item {
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    if (!selecting) {
+                        OutlinedButton(onClick = { selecting = true }, border = BorderStroke(1.dp, ProtoGold), modifier = Modifier.weight(1f)) { Text("Выбрать", color = ProtoGold) }
+                        OutlinedButton(onClick = { confirmClear = true }, border = BorderStroke(1.dp, ProtoRed), modifier = Modifier.weight(1f)) { Text("Очистить всю историю", color = ProtoRed, maxLines = 1) }
+                    } else {
+                        Button(onClick = { onDeleteHistory(picked.toList()); picked = emptySet(); selecting = false }, enabled = picked.isNotEmpty(), colors = ButtonDefaults.buttonColors(containerColor = ProtoRed), modifier = Modifier.weight(1f)) { Text("Удалить (" + picked.size + ")", color = Color.White) }
+                        OutlinedButton(onClick = { selecting = false; picked = emptySet() }, border = BorderStroke(1.dp, ProtoBorder), modifier = Modifier.weight(1f)) { Text("Отмена", color = ProtoMuted) }
+                    }
+                }
+            }
+            items(history, key = { it.id }) { h ->
+                val checked = h.id in picked
+                Row(Modifier.fillMaxWidth().then(if (selecting) Modifier.clickable { picked = protoToggle(picked, h.id) } else Modifier).padding(vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+                    if (selecting) Checkbox(checked = checked, onCheckedChange = { picked = protoToggle(picked, h.id) }, colors = CheckboxDefaults.colors(checkedColor = ProtoGold, checkmarkColor = Color.Black))
+                    Text(protoChatTime(h.createdAt), color = ProtoMuted, fontSize = 12.sp, modifier = Modifier.width(92.dp))
+                    Column(Modifier.weight(1f)) {
+                        Text(h.text, color = ProtoText, fontSize = 13.sp)
+                        Text(h.actor, color = ProtoMuted, fontSize = 12.sp)
+                    }
+                    if (canDeleteHistory && !selecting) IconButton(onClick = { onDeleteHistory(listOf(h.id)) }) { Icon(Icons.Outlined.DeleteOutline, "Удалить запись", tint = ProtoMuted) }
                 }
             }
         }
@@ -1245,8 +1284,19 @@ internal fun ProtoWorkshopTasksScreen(
     prefillComment: String = "",
     onBack: () -> Unit,
     onCreate: (String, String, String, Boolean) -> Unit,
-    onFact: (WorkshopTaskEntity, Int, String) -> Unit
+    onFact: (WorkshopTaskEntity, Int, String) -> Unit,
+    assemblers: List<SansaraAssembler> = emptyList(),
+    onRun: (WorkshopTaskEntity, Boolean) -> Unit = { _, _ -> },
+    onPost: (WorkshopTaskEntity, Map<String, Int>, String, SansaraAssembler?) -> Unit = { _, _, _, _ -> }
 ) {
+    var openTask by remember { mutableStateOf<WorkshopTaskEntity?>(null) }
+    // Тик раз в 30 секунд, чтобы время сборки на карточках шло.
+    var tick by remember { mutableLongStateOf(System.currentTimeMillis()) }
+    LaunchedEffect(Unit) { while (true) { kotlinx.coroutines.delay(30_000); tick = System.currentTimeMillis() } }
+    openTask?.let { t0 ->
+        val t = tasks.firstOrNull { it.id == t0.id } ?: t0
+        ProtoWorkshopTaskDialog(t, products, assemblers, productionMode, tick, onDismiss = { openTask = null }, onRun = { run -> onRun(t, run) }, onPost = { done, comment, who -> onPost(t, done, comment, who); openTask = null })
+    }
     val groups = protoWreathGroupsOrdered.filter { g -> products.any { it.type == g } }.ifEmpty { protoWreathGroupsOrdered }
     var category by remember { mutableStateOf(groups.first()) }
     var search by remember { mutableStateOf("") }
@@ -1315,28 +1365,32 @@ internal fun ProtoWorkshopTasksScreen(
         }
         item { ProtoSectionTitle(if (productionMode) "Задания" else "Отправленные задания", if (sorted.isEmpty()) "Заданий пока нет" else null) }
         items(sorted, key = { it.id }) { task ->
-            var factText by remember(task.id, task.actualQty) { mutableStateOf(task.actualQty.toString()) }
             val plan = protoWorkshopPlanQty(task.linesJson)
-            ProtoSectionCard {
+            val finishedTask = task.status in setOf("Собрано", "Выполнено", "Частично собрано")
+            ProtoSectionCard(Modifier.clickable { openTask = task }) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Column(Modifier.weight(1f)) {
                         Text(task.taskDate, color = ProtoText, fontWeight = FontWeight.SemiBold)
-                        Text(task.id, color = ProtoMuted, fontSize = 12.sp)
+                        if (task.carriedFrom.isNotBlank()) Text("Перенесено с " + task.carriedFrom + " · осталось " + plan + " шт.", color = ProtoOrange, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                        else Text(task.id, color = ProtoMuted, fontSize = 12.sp)
                     }
-                    ProtoPill(task.status, if (task.status == "Выполнено") ProtoGreen else ProtoOrange)
+                    ProtoPill(protoWorkshopStatusLabel(task.status), protoWorkshopStatusColor(task.status))
                 }
                 if (task.commentOnly) Text("Комментарий: " + task.comment, color = ProtoText, modifier = Modifier.padding(top = 7.dp))
                 else {
-                    Text(protoWorkshopLinesLabel(task.linesJson), color = ProtoText, fontSize = 13.sp, modifier = Modifier.padding(top = 7.dp))
+                    Text(protoWorkshopLinesLabel(task.linesJson), color = ProtoText, fontSize = 13.sp, maxLines = 4, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 7.dp))
                     if (task.comment.isNotBlank()) Text("Комментарий: " + task.comment, color = ProtoMuted, fontSize = 12.sp, modifier = Modifier.padding(top = 3.dp))
-                    ProtoInfoRow("План / факт", "$plan / ${task.actualQty} шт.")
+                    if (task.masterComment.isNotBlank()) Text("Мастер: " + task.masterComment, color = ProtoGoldSoft, fontSize = 12.sp, modifier = Modifier.padding(top = 3.dp))
+                    ProtoInfoRow("План / собрано", "$plan / ${task.actualQty} шт.")
+                    val ms = protoWorkshopElapsed(task, tick)
+                    if (ms > 0) ProtoInfoRow(if (finishedTask) "Собрано за" else "Время в работе", protoDuration(ms))
                 }
-                if (productionMode && !task.commentOnly) {
-                    Spacer(Modifier.height(6.dp))
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        OutlinedTextField(value = factText, onValueChange = { factText = it.filter(Char::isDigit).take(4) }, label = { Text("Сделано, шт.") }, singleLine = true, modifier = Modifier.weight(1f), keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), colors = protoFieldColors())
-                        Spacer(Modifier.width(8.dp))
-                        Button(onClick = { val f = factText.toIntOrNull() ?: 0; onFact(task, f, if (f >= plan && plan > 0) "Выполнено" else "В работе") }, colors = ButtonDefaults.buttonColors(containerColor = ProtoGold)) { Text("Сохранить", color = Color.Black) }
+                if (productionMode && !task.commentOnly && !finishedTask) {
+                    Spacer(Modifier.height(8.dp))
+                    if (task.startedAt <= 0L) ProtoPrimaryButton("Взять в работу", { onRun(task, true) })
+                    else Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        OutlinedButton(onClick = { onRun(task, task.runningSince <= 0L) }, border = BorderStroke(1.dp, ProtoGold), modifier = Modifier.weight(1f)) { Text(if (task.runningSince > 0L) "Пауза" else "Продолжить", color = ProtoGold) }
+                        Button(onClick = { openTask = task }, colors = ButtonDefaults.buttonColors(containerColor = ProtoGold), modifier = Modifier.weight(1f)) { Text("Провести", color = Color.Black) }
                     }
                 }
             }
@@ -1601,6 +1655,138 @@ internal fun ProtoExportScreen(onBack: () -> Unit, onExport: (String, String) ->
         item {
             Button(onClick = { onExport(report, if (periodic) period?.key ?: "Всё время" else "Всё время") }, modifier = Modifier.fillMaxWidth().height(50.dp), colors = ButtonDefaults.buttonColors(containerColor = ProtoGold)) {
                 Icon(Icons.Outlined.FileDownload, null, tint = Color.Black); Spacer(Modifier.width(7.dp)); Text("Выгрузить", color = Color.Black, fontWeight = FontWeight.Bold)
+            }
+        }
+    }
+}
+
+// ───────────── Задание в цех: детали, проведение, время сборки ─────────────
+
+internal fun protoWorkshopStatusLabel(status: String) = when (status) { "Получено" -> "Новое"; "Выполнено" -> "Собрано"; else -> status }
+internal fun protoWorkshopStatusColor(status: String) = when (status) {
+    "Собрано", "Выполнено" -> ProtoGreen
+    "Частично собрано", "На паузе" -> ProtoOrange
+    "В работе" -> ProtoGold
+    else -> ProtoMuted
+}
+/** Время сборки без пауз на момент now. */
+internal fun protoWorkshopElapsed(t: WorkshopTaskEntity, now: Long) = t.workMs + if (t.runningSince > 0) (now - t.runningSince).coerceAtLeast(0) else 0L
+
+private data class WorkshopLine(val sku: String, val name: String, val plan: Int, val done: Int)
+
+private fun workshopLines(json: String): List<WorkshopLine> = runCatching {
+    val a = JSONArray(json.ifBlank { "[]" })
+    (0 until a.length()).map { i -> a.getJSONObject(i).let { WorkshopLine(it.optString("sku"), it.optString("name").ifBlank { it.optString("category", "Позиция") }, it.optInt("qty", 0), it.optInt("done", 0)) } }
+}.getOrDefault(emptyList())
+
+@Composable
+internal fun ProtoWorkshopTaskDialog(
+    task: WorkshopTaskEntity,
+    products: List<ProtoCatalogProduct>,
+    assemblers: List<SansaraAssembler>,
+    productionMode: Boolean,
+    now: Long,
+    onDismiss: () -> Unit,
+    onRun: (Boolean) -> Unit,
+    onPost: (Map<String, Int>, String, SansaraAssembler?) -> Unit
+) {
+    val lines = remember(task.linesJson) { workshopLines(task.linesJson) }
+    val done = remember(task.id, task.linesJson) { mutableStateMapOf<String, Int>() }
+    var comment by remember(task.id) { mutableStateOf(task.masterComment) }
+    val active = assemblers.filter { it.enabled }
+    var who by remember(task.id) { mutableStateOf(active.firstOrNull()) }
+    var cardProduct by remember { mutableStateOf<ProtoCatalogProduct?>(null) }
+    var confirmPartial by remember { mutableStateOf(false) }
+    val finished = task.status in setOf("Собрано", "Выполнено", "Частично собрано")
+    val leftTotal = lines.sumOf { (it.plan - it.done).coerceAtLeast(0) }
+    val nowTotal = lines.sumOf { (done[it.sku] ?: 0).coerceAtMost((it.plan - it.done).coerceAtLeast(0)) }
+    cardProduct?.let { p ->
+        AlertDialog(
+            onDismissRequest = { cardProduct = null }, containerColor = ProtoPanel,
+            title = { Text(protoTitle(p), color = ProtoText) },
+            text = {
+                Column {
+                    Box(Modifier.fillMaxWidth().aspectRatio(1f).clip(RoundedCornerShape(16.dp)).background(ProtoPanel2)) { ProtoProductImage(p, Modifier.fillMaxSize().padding(6.dp), androidx.compose.ui.layout.ContentScale.Fit) }
+                    Spacer(Modifier.height(8.dp))
+                    ProtoInfoRow("Артикул", p.sku)
+                    if (p.size.isNotBlank()) ProtoInfoRow("Размер", p.size)
+                    if (p.quality.isNotBlank()) ProtoInfoRow("Качество", p.quality)
+                    if (p.type.isNotBlank()) ProtoInfoRow("Группа", p.type)
+                }
+            },
+            confirmButton = { TextButton(onClick = { cardProduct = null }) { Text("Закрыть", color = ProtoGold) } }
+        )
+    }
+    if (confirmPartial) AlertDialog(
+        onDismissRequest = { confirmPartial = false }, containerColor = ProtoPanel,
+        title = { Text("Провести частично?", color = ProtoText) },
+        text = { Text("Собрано $nowTotal из $leftTotal шт. Собранное будет оприходовано, задание получит статус «Частично собрано», а остаток (${leftTotal - nowTotal} шт.) перейдёт на следующий день с отметкой о переносе.", color = ProtoMuted, lineHeight = 20.sp) },
+        confirmButton = { TextButton(onClick = { confirmPartial = false; onPost(done.toMap(), comment, who) }) { Text("Провести частично", color = ProtoGold) } },
+        dismissButton = { TextButton(onClick = { confirmPartial = false }) { Text("Назад", color = ProtoMuted) } }
+    )
+    androidx.compose.ui.window.Dialog(onDismissRequest = onDismiss, properties = androidx.compose.ui.window.DialogProperties(usePlatformDefaultWidth = false)) {
+        Surface(color = ProtoPanel, shape = RoundedCornerShape(20.dp), modifier = Modifier.fillMaxWidth(0.95f).fillMaxHeight(0.92f)) {
+            Column(Modifier.padding(16.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Column(Modifier.weight(1f)) {
+                        Text("Задание на " + task.taskDate, color = ProtoText, fontSize = 20.sp, fontWeight = FontWeight.Bold)
+                        if (task.carriedFrom.isNotBlank()) Text("Перенесено с " + task.carriedFrom, color = ProtoOrange, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                    }
+                    ProtoPill(protoWorkshopStatusLabel(task.status), protoWorkshopStatusColor(task.status))
+                }
+                val ms = protoWorkshopElapsed(task, now)
+                if (ms > 0) Text((if (finished) "Собрано за " else "В работе: ") + protoDuration(ms) + if (task.runningSince <= 0 && !finished) " · пауза" else "", color = ProtoGoldSoft, fontSize = 13.sp, modifier = Modifier.padding(top = 4.dp))
+                if (task.comment.isNotBlank()) Text("Задание: " + task.comment, color = ProtoMuted, fontSize = 13.sp, modifier = Modifier.padding(top = 4.dp))
+                LazyColumn(Modifier.weight(1f).padding(vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    items(lines, key = { it.sku.ifBlank { it.name } }) { line ->
+                        val product = products.firstOrNull { it.sku == line.sku }
+                        val left = (line.plan - line.done).coerceAtLeast(0)
+                        val q = done[line.sku] ?: 0
+                        ProtoSectionCard {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Box(Modifier.size(56.dp).clip(RoundedCornerShape(10.dp)).background(ProtoPanel2).clickable(enabled = product != null) { cardProduct = product }) {
+                                    if (product != null) ProtoProductImage(product, Modifier.fillMaxSize().padding(3.dp), androidx.compose.ui.layout.ContentScale.Fit)
+                                }
+                                Spacer(Modifier.width(10.dp))
+                                Column(Modifier.weight(1f).clickable(enabled = product != null) { cardProduct = product }) {
+                                    Text(line.name, color = ProtoText, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                                    if (line.sku.isNotBlank()) Text("Арт. " + line.sku, color = ProtoGoldSoft, fontSize = 12.sp)
+                                    Text("Нужно ${line.plan} · собрано ${line.done}" + if (left > 0) " · осталось $left" else " · готово", color = if (left > 0) ProtoMuted else ProtoGreen, fontSize = 12.sp)
+                                }
+                            }
+                            if (productionMode && !finished && left > 0) Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(top = 6.dp)) {
+                                Text("Собрано сейчас", color = ProtoMuted, fontSize = 13.sp, modifier = Modifier.weight(1f))
+                                ProtoQtyButton(Icons.Outlined.Remove, { done[line.sku] = (q - 1).coerceAtLeast(0) }, 36.dp)
+                                Text(q.toString(), color = if (q > 0) ProtoGold else ProtoMuted, fontWeight = FontWeight.Bold, fontSize = 16.sp, modifier = Modifier.width(44.dp), textAlign = androidx.compose.ui.text.style.TextAlign.Center)
+                                ProtoQtyButton(Icons.Outlined.Add, { done[line.sku] = (q + 1).coerceAtMost(left) }, 36.dp)
+                                TextButton(onClick = { done[line.sku] = left }) { Text("Все", color = ProtoGold) }
+                            }
+                        }
+                    }
+                    if (productionMode && !finished) item {
+                        OutlinedTextField(comment, { comment = it.take(300) }, label = { Text("Комментарий мастера") }, minLines = 2, colors = protoFieldColors(), modifier = Modifier.fillMaxWidth())
+                    }
+                    if (productionMode && !finished && active.isNotEmpty()) item {
+                        Text("Кто собрал (оплата по ставке сборки)", color = ProtoMuted, fontSize = 13.sp)
+                        LazyRow(horizontalArrangement = Arrangement.spacedBy(7.dp), modifier = Modifier.padding(top = 4.dp)) {
+                            items(active, key = { it.id }) { a ->
+                                FilterChip(selected = who?.id == a.id, onClick = { who = a }, label = { Text(a.name) }, colors = FilterChipDefaults.filterChipColors(selectedContainerColor = ProtoGold, selectedLabelColor = Color.Black, labelColor = ProtoText))
+                            }
+                        }
+                    }
+                    if (task.masterComment.isNotBlank() && (finished || !productionMode)) item { Text("Комментарий мастера: " + task.masterComment, color = ProtoGoldSoft, fontSize = 13.sp) }
+                }
+                if (productionMode && !finished && !task.commentOnly) {
+                    if (task.startedAt <= 0L) ProtoPrimaryButton("Взять в работу", { onRun(true) })
+                    else Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        OutlinedButton(onClick = { onRun(task.runningSince <= 0L) }, border = BorderStroke(1.dp, ProtoGold), modifier = Modifier.weight(1f).height(48.dp)) { Text(if (task.runningSince > 0L) "Пауза" else "Продолжить", color = ProtoGold) }
+                        Button(
+                            onClick = { if (nowTotal < leftTotal) confirmPartial = true else onPost(done.toMap(), comment, who) },
+                            enabled = nowTotal > 0, colors = ButtonDefaults.buttonColors(containerColor = ProtoGold), modifier = Modifier.weight(1f).height(48.dp)
+                        ) { Text(if (nowTotal in 1 until leftTotal) "Провести частично" else "Провести", color = Color.Black, maxLines = 1) }
+                    }
+                }
+                TextButton(onClick = onDismiss, modifier = Modifier.fillMaxWidth()) { Text("Закрыть", color = ProtoMuted) }
             }
         }
     }
