@@ -709,8 +709,9 @@ internal fun ProtoAdminProductScreen(
 // ───────────── Настройки ─────────────
 
 @Composable
-internal fun ProtoAdminSettingsMenuScreen(syncStatus: String, lastSync: String, lowStockThreshold: Int, pickupCount: Int, onBack: () -> Unit, onOpen: (String) -> Unit, onCall: () -> Unit, onLogout: () -> Unit, minOrder: Int = 35_000) {
-    val rows = listOf(
+internal fun ProtoAdminSettingsMenuScreen(syncStatus: String, lastSync: String, lowStockThreshold: Int, pickupCount: Int, onBack: () -> Unit, onOpen: (String) -> Unit, onCall: () -> Unit, onLogout: () -> Unit, minOrder: Int = 35_000, showGodEye: Boolean = false) {
+    val rows = listOfNotNull(
+        if (showGodEye) Triple("Глаз бога", Icons.Outlined.Visibility, "Войти в аккаунт любого клиента или производства") else null,
         Triple("Профиль компании", Icons.Outlined.Business, "Данные SANSARA и контакты"),
         Triple("Приветственный экран", Icons.Outlined.Campaign, "Рекламный текст при запуске приложения"),
         Triple("Сотрудники и коды", Icons.Outlined.AdminPanelSettings, "Коды входа администраторов и производства"),
@@ -1784,6 +1785,43 @@ internal fun ProtoWorkshopTaskDialog(
                             onClick = { if (nowTotal < leftTotal) confirmPartial = true else onPost(done.toMap(), comment, who) },
                             enabled = nowTotal > 0, colors = ButtonDefaults.buttonColors(containerColor = ProtoGold), modifier = Modifier.weight(1f).height(48.dp)
                         ) { Text(if (nowTotal in 1 until leftTotal) "Провести частично" else "Провести", color = Color.Black, maxLines = 1) }
+                    }
+                }
+                TextButton(onClick = onDismiss, modifier = Modifier.fillMaxWidth()) { Text("Закрыть", color = ProtoMuted) }
+            }
+        }
+    }
+}
+
+// ───────────── «Глаз бога»: выбор аккаунта ─────────────
+
+@Composable
+internal fun ProtoGodEyePicker(targets: List<SansaraSession>, clientName: (String) -> String, onDismiss: () -> Unit, onPick: (SansaraSession) -> Unit) {
+    var tab by remember { mutableStateOf("Клиенты") }
+    var q by remember { mutableStateOf("") }
+    val shown = targets.filter { t ->
+        (if (tab == "Клиенты") t.role == SansaraRole.CLIENT else t.role == SansaraRole.PRODUCTION) &&
+            (q.isBlank() || t.firstName.contains(q, true) || clientName(t.clientId.orEmpty()).contains(q, true))
+    }.sortedWith(compareBy({ clientName(it.clientId.orEmpty()) }, { it.firstName }))
+    androidx.compose.ui.window.Dialog(onDismissRequest = onDismiss, properties = androidx.compose.ui.window.DialogProperties(usePlatformDefaultWidth = false)) {
+        Surface(color = ProtoPanel, shape = RoundedCornerShape(20.dp), modifier = Modifier.fillMaxWidth(0.94f).fillMaxHeight(0.85f)) {
+            Column(Modifier.padding(16.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(Icons.Outlined.Visibility, null, tint = ProtoGold)
+                    Spacer(Modifier.width(8.dp))
+                    Text("Глаз бога", color = ProtoText, fontSize = 22.sp, fontWeight = FontWeight.Bold)
+                }
+                Text("Войдите в любой аккаунт без кода. Сверху будет плашка и кнопка «В BOSS». Перед каждым изменением приложение переспросит.", color = ProtoMuted, fontSize = 12.sp, modifier = Modifier.padding(vertical = 6.dp))
+                ProtoChipRow(listOf("Клиенты", "Производство"), tab) { tab = it }
+                OutlinedTextField(q, { q = it }, label = { Text("Поиск: компания или имя") }, singleLine = true, colors = protoFieldColors(), modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp))
+                LazyColumn(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    if (shown.isEmpty()) item { Text("Аккаунтов нет", color = ProtoMuted) }
+                    items(shown, key = { it.userId }) { t ->
+                        ProtoSectionCard(Modifier.clickable { onPick(t) }) {
+                            val company = clientName(t.clientId.orEmpty())
+                            Text(if (company.isNotBlank()) company else t.firstName, color = ProtoText, fontWeight = FontWeight.Bold)
+                            Text(if (company.isNotBlank()) "Контакт: " + t.firstName else "Производство", color = ProtoMuted, fontSize = 12.sp)
+                        }
                     }
                 }
                 TextButton(onClick = onDismiss, modifier = Modifier.fillMaxWidth()) { Text("Закрыть", color = ProtoMuted) }

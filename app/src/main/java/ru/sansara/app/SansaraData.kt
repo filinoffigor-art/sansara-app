@@ -372,6 +372,9 @@ interface SansaraDao {
     @Query("SELECT * FROM accounts WHERE role IN ('ADMIN','PRODUCTION') ORDER BY firstName")
     suspend fun staffAccounts(): List<AccountEntity>
 
+    @Query("SELECT * FROM accounts WHERE role IN ('CLIENT','PRODUCTION') AND enabled = 1 ORDER BY role, firstName")
+    suspend fun godEyeAccounts(): List<AccountEntity>
+
     @Query("UPDATE accounts SET enabled = :enabled WHERE userId = :userId")
     suspend fun setAccountEnabled(userId: String, enabled: Boolean)
 
@@ -1317,6 +1320,12 @@ class SansaraRepository private constructor(
             role=runCatching { SansaraRole.valueOf(account.role) }.getOrDefault(SansaraRole.CLIENT),
             firstName=account.firstName
         )
+    }
+
+    /** «Глаз бога»: аккаунты клиентов (каждый контакт компании) и производства, в которые может войти главный администратор. */
+    suspend fun godEyeTargets(actingUserId:String):List<SansaraSession> {
+        require(dao.adminControl(actingUserId)?.isMain==true) { "Режим «Глаз бога» доступен только главному администратору" }
+        return dao.godEyeAccounts().map { a -> SansaraSession(a.userId,a.clientId,runCatching { SansaraRole.valueOf(a.role) }.getOrDefault(SansaraRole.CLIENT),a.firstName) }
     }
 
     suspend fun updatePresence(userId:String,clientId:String?=null,role:String="",epoch:Long=System.currentTimeMillis()) {

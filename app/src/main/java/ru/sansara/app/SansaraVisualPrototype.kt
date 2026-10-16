@@ -385,6 +385,14 @@ fun SansaraVisualPrototype() {
     /** Минимальная сумма заказа: только для торгующих организаций, у агентов минимума нет. */
     fun minOrderFor(c: ProtoClient): Int = if (c.clientType.contains("Торг", ignoreCase = true)) minOrderTrading else 0
     var belowMinPrompt by remember { mutableStateOf<Triple<Int, Int, () -> Unit>?>(null) }
+    /** «Глаз бога»: настоящая сессия главного администратора, пока он смотрит из чужого аккаунта. */
+    var godEyeAdmin by remember { mutableStateOf<SansaraSession?>(null) }
+    var godEyePicker by remember { mutableStateOf<List<SansaraSession>?>(null) }
+    var godEyeConfirm by remember { mutableStateOf<Pair<String, () -> Unit>?>(null) }
+    /** В режиме «Глаз бога» перед любым изменением спрашиваем подтверждение. */
+    fun guarded(what: String, action: () -> Unit) { if (godEyeAdmin != null) godEyeConfirm = what to action else action() }
+    /** Кто сделал действие: в режиме «Глаз бога» помечаем, что это BOSS. */
+    fun actor(default: String): String = if (godEyeAdmin != null) "BOSS (Глаз бога) за $default" else default
     val notifications = remember {
         mutableStateListOf<ProtoNotification>().apply { addAll(protoLoadNotifications(prefs)) }
     }
@@ -962,6 +970,8 @@ fun SansaraVisualPrototype() {
     LaunchedEffect(session, appForeground, dataReady) {
         val active = session ?: return@LaunchedEffect
         if (!appForeground || !dataReady) return@LaunchedEffect
+        // В режиме «Глаз бога» клиент не должен выглядеть «в сети».
+        if (godEyeAdmin != null) return@LaunchedEffect
         while (appForeground) {
             repository.updatePresence(active.userId,active.clientId,active.role.name)
             active.clientId?.let { clientId ->
@@ -1190,7 +1200,7 @@ fun SansaraVisualPrototype() {
                                     dateTime = now,
                                     lines = lines,
                                     status = firstStatus,
-                                    history = listOf(ProtoOrderEvent(firstStatus, now, client.contact, if (needsApproval) "Сумма ниже минимальной (" + protoMoney(minOrderFor(client)) + ")" else "")),
+                                    history = listOf(ProtoOrderEvent(firstStatus, now, actor(client.contact), if (needsApproval) "Сумма ниже минимальной (" + protoMoney(minOrderFor(client)) + ")" else "")),
                                     clientType = client.clientType,
                                     deliveryMethod = method,
                                     deliveryAddress = address,
@@ -1213,8 +1223,10 @@ fun SansaraVisualPrototype() {
                                 screen = ProtoScreen.OrderSent
                             }
                             val minimum = minOrderFor(client)
-                            if (minimum > 0 && finalTotal < minimum) belowMinPrompt = Triple(finalTotal, minimum) { place(true) }
-                            else place(false)
+                            guarded("оформить заказ на " + protoMoney(finalTotal)) {
+                                if (minimum > 0 && finalTotal < minimum) belowMinPrompt = Triple(finalTotal, minimum) { place(true) }
+                                else place(false)
+                            }
                         }
                     },
                     onHome = goHome, onCatalog = goCatalog, onCart = goCart, onOrders = goOrders, onProfile = goChat
@@ -1247,16 +1259,16 @@ fun SansaraVisualPrototype() {
                 onStatus = {},
                 onRepeat = { orders.firstOrNull { it.id == selectedOrderId }?.let { repeatOrder(it, edit = false) } },
                 onEditRepeat = { orders.firstOrNull { it.id == selectedOrderId }?.let { repeatOrder(it, edit = true) } },
-                onCancel = {
+                onCancel = { guarded("отменить заказ") {
                     val idx = orders.indexOfFirst { it.id == selectedOrderId }
                     if (idx >= 0 && protoCancelState(orders[idx]).allowed) {
                         val old = orders[idx]
-                        orders[idx] = old.copy(status = "Отменён", history = old.history + ProtoOrderEvent("Отменён", nowStamp(), client.contact))
+                        orders[idx] = old.copy(status = "Отменён", history = old.history + ProtoOrderEvent("Отменён", nowStamp(), actor(client.contact)))
                         addNotification("ADMIN", "ADMIN", "Заказ " + old.id + " отменён клиентом", client.name + " · " + protoMoney(old.total), orderId = old.id)
                         persistAll()
                         toast("Заказ " + old.id + " отменён")
                     }
-                },
+                } },
                 cartCount = cart.size,
                 onChat = goChat
             )
@@ -1298,7 +1310,7 @@ fun SansaraVisualPrototype() {
                     onBack = { back() },
                     onRead = { markChatRead(conversationId,"CLIENT") },
                     onSend = { body, uri, name, mime ->
-                        sendChat(conversationId,"CLIENT",session?.userId ?: c.id,body,uri,name,mime)
+                        guarded("отправить сообщение от имени клиента") { sendChat(conversationId,"CLIENT",session?.userId ?: c.id,body,uri,name,mime) }
                     },
                     banner = "Менеджер отвечает в рабочие дни с 9:00 до 18:00. Срочно — позвоните.",
                     onCall = { protoDial(context) },
@@ -1642,6 +1654,11 @@ fun SansaraVisualPrototype() {
                         "Клиенты" -> go(ProtoScreen.AdminClients)
                         "Сборщицы" -> go(ProtoScreen.AdminAssemblers)
                         "Сотрудники и коды" -> { refreshOperationsData(); go(ProtoScreen.AdminAdmins) }
+                        "Глаз бога" -> scope.launch {
+                            runCatching { repository.godEyeTargets(session?.userId ?: "") }
+                                .onSuccess { godEyePicker = it }
+                                .onFailure { toast(it.message ?: "Недоступно") }
+                        }
                         "Задание в цех" -> { workshopPrefill = emptyMap(); workshopPrefillComment = ""; refreshOperationsData(); go(ProtoScreen.AdminWorkshop) }
                         "Табель рабочего времени" -> { refreshOperationsData(); go(ProtoScreen.AdminAttendance) }
                         "Отчёты" -> { refreshOperationsData(); go(ProtoScreen.AdminReports) }
@@ -1649,7 +1666,8 @@ fun SansaraVisualPrototype() {
                         else -> { settingsSection = section; go(ProtoScreen.AdminSettingsDetail) }
                     }
                 }, onCall = { protoDial(context) }, onLogout = { signOut() },
-                minOrder = minOrderTrading
+                minOrder = minOrderTrading,
+                showGodEye = adminAccounts.firstOrNull { it.userId == session?.userId }?.isMain == true
             )
             ProtoScreen.AdminSettingsDetail -> ProtoAdminSettingsDetailScreen(
                 section = settingsSection, threshold = lowStockThreshold,
@@ -1927,7 +1945,7 @@ fun SansaraVisualPrototype() {
                     onDateChange = { selectedProductionDate = it },
                     onAdd = { go(ProtoScreen.ProductionEntry) },
                     onRemoveDraft = { d -> productionDrafts.remove(d); saveDrafts() },
-                    onPostAll = { postDrafts(productionDateKey) },
+                    onPostAll = { guarded("оприходовать выпуск") { postDrafts(productionDateKey) } },
                     onReport = { go(ProtoScreen.ProductionReport) },
                     onPayments = { go(ProtoScreen.ProductionPayments) },
                     onWorkshop = { refreshOperationsData(); go(ProtoScreen.ProductionWorkshop) },
@@ -1998,14 +2016,14 @@ fun SansaraVisualPrototype() {
                     }
                 },
                 assemblers=assemblers,
-                onRun={task,run->
+                onRun={task,run-> guarded(if (run) "взять задание в работу" else "поставить задание на паузу") {
                     scope.launch {
                         runCatching { repository.setWorkshopTaskRunning(task.id,run) }
                             .onSuccess { refreshOperationsData(); if (run && task.startedAt <= 0L) addNotification("ADMIN","ADMIN","Задание в цех взято в работу","Задание на "+task.taskDate) }
                             .onFailure { toast(it.message ?: "Ошибка") }
                     }
-                },
-                onPost={task,done,comment,who->
+                } },
+                onPost={task,done,comment,who-> guarded("провести задание") {
                     scope.launch {
                         runCatching { repository.postWorkshopTask(task.id,done,comment,who?.id.orEmpty(),who?.name.orEmpty(),productionRates.toMap(),session?.userId ?: "U-PRODUCTION") }
                             .onSuccess { (closed,carried) ->
@@ -2022,7 +2040,7 @@ fun SansaraVisualPrototype() {
                             }
                             .onFailure { toast(it.message ?: "Ошибка") }
                     }
-                }
+                } }
             )
             ProtoScreen.ProductionAttendance -> ProtoAttendanceScreen(
                 selectedDate=selectedProductionDate,
@@ -2031,12 +2049,12 @@ fun SansaraVisualPrototype() {
                 editable=true,
                 onBack={back()},
                 onDate={selectedProductionDate=it;refreshOperationsData()},
-                onSave={person,status,comment->
+                onSave={person,status,comment-> guarded("изменить табель") {
                     scope.launch {
                         repository.saveAttendance(selectedProductionDate.format(DateTimeFormatter.ofPattern("dd.MM.yyyy")),person.id,person.name,status,comment)
                         refreshOperationsData()
                     }
-                }
+                } }
             )
             ProtoScreen.ProductionChat -> {
                 val conversationId="STAFF:ADMIN_PRODUCTION"
@@ -2471,6 +2489,22 @@ fun SansaraVisualPrototype() {
     SansaraTheme {
         Box(Modifier.fillMaxSize().background(ProtoBg).safeDrawingPadding()) {
         Column(Modifier.fillMaxSize()) {
+        godEyeAdmin?.let { boss ->
+            Surface(color = ProtoGold) {
+                Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Icon(Icons.Outlined.Visibility, null, tint = Color.Black)
+                    Spacer(Modifier.width(6.dp))
+                    val who = session?.let { s -> s.clientId?.let { cid -> clients.firstOrNull { it.id == cid }?.name?.let { "$it · ${s.firstName}" } } ?: (if (s.role == SansaraRole.PRODUCTION) "Производство · ${s.firstName}" else s.firstName) }.orEmpty()
+                    Text("Глаз бога: вы видите как $who", color = Color.Black, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, maxLines = 2, modifier = Modifier.weight(1f))
+                    TextButton(onClick = {
+                        session = boss; godEyeAdmin = null
+                        companyContacts.clear()
+                        history.clear(); screen = startScreenForRole(boss.role)
+                        toast("Вы вернулись в BOSS")
+                    }) { Text("В BOSS", color = Color.Black, fontWeight = FontWeight.Bold) }
+                }
+            }
+        }
         Box(Modifier.weight(1f)) {
         when (screen) {
             ProtoScreen.Welcome -> ProtoWelcomeScreen(
@@ -2583,6 +2617,33 @@ fun SansaraVisualPrototype() {
             )
         }
 
+        godEyeConfirm?.let { (what, action) ->
+            AlertDialog(
+                onDismissRequest = { godEyeConfirm = null }, containerColor = ProtoPanel,
+                title = { Text("Глаз бога: изменить данные?", color = ProtoText) },
+                text = { Text("Вы действуете от имени «" + (session?.firstName ?: "") + "». Точно " + what + "? Действие будет записано как сделанное BOSS.", color = ProtoMuted, lineHeight = 20.sp) },
+                confirmButton = { TextButton(onClick = { godEyeConfirm = null; action() }) { Text("Да, изменить", color = ProtoGold) } },
+                dismissButton = { TextButton(onClick = { godEyeConfirm = null }) { Text("Отмена", color = ProtoMuted) } }
+            )
+        }
+        godEyePicker?.let { targets ->
+            ProtoGodEyePicker(
+                targets = targets,
+                clientName = { cid -> clients.firstOrNull { it.id == cid }?.name.orEmpty() },
+                onDismiss = { godEyePicker = null },
+                onPick = { target ->
+                    godEyePicker = null
+                    val boss = session ?: return@ProtoGodEyePicker
+                    godEyeAdmin = boss
+                    session = target
+                    target.clientId?.let { cid ->
+                        selectedClientId = cid
+                        scope.launch { companyContacts.clear(); companyContacts.addAll(repository.contactsForClient(cid)) }
+                    }
+                    history.clear(); screen = startScreenForRole(target.role)
+                }
+            )
+        }
         belowMinPrompt?.let { (sum, minimum, send) ->
             AlertDialog(
                 onDismissRequest = {}, containerColor = ProtoPanel,
