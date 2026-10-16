@@ -713,6 +713,8 @@ internal fun ProtoAdminSettingsMenuScreen(syncStatus: String, lastSync: String, 
     val rows = listOfNotNull(
         if (showGodEye) Triple("Глаз бога", Icons.Outlined.Visibility, "Войти в аккаунт любого клиента или производства") else null,
         Triple("Профиль компании", Icons.Outlined.Business, "Данные SANSARA и контакты"),
+        Triple("Рассылка", Icons.Outlined.Send, "Сообщение всем клиентам, агентам или торговым организациям"),
+        Triple("Обновление приложения", Icons.Outlined.SystemUpdate, "Опубликовать новую версию для клиентов и сотрудников"),
         Triple("Приветственный экран", Icons.Outlined.Campaign, "Рекламный текст при запуске приложения"),
         Triple("Сотрудники и коды", Icons.Outlined.AdminPanelSettings, "Коды входа администраторов и производства"),
         Triple("Сборщицы", Icons.Outlined.Badge, "Справочник производства"),

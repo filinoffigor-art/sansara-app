@@ -390,6 +390,9 @@ fun SansaraVisualPrototype() {
     var godEyeAdmin by remember { mutableStateOf<SansaraSession?>(null) }
     var godEyePicker by remember { mutableStateOf<List<SansaraSession>?>(null) }
     var godEyeConfirm by remember { mutableStateOf<Pair<String, () -> Unit>?>(null) }
+    var adminDialog by remember { mutableStateOf<String?>(null) }
+    var showUpdateDialog by remember { mutableStateOf(false) }
+    var updateVersion by remember { mutableStateOf(0) }
     /** В режиме «Глаз бога» перед любым изменением спрашиваем подтверждение. */
     fun guarded(what: String, action: () -> Unit) { if (godEyeAdmin != null) godEyeConfirm = what to action else action() }
     /** Кто сделал действие: в режиме «Глаз бога» помечаем, что это BOSS. */
@@ -464,7 +467,7 @@ fun SansaraVisualPrototype() {
 
     fun toast(message: String) { android.os.Handler(android.os.Looper.getMainLooper()).post { Toast.makeText(context, message, Toast.LENGTH_SHORT).show() } }
     fun persistNotifications() = protoSaveNotifications(prefs, notifications)
-    fun addNotification(audienceRole:String,audienceKey:String,title:String,message:String,orderId:String="") {
+    fun addNotification(audienceRole:String,audienceKey:String,title:String,message:String,orderId:String="",system:Boolean=true) {
         notifications.add(
             0,
             ProtoNotification(
@@ -479,7 +482,7 @@ fun SansaraVisualPrototype() {
         )
         persistNotifications()
         // Дублируем системным уведомлением телефона (всплывает и остаётся в шторке).
-        SansaraNotify.post(context, title, message, orderId)
+        if (system) SansaraNotify.post(context, title, message, orderId)
     }
     fun go(target: ProtoScreen) { if (target != screen) { history.add(screen); screen = target } }
     fun openTab(home: ProtoScreen, target: ProtoScreen) {
@@ -1662,6 +1665,8 @@ fun SansaraVisualPrototype() {
                         "Клиенты" -> go(ProtoScreen.AdminClients)
                         "Сборщицы" -> go(ProtoScreen.AdminAssemblers)
                         "Сотрудники и коды" -> { refreshOperationsData(); go(ProtoScreen.AdminAdmins) }
+                        "Рассылка" -> adminDialog = "Рассылка"
+                        "Обновление приложения" -> adminDialog = "Обновление"
                         "Глаз бога" -> scope.launch {
                             runCatching { repository.godEyeTargets(session?.userId ?: "") }
                                 .onSuccess { godEyePicker = it }
@@ -2019,7 +2024,7 @@ fun SansaraVisualPrototype() {
                 ProtoProductionReportScreen(selectedProductionDate, productionOps.filter { it.date == productionDateKey }, products, onBack = { back() })
             }
             ProtoScreen.ProductionPayments -> ProtoProductionPaymentsScreen(productionOps, onBack = { back() }, onExport = { go(ProtoScreen.Export) })
-            ProtoScreen.ProductionProfile -> ProtoStaffProfileScreen(role = "Производство", onBack = { back() }, onCall = { protoDial(context) }, onLogout = { signOut() })
+            ProtoScreen.ProductionProfile -> ProtoStaffProfileScreen(role = "Производство", onBack = { back() }, onCall = { protoDial(context) }, onLogout = { signOut() }, onUpdate = { showUpdateDialog = true })
 
             ProtoScreen.ProductionWorkshop -> ProtoWorkshopTasksScreen(
                 tasks=workshopTasks,
@@ -2607,7 +2612,9 @@ fun SansaraVisualPrototype() {
                 },
                 onCustomers = { showClientMenu=false; refreshAgentData(); go(ProtoScreen.AgentClients) },
                 onReports = { showClientMenu=false; go(ProtoScreen.ClientReports) },
-                onSettings = { showClientMenu=false; go(ProtoScreen.ClientSettings) }
+                onSettings = { showClientMenu=false; go(ProtoScreen.ClientSettings) },
+                onUpdate = { showClientMenu=false; showUpdateDialog = true },
+                updateAvailable = remember(updateVersion) { SansaraUpdates.available(context) != null }
             )
         }
 
@@ -2635,6 +2642,40 @@ fun SansaraVisualPrototype() {
             )
         }
 
+        if (showUpdateDialog) ProtoUpdateDialog(onDismiss = { showUpdateDialog = false })
+        when (adminDialog) {
+            "Рассылка" -> ProtoBroadcastDialog(
+                clients = clients,
+                history = remember(adminDialog, notifications.size) { protoLoadBroadcasts(prefs) },
+                onDismiss = { adminDialog = null },
+                onSend = { audience, title, text, recipients ->
+                    recipients.forEach { c -> addNotification("CLIENT", c.id, title, text, system = false) }
+                    // Одно системное уведомление на этот телефон вместо десятков одинаковых.
+                    SansaraNotify.post(context, title, text, channel = SansaraNotify.Channel.OTHER)
+                    protoSaveBroadcast(prefs, ProtoBroadcast(nowStamp(), audience, title, text, recipients.size))
+                    toast("Рассылка отправлена: " + recipients.size)
+                }
+            )
+            "Обновление" -> ProtoPublishUpdateDialog(
+                current = remember(updateVersion) { SansaraUpdates.published(context) },
+                onDismiss = { adminDialog = null },
+                onPublish = { uri, notes ->
+                    scope.launch {
+                        val result = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { SansaraUpdates.publish(context, uri, notes) }
+                        result.onSuccess { info ->
+                            updateVersion++
+                            adminDialog = null
+                            val text = "Версия " + info.versionName + (if (info.notes.isNotBlank()) ". " + info.notes else "") + ". Откройте меню → «Обновление»."
+                            clients.forEach { c -> addNotification("CLIENT", c.id, "Доступно обновление SANSARA", text, system = false) }
+                            SansaraNotify.post(context, "Доступно обновление SANSARA", text, channel = SansaraNotify.Channel.OTHER)
+                            protoSaveBroadcast(prefs, ProtoBroadcast(nowStamp(), "Обновление", "Доступна версия " + info.versionName, info.notes, clients.size))
+                            toast("Опубликована версия " + info.versionName)
+                        }.onFailure { toast(it.message ?: "Не удалось опубликовать") }
+                    }
+                },
+                onUnpublish = { SansaraUpdates.unpublish(context); updateVersion++; toast("Публикация снята") }
+            )
+        }
         godEyeConfirm?.let { (what, action) ->
             AlertDialog(
                 onDismissRequest = { godEyeConfirm = null }, containerColor = ProtoPanel,
@@ -3075,7 +3116,9 @@ internal fun ProtoClientMenuOverlay(
     onProfile:()->Unit,
     onCustomers:()->Unit,
     onReports:()->Unit,
-    onSettings:()->Unit
+    onSettings:()->Unit,
+    onUpdate:()->Unit={},
+    updateAvailable:Boolean=false
 ){
     Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha=.72f)).clickable{onDismiss()}){
         Surface(
@@ -3094,7 +3137,8 @@ internal fun ProtoClientMenuOverlay(
                     Triple("Профиль",Icons.Outlined.Person,onProfile),
                     Triple("Продажи",Icons.Outlined.Storefront,onCustomers),
                     Triple("Формирование отчётности",Icons.Outlined.Assessment,onReports),
-                    Triple("Настройки",Icons.Outlined.Settings,onSettings)
+                    Triple("Настройки",Icons.Outlined.Settings,onSettings),
+                    Triple(if(updateAvailable)"Обновление · доступно" else "Обновление",Icons.Outlined.SystemUpdate,onUpdate)
                 ).forEach { (title,icon,action) ->
                     Row(
                         Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).clickable{action()}.padding(horizontal=12.dp,vertical=15.dp),
@@ -3737,9 +3781,9 @@ internal fun ProtoProductionReportScreen(selectedDate:LocalDate,ops:List<ProtoPr
 }
 
 @Composable
-internal fun ProtoStaffProfileScreen(role:String,onBack:()->Unit,onCall:()->Unit,onLogout:()->Unit){
+internal fun ProtoStaffProfileScreen(role:String,onBack:()->Unit,onCall:()->Unit,onLogout:()->Unit,onUpdate:()->Unit={}){
     ProtoScaffold("Профиль",role,onBack){
-        item{ProtoSectionCard{ProtoInfoRow("Роль",role);ProtoInfoRow("Дата",currentDateLong());ProtoInfoRow("Версия",BuildConfig.VERSION_NAME);ProtoInfoRow("Поддержка",protoPhone(BuildConfig.ADMIN_PHONE));Spacer(Modifier.height(8.dp));OutlinedButton(onClick=onCall,modifier=Modifier.fillMaxWidth(),border=BorderStroke(1.dp,ProtoGold)){Icon(Icons.Outlined.Phone,null,tint=ProtoGold);Spacer(Modifier.width(7.dp));Text("Позвонить в поддержку",color=ProtoGold)};TextButton(onClick=onLogout,modifier=Modifier.fillMaxWidth()){Text("Выйти",color=ProtoMuted)}}}
+        item{ProtoSectionCard{ProtoInfoRow("Роль",role);ProtoInfoRow("Дата",currentDateLong());ProtoInfoRow("Версия",BuildConfig.VERSION_NAME);ProtoInfoRow("Поддержка",protoPhone(BuildConfig.ADMIN_PHONE));Spacer(Modifier.height(8.dp));OutlinedButton(onClick=onCall,modifier=Modifier.fillMaxWidth(),border=BorderStroke(1.dp,ProtoGold)){Icon(Icons.Outlined.Phone,null,tint=ProtoGold);Spacer(Modifier.width(7.dp));Text("Позвонить в поддержку",color=ProtoGold)};OutlinedButton(onClick=onUpdate,modifier=Modifier.fillMaxWidth().padding(top=8.dp),border=BorderStroke(1.dp,ProtoGold)){Icon(Icons.Outlined.SystemUpdate,null,tint=ProtoGold);Spacer(Modifier.width(7.dp));Text("Обновление",color=ProtoGold)};TextButton(onClick=onLogout,modifier=Modifier.fillMaxWidth()){Text("Выйти",color=ProtoMuted)}}}
     }
 }
 

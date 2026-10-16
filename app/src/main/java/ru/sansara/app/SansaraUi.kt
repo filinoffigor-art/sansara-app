@@ -703,3 +703,17 @@ internal fun ProtoContactActions(phone: String, text: String = "") {
         confirmButton = { TextButton(onClick = { choose = false }) { Text("Отмена", color = ProtoMuted) } }
     )
 }
+
+// ───────────── История рассылок (в настройках телефона) ─────────────
+
+internal fun protoLoadBroadcasts(prefs: android.content.SharedPreferences): List<ProtoBroadcast> = runCatching {
+    val arr = org.json.JSONArray(prefs.getString("broadcasts", "[]"))
+    (0 until arr.length()).map { i -> arr.getJSONObject(i).let { ProtoBroadcast(it.optString("date"), it.optString("audience"), it.optString("title"), it.optString("text"), it.optInt("count")) } }
+}.getOrDefault(emptyList())
+
+internal fun protoSaveBroadcast(prefs: android.content.SharedPreferences, b: ProtoBroadcast) {
+    val list = listOf(b) + protoLoadBroadcasts(prefs).take(49)
+    val arr = org.json.JSONArray()
+    list.forEach { x -> arr.put(org.json.JSONObject().put("date", x.date).put("audience", x.audience).put("title", x.title).put("text", x.text).put("count", x.count)) }
+    prefs.edit().putString("broadcasts", arr.toString()).apply()
+}
