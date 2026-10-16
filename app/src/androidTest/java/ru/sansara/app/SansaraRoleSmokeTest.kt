@@ -281,6 +281,8 @@ class SansaraRoleSmokeTest {
         waitText("Смотреть заказ")
         click("Смотреть заказ")
         waitText("ждёт согласования")             // клиент видит, что заказ на согласовании
+        compose.activityRule.scenario.onActivity { it.onBackPressedDispatcher.onBackPressed() }
+        compose.waitForIdle()
         click("Главная")
         waitText("Наш ассортимент")
         clickDesc("Меню")
