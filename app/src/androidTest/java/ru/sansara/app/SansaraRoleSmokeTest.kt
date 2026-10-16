@@ -298,4 +298,18 @@ class SansaraRoleSmokeTest {
         click("Согласовать")
         waitText("Перевести: Подтверждён")
     }
+
+    @Test
+    fun godEyeEntersClientAndReturnsToBoss() {
+        login("9001")
+        waitText("Здравствуйте, BOSS")
+        click("Профиль")
+        click("Глаз бога")
+        waitText("Войдите в любой аккаунт")
+        click("ООО Ритуал-Сервис", substring = true)
+        waitText("Глаз бога: вы видите как")
+        waitText("Наш ассортимент")
+        click("В BOSS")
+        waitText("Здравствуйте, BOSS")
+    }
 }

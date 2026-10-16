@@ -100,4 +100,38 @@ class SansaraLogicTest {
         val badUrl = SansaraBackend.postEvent("https://", "order", emptyMap())
         assertFalse(badUrl.ok)
     }
+
+    // ── «Мой склад»: артикул в любом виде, QR ──
+
+    @Test fun skuMatchesAnyTyping() {
+        val p = product("САНВ110П-10", "Венок ритуальный")
+        assertTrue(protoSkuMatches(p, "санв110п10"))        // строчные, без дефиса
+        assertTrue(protoSkuMatches(p, "CAHB-110-П-10"))     // латинские буквы-двойники
+        assertTrue(protoSkuMatches(p, "cfyd110g10"))        // неправильная раскладка
+        assertTrue(protoSkuMatches(p, " санв 110 п 10 "))   // пробелы
+        assertFalse(protoSkuMatches(p, "кор-070"))
+        assertTrue(protoSkuMatches(basket, "kor 070"))
+    }
+
+    @Test fun qrParsing() {
+        assertEquals("САНВ110П-10" to "", protoParseProductQr("САНВ110П-10"))
+        assertEquals("KOR-070-004" to "A1B2", protoParseProductQr("SANSARA:KOR-070-004:A1B2"))
+        assertEquals("KOR-070-004" to "", protoParseProductQr("sansara:KOR-070-004"))
+    }
+
+    // ── Сборщицы: дни рождения ──
+
+    @Test fun birthdayCountdown() {
+        val today = java.time.LocalDate.of(2026, 10, 16)
+        assertEquals(0L, SansaraAssembler("A", "Анна", true, birthDate = "16.10.1990").daysToBirthday(today))
+        assertEquals(2L, SansaraAssembler("A", "Анна", true, birthDate = "18.10.1985").daysToBirthday(today))
+        assertEquals(364L, SansaraAssembler("A", "Анна", true, birthDate = "15.10.1985").daysToBirthday(today))
+        assertEquals(null, SansaraAssembler("A", "Анна", true).daysToBirthday(today))
+    }
+
+    @Test fun phoneForMessengers() {
+        assertEquals("79161234567", protoIntlDigits("+7 916 123-45-67"))
+        assertEquals("79161234567", protoIntlDigits("89161234567"))
+        assertEquals("79161234567", protoIntlDigits("9161234567"))
+    }
 }
