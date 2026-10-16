@@ -1254,7 +1254,7 @@ internal fun ProtoAdminReportsScreen(
                 periodTasks.forEach { t -> ProtoInfoRow(t.taskDate + " · " + t.status, protoWorkshopPlanQty(t.linesJson).toString() + " / " + t.actualQty + " шт.") }
             }
         }
-        if (period == "Сегодня") item {
+        if (period == ProtoPeriod.today()) item {
             ProtoSectionCard {
                 Text("Кто заходил сегодня", color = ProtoGoldSoft, fontWeight = FontWeight.Bold)
                 if (presence.isEmpty()) Text("Нет данных", color = ProtoMuted, modifier = Modifier.padding(top = 6.dp))
