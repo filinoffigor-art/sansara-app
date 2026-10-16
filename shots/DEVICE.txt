@@ -1,0 +1,1 @@
+bigfont api=34 size=1080x2400 density=420 font=1.3 e277d7c52b9dbd28c44a2825e477c95e6d0aa122
