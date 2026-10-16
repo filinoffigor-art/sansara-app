@@ -3640,7 +3640,10 @@ internal fun ProtoOrderRow(o:ProtoOrder,onClick:()->Unit){
 }
 
 @Composable
-internal fun ProtoMetricCard(title:String,value:String,subtitle:String,modifier:Modifier,titleLines:Int=1,onClick:()->Unit){Card(colors=CardDefaults.cardColors(containerColor=ProtoPanel),border=BorderStroke(1.dp,ProtoBorder),shape=RoundedCornerShape(14.dp),modifier=modifier.clickable(onClick=onClick)){Column(Modifier.padding(12.dp)){Text(title,color=ProtoMuted,fontSize=12.sp,minLines=titleLines,maxLines=titleLines.coerceAtLeast(2));Text(value,color=ProtoText,fontSize=25.sp,fontWeight=FontWeight.Bold);Text(subtitle,color=ProtoGoldSoft,fontSize=12.sp)}}}
+internal fun ProtoMetricCard(title:String,value:String,subtitle:String,modifier:Modifier,onClick:()->Unit)=ProtoMetricCard(title,value,subtitle,modifier,1,onClick)
+
+@Composable
+internal fun ProtoMetricCard(title:String,value:String,subtitle:String,modifier:Modifier,titleLines:Int,onClick:()->Unit){Card(colors=CardDefaults.cardColors(containerColor=ProtoPanel),border=BorderStroke(1.dp,ProtoBorder),shape=RoundedCornerShape(14.dp),modifier=modifier.clickable(onClick=onClick)){Column(Modifier.padding(12.dp)){Text(title,color=ProtoMuted,fontSize=12.sp,minLines=titleLines,maxLines=titleLines.coerceAtLeast(2));Text(value,color=ProtoText,fontSize=25.sp,fontWeight=FontWeight.Bold);Text(subtitle,color=ProtoGoldSoft,fontSize=12.sp)}}}
 
 @Composable
 internal fun ProtoQuickButton(label:String,icon:androidx.compose.ui.graphics.vector.ImageVector,modifier:Modifier,onClick:()->Unit){OutlinedButton(onClick=onClick,modifier=modifier.height(64.dp),border=BorderStroke(1.dp,ProtoBorder),contentPadding=PaddingValues(3.dp)){Column(horizontalAlignment=Alignment.CenterHorizontally){Icon(icon,null,tint=ProtoGold,modifier=Modifier.size(20.dp));Text(label,color=ProtoText,fontSize=11.sp,maxLines=1)}}}
