@@ -1696,7 +1696,7 @@ fun SansaraVisualPrototype() {
                 }
             )
             ProtoScreen.AdminAttention -> ProtoAttentionScreen(
-                regs = registrations.filter { it.status != "Отклонена" }, blocked = clients.filter { it.status == "Приостановлен" }, picking = orders.filter { it.status == "Собирается" },
+                regs = registrations.filter { it.status != "Отклонена" }, blocked = clients.filter { it.status == "Приостановлен" }, picking = orders.filter { it.status == "Собирается" }.sortedWith(compareByDescending<ProtoOrder> { orderClientType(it).contains("Агент", true) }.thenBy { protoParseDate(it.deliveryDate)?.toEpochDay() ?: Long.MAX_VALUE }),
                 lowStock = catalogProducts.filter { availableStock(it) <= lowStockThreshold }, stockValue = { availableStock(it) },
                 onBack = { back() }, onClient = { openAdminClient(it.id) }, onOrder = { selectedOrderId = it.id; go(ProtoScreen.AdminOrderDetail) },
                 onApprove = { reg, status, discount ->
