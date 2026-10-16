@@ -469,6 +469,8 @@ fun SansaraVisualPrototype() {
             )
         )
         persistNotifications()
+        // Дублируем системным уведомлением телефона (всплывает и остаётся в шторке).
+        SansaraNotify.post(context, title, message, orderId)
     }
     fun go(target: ProtoScreen) { if (target != screen) { history.add(screen); screen = target } }
     fun openTab(home: ProtoScreen, target: ProtoScreen) {
@@ -490,7 +492,8 @@ fun SansaraVisualPrototype() {
     }
     fun onSignedIn() {
         SansaraAdminOpsReminderScheduler.scheduleAll(context)
-        if (session?.role == SansaraRole.ADMIN) (context as? MainActivity)?.requestNotificationPermission()
+        // Разрешение на уведомления — для всех ролей: оповещения дублируются на экран телефона.
+        (context as? MainActivity)?.requestNotificationPermission()
     }
     fun signOut() {
         authProvider.signOut()
@@ -1335,7 +1338,7 @@ fun SansaraVisualPrototype() {
                 onNotifications = { notificationsOrders = it },
                 onBack = { back() }
             )
-            ProtoScreen.Profile -> ProtoProfileScreen(clients.firstOrNull { it.id == selectedClientId } ?: clients.first(), onBack = { back() }, onCall = { protoDial(context) }, onLogout = { signOut() }, onHome = { history.clear(); screen = ProtoScreen.Home }, onCatalog = { go(ProtoScreen.Catalog) }, onCart = { go(ProtoScreen.Cart) }, onOrders = { go(ProtoScreen.OrderList) }, onAnalytics = { refreshShipments(); go(ProtoScreen.ClientReports) })
+            ProtoScreen.Profile -> ProtoProfileScreen(currentClient(), onBack = { back() }, onCall = { protoDial(context) }, onLogout = { signOut() }, onHome = { history.clear(); screen = ProtoScreen.Home }, onCatalog = { go(ProtoScreen.Catalog) }, onCart = { go(ProtoScreen.Cart) }, onOrders = { go(ProtoScreen.OrderList) }, onAnalytics = { refreshShipments(); go(ProtoScreen.ClientReports) })
             ProtoScreen.Suspended -> ProtoSuspendedScreen(onCall = { protoDial(context) }, onMessage = { protoMessage(context) }, onBack = { back() }, onCatalog = { go(ProtoScreen.Catalog) }, onHome = { history.clear(); screen = ProtoScreen.Home }, onOrders = { go(ProtoScreen.OrderList) })
 
             else -> Unit
@@ -2552,6 +2555,20 @@ fun SansaraVisualPrototype() {
                 dismissButton = { TextButton(onClick = { belowMinPrompt = null; history.clear(); history.add(ProtoScreen.Home); screen = ProtoScreen.Catalog }) { Text("Дополнить заказ", color = ProtoMuted) } }
             )
         }
+        // Открытие из системного уведомления: нужный заказ или список уведомлений (если пользователь вошёл).
+        val pendingOpen = (context as? MainActivity)?.pendingOpen?.value
+        LaunchedEffect(pendingOpen, session, dataReady) {
+            val target = pendingOpen ?: return@LaunchedEffect
+            val active = session ?: return@LaunchedEffect
+            if (!dataReady) return@LaunchedEffect
+            (context as? MainActivity)?.pendingOpen?.value = null
+            history.clear(); history.add(startScreenForRole(active.role))
+            val admin = active.role == SansaraRole.ADMIN || active.role == SansaraRole.SALES
+            if (target.isNotBlank() && orders.any { it.id == target }) {
+                selectedOrderId = target
+                screen = if (admin) ProtoScreen.AdminOrderDetail else ProtoScreen.OrderDetail
+            } else screen = if (admin) ProtoScreen.AdminNotifications else if (active.role == SansaraRole.PRODUCTION) startScreenForRole(active.role) else ProtoScreen.Notifications
+        }
         crashReport?.let { report ->
             AlertDialog(
                 onDismissRequest = { SansaraCrashLog.markSeen(context); crashReport = null }, containerColor = ProtoPanel,
@@ -2716,15 +2733,14 @@ internal fun ProtoOrderListScreen(
     var search by remember { mutableStateOf("") }
     val qn = search.trim()
     fun matches(o: ProtoOrder) = qn.isBlank() || o.id.contains(qn, true) || o.id.filter(Char::isDigit).endsWith(qn.filter(Char::isDigit).ifBlank { "§" }) || o.retailCustomerName.contains(qn, true)
-    var historyFilterOpen by remember { mutableStateOf(false) }
-    var historyPeriod by remember { mutableStateOf("Все") }
+    var historyRange by remember { mutableStateOf<ProtoPeriod?>(null) }
     var expandedMonths by remember { mutableStateOf(setOf<String>()) }
 
     val currentOrders=orders.filter { it.status !in protoHistoryStatuses && matches(it) }
     val allHistory=orders.filter { it.status in protoHistoryStatuses && matches(it) }
     val historyTotal=orders.count { it.status in protoHistoryStatuses }
     val clientList=clientOrders.orEmpty().filter { matches(it) }.sortedByDescending { protoOrderEpoch(it.dateTime) }
-    val history=protoFilterOrdersByPeriod(allHistory,historyPeriod)
+    val history=allHistory.filter { historyRange == null || historyRange!!.containsText(it.dateTime) }
     val grouped=history.groupBy { protoOrderMonthKey(it.dateTime) }
         .toList()
         .sortedByDescending { it.first }
@@ -2766,7 +2782,7 @@ internal fun ProtoOrderListScreen(
                     title = if (retailMode) "Заказы клиента" else "Мои заказы",
                     subtitle = "Текущих: " + currentOrders.size + " · в истории: " + allHistory.size,
                     onBack = onBack,
-                    action = if (tab == "История") { { IconButton(onClick = { historyFilterOpen = true }) { Icon(Icons.Outlined.Tune, contentDescription = "Фильтр истории", tint = ProtoGold) } } } else null
+                    action = null
                 )
                 LazyColumn(
                     modifier = Modifier.weight(1f),
@@ -2807,8 +2823,9 @@ internal fun ProtoOrderListScreen(
                             items(currentOrders,key={it.id}){order->ProtoOrderRow(order){onOpen(order)}}
                         }
                     }else{
+                        item{ProtoPeriodBar(historyRange,{historyRange=it},allowAll=true,maxDate=LocalDate.now())}
                         if(grouped.isEmpty()){
-                            item{ProtoSectionCard{Text("Завершённых заказов пока нет",color=ProtoMuted)}}
+                            item{ProtoSectionCard{Text(if(historyRange!=null)"За выбранный период заказов нет" else "Завершённых заказов пока нет",color=ProtoMuted)}}
                         }else{
                             grouped.forEach { (monthKey,monthOrders) ->
                                 item(key="month-"+monthKey){
@@ -2834,15 +2851,6 @@ internal fun ProtoOrderListScreen(
                 }
             }
         }
-    }
-    if(historyFilterOpen){
-        ProtoOrderHistoryFilterDialog(
-            period=historyPeriod,
-            orders=history,
-            products=products,
-            onPeriod={historyPeriod=it},
-            onDismiss={historyFilterOpen=false}
-        )
     }
 }
 
@@ -3142,9 +3150,45 @@ internal fun ProtoAttendanceScreen(
     onSave:(SansaraAssembler,String,String)->Unit
 ){
     var showCalendar by remember{mutableStateOf(false)}
+    // «День» — отметки за выбранный день; «Период» — итоги по каждому сотруднику за выбранные дни/месяцы.
+    var mode by remember{mutableStateOf("День")}
+    var period by remember{mutableStateOf(ProtoPeriod.thisMonth())}
+    var expandedPerson by remember{mutableStateOf<String?>(null)}
     val dateKey=selectedDate.format(DateTimeFormatter.ofPattern("dd.MM.yyyy"))
     val dayRows=rows.filter{it.date==dateKey}.associateBy{it.personId}
-    ProtoScaffold("Табель рабочего времени",selectedDate.format(DateTimeFormatter.ofPattern("d MMMM yyyy",ruLocale)),onBack){
+    ProtoScaffold("Табель рабочего времени",if(mode=="День")selectedDate.format(DateTimeFormatter.ofPattern("d MMMM yyyy",ruLocale)) else period.label,onBack){
+        item{ProtoChipRow(listOf("День","Период"),mode){mode=it}}
+        if(mode=="Период"){
+            item{ProtoPeriodBar(period,{period=it?:ProtoPeriod.thisMonth()},maxDate=LocalDate.now())}
+            val inPeriod=rows.filter{period.containsText(it.date)}
+            val days=(java.time.temporal.ChronoUnit.DAYS.between(period.from,period.to)+1).toInt()
+            item{
+                ProtoSectionCard{
+                    ProtoInfoRow("Дней в периоде",days.toString())
+                    ProtoInfoRow("Выходов всего",inPeriod.count{it.status=="Работал"}.toString())
+                    ProtoInfoRow("Выходных отмечено",inPeriod.count{it.status=="Выходной"}.toString())
+                }
+            }
+            items(assemblers,key={"p-"+it.id}){person->
+                val mine=inPeriod.filter{it.personId==person.id}.sortedBy{protoParseDate(it.date)}
+                val worked=mine.count{it.status=="Работал"}
+                val off=mine.count{it.status=="Выходной"}
+                val open=expandedPerson==person.id
+                ProtoSectionCard(Modifier.clickable{expandedPerson=if(open)null else person.id}){
+                    Row(verticalAlignment=Alignment.CenterVertically){
+                        Column(Modifier.weight(1f)){
+                            Text(person.name+if(!person.enabled)" (отключена)" else "",color=ProtoText,fontWeight=FontWeight.Bold)
+                            Text("Работала: $worked · выходных: $off · не отмечено: ${(days-mine.size).coerceAtLeast(0)}",color=ProtoMuted,fontSize=12.sp)
+                        }
+                        Icon(if(open)Icons.Outlined.ExpandLess else Icons.Outlined.ExpandMore,null,tint=ProtoGold)
+                    }
+                    if(open){
+                        if(mine.isEmpty())Text("За период отметок нет",color=ProtoMuted,fontSize=12.sp,modifier=Modifier.padding(top=6.dp))
+                        mine.forEach{r->Text(r.date+" · "+r.status+if(r.comment.isNotBlank())" · "+r.comment else "",color=if(r.status=="Работал")ProtoText else ProtoGoldSoft,fontSize=13.sp,modifier=Modifier.padding(top=4.dp))}
+                    }
+                }
+            }
+        }else{
         item{ProtoSecondaryButton("Выбрать дату",{showCalendar=true})}
         val unmarked=assemblers.filter{it.enabled&&dayRows[it.id]==null}
         if(editable&&unmarked.isNotEmpty())item{ProtoPrimaryButton("Отметить остальных: работали ("+unmarked.size+")",{unmarked.forEach{onSave(it,"Работал","")}})}
@@ -3174,6 +3218,7 @@ internal fun ProtoAttendanceScreen(
                     }
                 }
             }
+        }
         }
     }
     if(showCalendar)ProtoProductionCalendarDialog(selectedDate,onDismiss={showCalendar=false},maxDate=LocalDate.now(),onSelect={onDate(it);showCalendar=false})
@@ -3411,19 +3456,22 @@ internal fun ProtoProductionHistoryScreen(
 ){
     var query by remember{mutableStateOf("")}
     var assembler by remember{mutableStateOf("Все")}
+    var period by remember{mutableStateOf<ProtoPeriod?>(null)}
     var editing by remember{mutableStateOf<ProtoProductionOp?>(null)}
     var deleteCandidate by remember{mutableStateOf<ProtoProductionOp?>(null)}
     val assemblers=listOf("Все")+ops.map{it.assembler}.filter{it.isNotBlank()}.distinct().sorted()
     val filtered=ops.filter{op->
         op.status!="Удален" &&
         (query.isBlank()||op.sku.contains(query,true)||op.name.contains(query,true)||op.date.contains(query,true)) &&
-        (assembler=="Все"||op.assembler==assembler)
+        (assembler=="Все"||op.assembler==assembler) &&
+        (period==null||period!!.containsText(op.date))
     }
     val byMonth=filtered.groupBy{op->
         runCatching{LocalDate.parse(op.date,DateTimeFormatter.ofPattern("dd.MM.yyyy")).format(DateTimeFormatter.ofPattern("MM.yyyy"))}.getOrDefault("Без даты")
     }.toSortedMap(compareByDescending{it})
-    ProtoScaffold("История приходов","Месяц → день → позиции",onBack){
-        item{ProtoField(query,{query=it},"Дата / артикул / наименование")}
+    ProtoScaffold("История приходов",(period?.label?:"Всё время")+" · "+filtered.sumOf{it.qty}+" шт.",onBack){
+        item{ProtoPeriodBar(period,{period=it},allowAll=true,maxDate=LocalDate.now())}
+        item{ProtoField(query,{query=it},"Артикул / наименование")}
         item{
             LazyRow(horizontalArrangement=Arrangement.spacedBy(7.dp)){
                 items(assemblers){name->
@@ -3825,10 +3873,15 @@ internal fun protoExportCsv(
 ) {
     val nowMonth = java.time.YearMonth.now()
     val periodMonth: java.time.YearMonth? = when (period) { "Этот месяц" -> nowMonth; "Прошлый месяц" -> nowMonth.minusMonths(1); else -> null }
-    fun inPeriod(date: String): Boolean = periodMonth == null || protoParseDate(date.substringBefore(" "))?.let { java.time.YearMonth.from(it) == periodMonth } == true
+    // Произвольный период из календаря: «дд.мм.гггг-дд.мм.гггг».
+    val customPeriod = ProtoPeriod.fromKey(period)
+    fun inPeriod(date: String): Boolean = when {
+        customPeriod != null -> customPeriod.containsText(date)
+        else -> periodMonth == null || protoParseDate(date.substringBefore(" "))?.let { java.time.YearMonth.from(it) == periodMonth } == true
+    }
     @Suppress("NAME_SHADOWING") val orders = orders.filter { inPeriod(it.dateTime) || report == "Резерв по клиентам" }
     @Suppress("NAME_SHADOWING") val productionOps = productionOps.filter { inPeriod(it.date) }
-    val safeName = (report + if (periodMonth != null) "_" + periodMonth else "").lowercase(ruLocale).replace(" ", "_").replace("/", "-")
+    val safeName = (report + if (customPeriod != null) "_" + customPeriod.key.replace(".", "") else if (periodMonth != null) "_" + periodMonth else "").lowercase(ruLocale).replace(" ", "_").replace("/", "-")
     val fileName = "SANSARA_${safeName}_${LocalDate.now().format(DateTimeFormatter.BASIC_ISO_DATE)}.csv"
     val csv = buildString {
         when (report) {

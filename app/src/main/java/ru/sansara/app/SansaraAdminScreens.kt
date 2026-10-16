@@ -1167,8 +1167,8 @@ internal fun ProtoAdminReportsScreen(
     onBack: () -> Unit,
     onDailyStatus: (Boolean, String) -> Unit
 ) {
-    var period by remember { mutableStateOf("Сегодня") }
-    val range = periodRange(period)
+    var period by remember { mutableStateOf(ProtoPeriod.today()) }
+    val range = period.from to period.to
     val periodTasks = tasks.filter { inRange(it.taskDate, range) }
     val plan = periodTasks.sumOf { protoWorkshopPlanQty(it.linesJson) }
     val fact = periodTasks.sumOf { it.actualQty }
@@ -1177,9 +1177,9 @@ internal fun ProtoAdminReportsScreen(
     val worked = attendance.filter { inRange(it.date, range) && it.status == "Работал" }
     var dayOff by remember(dailyStatus?.date, dailyStatus?.dayOff) { mutableStateOf(dailyStatus?.dayOff ?: false) }
     var reason by remember(dailyStatus?.date, dailyStatus?.reason) { mutableStateOf(dailyStatus?.reason.orEmpty()) }
-    val rangeLabel = if (range.first == range.second) range.first.format(protoDateFmt) else range.first.format(protoDateFmt) + " – " + range.second.format(protoDateFmt)
+    val rangeLabel = period.label
     ProtoScaffold("Отчёты", rangeLabel, onBack) {
-        item { ProtoChipRow(listOf("Сегодня", "7 дней", "Месяц", "Прошлый месяц"), period) { period = it } }
+        item { ProtoPeriodBar(period, { period = it ?: ProtoPeriod.today() }, maxDate = LocalDate.now()) }
         item {
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 ProtoMetricCard("Заказы", periodOrders.size.toString(), protoMoney(periodOrders.sumOf { it.total }), Modifier.weight(1f)) {}
@@ -1584,7 +1584,7 @@ internal fun ProtoReserveListScreen(orders: List<ProtoOrder>, onBack: () -> Unit
 @Composable
 internal fun ProtoExportScreen(onBack: () -> Unit, onExport: (String, String) -> Unit) {
     var report by remember { mutableStateOf("Остатки на складе") }
-    var period by remember { mutableStateOf("Этот месяц") }
+    var period by remember { mutableStateOf<ProtoPeriod?>(ProtoPeriod.thisMonth()) }
     val periodic = report in setOf("Выпуск за период", "Производство по сборщицам", "Заказы за период")
     ProtoScaffold("Экспорт", "CSV для Excel · сохраняется в «Загрузки» и сразу открывается «Поделиться»", onBack) {
         item {
@@ -1597,9 +1597,9 @@ internal fun ProtoExportScreen(onBack: () -> Unit, onExport: (String, String) ->
                 }
             }
         }
-        if (periodic) item { ProtoChipRow(listOf("Этот месяц", "Прошлый месяц", "Всё время"), period) { period = it } }
+        if (periodic) item { ProtoPeriodBar(period, { period = it }, allowAll = true, maxDate = LocalDate.now()) }
         item {
-            Button(onClick = { onExport(report, if (periodic) period else "Всё время") }, modifier = Modifier.fillMaxWidth().height(50.dp), colors = ButtonDefaults.buttonColors(containerColor = ProtoGold)) {
+            Button(onClick = { onExport(report, if (periodic) period?.key ?: "Всё время" else "Всё время") }, modifier = Modifier.fillMaxWidth().height(50.dp), colors = ButtonDefaults.buttonColors(containerColor = ProtoGold)) {
                 Icon(Icons.Outlined.FileDownload, null, tint = Color.Black); Spacer(Modifier.width(7.dp)); Text("Выгрузить", color = Color.Black, fontWeight = FontWeight.Bold)
             }
         }

@@ -10,7 +10,9 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.*
 import androidx.compose.material3.*
-import androidx.compose.runtime.Composable
+import androidx.compose.runtime.*
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.items
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -553,4 +555,97 @@ internal fun protoOrderDiff(old: List<ProtoOrderLine>, new: List<ProtoOrderLine>
         }
     }
     return parts.joinToString("; ").ifBlank { "без изменений" }
+}
+
+// ───────────── Общий выбор периода (день или промежуток в календаре) ─────────────
+
+/** Период с первого по последний день включительно. */
+data class ProtoPeriod(val from: java.time.LocalDate, val to: java.time.LocalDate) {
+    fun contains(date: java.time.LocalDate) = !date.isBefore(from) && !date.isAfter(to)
+    /** Дата из строки «дд.мм.гггг» или «дд.мм.гггг чч:мм». */
+    fun containsText(text: String) = protoParseDate(text.trim().substringBefore(" "))?.let { contains(it) } == true
+    val label: String get() {
+        val ru = java.util.Locale.forLanguageTag("ru")
+        val full = java.time.format.DateTimeFormatter.ofPattern("d MMMM yyyy", ru)
+        return when {
+            from == to -> from.format(full)
+            from.year == to.year && from.month == to.month -> "${from.dayOfMonth}–" + to.format(full)
+            from.year == to.year -> from.format(java.time.format.DateTimeFormatter.ofPattern("d MMMM", ru)) + " – " + to.format(full)
+            else -> from.format(full) + " – " + to.format(full)
+        }
+    }
+    /** Для сохранения и выгрузки: «дд.мм.гггг-дд.мм.гггг». */
+    val key: String get() = from.format(protoDateFmt) + "-" + to.format(protoDateFmt)
+
+    companion object {
+        fun today() = java.time.LocalDate.now().let { ProtoPeriod(it, it) }
+        fun week() = java.time.LocalDate.now().let { ProtoPeriod(it.minusDays(6), it) }
+        fun thisMonth() = java.time.LocalDate.now().let { ProtoPeriod(it.withDayOfMonth(1), it) }
+        fun lastMonth() = java.time.YearMonth.now().minusMonths(1).let { ProtoPeriod(it.atDay(1), it.atEndOfMonth()) }
+        fun fromKey(key: String?): ProtoPeriod? {
+            val parts = key?.split("-") ?: return null
+            if (parts.size != 2) return null
+            val a = protoParseDate(parts[0]) ?: return null
+            val b = protoParseDate(parts[1]) ?: return null
+            return ProtoPeriod(minOf(a, b), maxOf(a, b))
+        }
+    }
+}
+
+/**
+ * Кнопка с выбранным периодом (открывает календарь: первое касание — начало, второе — конец)
+ * и быстрые варианты. period == null — «Всё время» (если allowAll).
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+internal fun ProtoPeriodBar(period: ProtoPeriod?, onChange: (ProtoPeriod?) -> Unit, allowAll: Boolean = false, maxDate: java.time.LocalDate? = null) {
+    var open by remember { mutableStateOf(false) }
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        OutlinedButton(onClick = { open = true }, modifier = Modifier.fillMaxWidth().height(48.dp), border = BorderStroke(1.dp, ProtoGold), shape = RoundedCornerShape(24.dp)) {
+            Icon(Icons.Outlined.CalendarMonth, null, tint = ProtoGold)
+            Spacer(Modifier.width(8.dp))
+            Text(period?.label ?: "Всё время", color = ProtoText, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        }
+        val quick = buildList {
+            add("Сегодня" to ProtoPeriod.today()); add("Неделя" to ProtoPeriod.week()); add("Этот месяц" to ProtoPeriod.thisMonth()); add("Прошлый месяц" to ProtoPeriod.lastMonth())
+            if (allowAll) add("Всё время" to null)
+        }
+        LazyRow(horizontalArrangement = Arrangement.spacedBy(7.dp)) {
+            items(quick) { (label, p) ->
+                FilterChip(selected = period == p, onClick = { onChange(p) }, label = { Text(label) },
+                    colors = FilterChipDefaults.filterChipColors(selectedContainerColor = ProtoGold, selectedLabelColor = Color.Black, labelColor = ProtoText))
+            }
+        }
+    }
+    if (open) {
+        val zone = java.time.ZoneOffset.UTC
+        fun ms(d: java.time.LocalDate) = d.atStartOfDay(zone).toInstant().toEpochMilli()
+        fun day(ms: Long) = java.time.Instant.ofEpochMilli(ms).atZone(zone).toLocalDate()
+        val limit = maxDate?.let { ms(it) }
+        val state = rememberDateRangePickerState(
+            initialSelectedStartDateMillis = period?.from?.let(::ms),
+            initialSelectedEndDateMillis = period?.to?.let(::ms),
+            selectableDates = object : SelectableDates { override fun isSelectableDate(utcTimeMillis: Long) = limit == null || utcTimeMillis <= limit }
+        )
+        DatePickerDialog(
+            onDismissRequest = { open = false },
+            confirmButton = {
+                TextButton(enabled = state.selectedStartDateMillis != null, onClick = {
+                    val a = state.selectedStartDateMillis?.let(::day)
+                    val b = state.selectedEndDateMillis?.let(::day) ?: a
+                    if (a != null && b != null) onChange(ProtoPeriod(minOf(a, b), maxOf(a, b)))
+                    open = false
+                }) { Text("Выбрать", color = ProtoGold) }
+            },
+            dismissButton = { TextButton(onClick = { open = false }) { Text("Отмена", color = ProtoMuted) } }
+        ) {
+            DateRangePicker(
+                state = state,
+                modifier = Modifier.weight(1f),
+                title = { Text("Выберите день или период", modifier = Modifier.padding(start = 24.dp, top = 16.dp)) },
+                headline = { Text("Первое касание — начало, второе — конец", fontSize = 13.sp, modifier = Modifier.padding(start = 24.dp, bottom = 8.dp)) },
+                showModeToggle = false
+            )
+        }
+    }
 }

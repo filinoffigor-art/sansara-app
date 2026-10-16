@@ -19,6 +19,7 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         SansaraCrashLog.install(this)
         SansaraReminderScheduler.ensureChannel(this)
+        SansaraNotify.ensureChannels(this)
         SansaraAdminOpsReminderScheduler.ensureChannel(this)
         SansaraAdminOpsReminderScheduler.scheduleAll(this)
         // Системные панели больше не скрываются: часы, заряд и жест «назад» остаются на месте,
@@ -27,8 +28,21 @@ class MainActivity : ComponentActivity() {
             statusBarStyle = SystemBarStyle.dark(android.graphics.Color.TRANSPARENT),
             navigationBarStyle = SystemBarStyle.dark(android.graphics.Color.parseColor("#0B0A09"))
         )
+        pendingOpen.value = intent?.getStringExtra(SansaraNotify.EXTRA_OPEN_ORDER)
+            ?: if (intent?.getBooleanExtra(SansaraNotify.EXTRA_OPEN_NOTIFICATIONS, false) == true) "" else null
         setContent { SansaraVisualPrototype() }
     }
+
+    override fun onNewIntent(intent: android.content.Intent) {
+        super.onNewIntent(intent)
+        // Нажатие на уведомление при открытом приложении: передаём заказ в интерфейс.
+        setIntent(intent)
+        pendingOpen.value = intent.getStringExtra(SansaraNotify.EXTRA_OPEN_ORDER)
+            ?: if (intent.getBooleanExtra(SansaraNotify.EXTRA_OPEN_NOTIFICATIONS, false)) "" else null
+    }
+
+    /** Заказ из нажатого уведомления ("" — открыть список уведомлений). */
+    val pendingOpen = androidx.compose.runtime.mutableStateOf<String?>(null)
 
     /** Разрешение на уведомления спрашиваем в момент, когда оно понятно пользователю: после первого заказа или входа сотрудника. */
     fun requestNotificationPermission() {
