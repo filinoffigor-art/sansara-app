@@ -649,3 +649,57 @@ internal fun ProtoPeriodBar(period: ProtoPeriod?, onChange: (ProtoPeriod?) -> Un
         }
     }
 }
+
+// ───────────── Связь: звонок и мессенджеры ─────────────
+
+/** Номер в международном виде без «+»: 79161234567. */
+internal fun protoIntlDigits(phone: String): String {
+    val d = phone.filter(Char::isDigit)
+    return when {
+        d.length == 11 && d.startsWith("8") -> "7" + d.drop(1)
+        d.length == 10 -> "7$d"
+        else -> d
+    }
+}
+
+/** Открыть переписку с номером в выбранном мессенджере. Если приложения нет — понятное сообщение. */
+internal fun protoOpenMessenger(context: android.content.Context, messenger: String, phone: String, text: String = "") {
+    val intl = protoIntlDigits(phone)
+    val enc = android.net.Uri.encode(text)
+    val intent = when (messenger) {
+        "WhatsApp" -> android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse("https://wa.me/$intl" + if (text.isNotBlank()) "?text=$enc" else ""))
+        "Telegram" -> android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse("https://t.me/+$intl"))
+        "MAX" -> android.content.Intent(android.content.Intent.ACTION_SEND).apply { type = "text/plain"; putExtra(android.content.Intent.EXTRA_TEXT, text.ifBlank { " " }); setPackage("ru.oneme.app") }
+        else -> android.content.Intent(android.content.Intent.ACTION_SENDTO, android.net.Uri.parse("smsto:+$intl")).putExtra("sms_body", text)
+    }.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
+    val ok = runCatching { context.startActivity(intent) }.isSuccess
+    if (!ok) android.widget.Toast.makeText(context, "$messenger не установлен на телефоне", android.widget.Toast.LENGTH_SHORT).show()
+}
+
+/** Кнопки «Позвонить» и «Написать» с выбором мессенджера. */
+@Composable
+internal fun ProtoContactActions(phone: String, text: String = "") {
+    val context = androidx.compose.ui.platform.LocalContext.current
+    var choose by remember { mutableStateOf(false) }
+    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        Button(onClick = { runCatching { context.startActivity(android.content.Intent(android.content.Intent.ACTION_DIAL, android.net.Uri.parse("tel:+" + protoIntlDigits(phone))).addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)) } },
+            enabled = phone.isNotBlank(), colors = ButtonDefaults.buttonColors(containerColor = ProtoGold), modifier = Modifier.weight(1f)) {
+            Icon(Icons.Outlined.Call, null, tint = Color.Black); Spacer(Modifier.width(6.dp)); Text("Позвонить", color = Color.Black)
+        }
+        OutlinedButton(onClick = { choose = true }, enabled = phone.isNotBlank(), border = BorderStroke(1.dp, ProtoGold), modifier = Modifier.weight(1f)) {
+            Icon(Icons.Outlined.ChatBubbleOutline, null, tint = ProtoGold); Spacer(Modifier.width(6.dp)); Text("Написать", color = ProtoGold)
+        }
+    }
+    if (choose) AlertDialog(
+        onDismissRequest = { choose = false }, containerColor = ProtoPanel,
+        title = { Text("Написать через", color = ProtoText) },
+        text = {
+            Column {
+                listOf("WhatsApp", "Telegram", "MAX", "SMS").forEach { m ->
+                    Text(m, color = ProtoText, fontSize = 17.sp, modifier = Modifier.fillMaxWidth().clickable { choose = false; protoOpenMessenger(context, m, phone, text) }.padding(vertical = 12.dp))
+                }
+            }
+        },
+        confirmButton = { TextButton(onClick = { choose = false }) { Text("Отмена", color = ProtoMuted) } }
+    )
+}

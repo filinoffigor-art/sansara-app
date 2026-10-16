@@ -1427,9 +1427,49 @@ internal fun ProtoAdminAccountsScreen(
     onAdd: (String, String, Boolean) -> Unit,
     onToggle: (SansaraAdminAccount) -> Unit,
     onIssuedSeen: () -> Unit,
-    onRename: (SansaraAdminAccount, String) -> Unit = { _, _ -> }
+    onRename: (SansaraAdminAccount, String) -> Unit = { _, _ -> },
+    onLoadCode: (SansaraAdminAccount, (String) -> Unit) -> Unit = { _, _ -> },
+    onReissue: (SansaraAdminAccount, (String) -> Unit) -> Unit = { _, _ -> },
+    onPhone: (SansaraAdminAccount, String) -> Unit = { _, _ -> }
 ) {
     val context = LocalContext.current
+    var card by remember { mutableStateOf<SansaraAdminAccount?>(null) }
+    card?.let { opened ->
+        val a = admins.firstOrNull { it.userId == opened.userId } ?: opened
+        var code by remember(a.userId) { mutableStateOf<String?>(null) }
+        var confirmReissue by remember(a.userId) { mutableStateOf(false) }
+        var phoneEdit by remember(a.userId, a.phone) { mutableStateOf(protoPhoneDigits(a.phone)) }
+        LaunchedEffect(a.userId) { onLoadCode(a) { code = it } }
+        if (confirmReissue) AlertDialog(
+            onDismissRequest = { confirmReissue = false }, containerColor = ProtoPanel,
+            title = { Text("Выдать новый код?", color = ProtoText) },
+            text = { Text("Старый код «" + a.displayName + "» перестанет работать.", color = ProtoMuted) },
+            confirmButton = { TextButton(onClick = { confirmReissue = false; onReissue(a) { code = it } }) { Text("Выдать", color = ProtoGold) } },
+            dismissButton = { TextButton(onClick = { confirmReissue = false }) { Text("Отмена", color = ProtoMuted) } }
+        )
+        androidx.compose.ui.window.Dialog(onDismissRequest = { card = null }, properties = androidx.compose.ui.window.DialogProperties(usePlatformDefaultWidth = false)) {
+            Surface(color = ProtoPanel, shape = RoundedCornerShape(20.dp), modifier = Modifier.fillMaxWidth(0.94f)) {
+                Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text(a.displayName, color = ProtoText, fontSize = 22.sp, fontWeight = FontWeight.Bold)
+                    Text((if (a.isMain) "Главный аккаунт" else if (a.role == SansaraRole.PRODUCTION.name) "Производство" else "Администратор") + " · " + (if (a.enabled) "активен" else "отключён"), color = ProtoGoldSoft, fontSize = 13.sp)
+                    Surface(color = ProtoGold.copy(alpha = .1f), border = BorderStroke(1.dp, ProtoGold.copy(alpha = .5f)), shape = RoundedCornerShape(14.dp), modifier = Modifier.fillMaxWidth()) {
+                        Column(Modifier.padding(12.dp)) {
+                            Text("Код входа", color = ProtoMuted, fontSize = 12.sp)
+                            Text(code ?: "…", color = ProtoText, fontSize = 26.sp, fontWeight = FontWeight.Bold, letterSpacing = 4.sp)
+                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                TextButton(onClick = { code?.let { protoShare(context, "SANSARA: ваш код входа $it. Откройте приложение, нажмите «Войти» и введите этот код.", "Отправить код") } }, enabled = !code.isNullOrBlank()) { Text("Отправить код", color = ProtoGold) }
+                                TextButton(onClick = { confirmReissue = true }) { Text("Выдать новый", color = ProtoGold) }
+                            }
+                        }
+                    }
+                    OutlinedTextField(phoneEdit, { phoneEdit = protoPhoneDigits(it) }, label = { Text("Телефон") }, prefix = { Text("+7 ", color = ProtoText) }, singleLine = true, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Phone), colors = protoFieldColors(), modifier = Modifier.fillMaxWidth(),
+                        trailingIcon = { if (phoneEdit != protoPhoneDigits(a.phone) && phoneEdit.length == 10) TextButton(onClick = { onPhone(a, protoPhone(phoneEdit)) }) { Text("Сохранить", color = ProtoGold) } })
+                    ProtoContactActions(a.phone, "Здравствуйте, " + a.displayName + "!")
+                    TextButton(onClick = { card = null }, modifier = Modifier.fillMaxWidth()) { Text("Закрыть", color = ProtoMuted) }
+                }
+            }
+        }
+    }
     var name by remember { mutableStateOf("") }
     var renaming by remember { mutableStateOf<SansaraAdminAccount?>(null) }
     var newName by remember { mutableStateOf("") }
@@ -1490,12 +1530,13 @@ internal fun ProtoAdminAccountsScreen(
             }
         }
         items(admins, key = { it.userId }) { admin ->
-            ProtoSectionCard {
+            ProtoSectionCard(if (canManage) Modifier.clickable { card = admin } else Modifier) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Box(Modifier.size(42.dp).background(ProtoPanel2, CircleShape), contentAlignment = Alignment.Center) { Icon(if (admin.isMain) Icons.Outlined.VerifiedUser else if (admin.role == SansaraRole.PRODUCTION.name) Icons.Outlined.Factory else Icons.Outlined.AdminPanelSettings, null, tint = ProtoGold) }
                     Spacer(Modifier.width(10.dp))
                     Column(Modifier.weight(1f)) {
                         Text(admin.displayName, color = ProtoText, fontWeight = FontWeight.Bold)
+                        if (admin.phone.isNotBlank()) Text(protoPhone(admin.phone), color = ProtoMuted, fontSize = 12.sp)
                         Text((if (admin.isMain) "Главный аккаунт" else if (admin.role == SansaraRole.PRODUCTION.name) "Производство" else "Администратор") + " · " + (if (admin.enabled) "активен" else "отключён"), color = if (admin.enabled) ProtoGoldSoft else ProtoRed, fontSize = 12.sp)
                     }
                     if (canManage) IconButton(onClick = { newName = admin.displayName; renaming = admin }) { Icon(Icons.Outlined.Edit, "Изменить имя", tint = ProtoGoldSoft) }

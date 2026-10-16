@@ -17,6 +17,7 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
@@ -500,10 +501,17 @@ fun SansaraVisualPrototype() {
     }
     fun onSignedIn() {
         SansaraAdminOpsReminderScheduler.scheduleAll(context)
+        if (session?.role == SansaraRole.ADMIN) scope.launch { runCatching { SansaraNotify.birthdayCheck(context) } }
         // Разрешение на уведомления — для всех ролей: оповещения дублируются на экран телефона.
         (context as? MainActivity)?.requestNotificationPermission()
     }
     fun signOut() {
+        // В режиме «Глаз бога» «Выйти» возвращает в аккаунт BOSS, а не завершает его сессию.
+        godEyeAdmin?.let { boss ->
+            session = boss; godEyeAdmin = null; companyContacts.clear()
+            history.clear(); screen = startScreenForRole(boss.role)
+            return
+        }
         authProvider.signOut()
         session = null
         SansaraAdminOpsReminderScheduler.cancelAll(context)
@@ -1760,6 +1768,13 @@ fun SansaraVisualPrototype() {
                         repository.setAssemblerEnabled(assembler.id,!assembler.enabled)
                         applySnapshot(repository.snapshot())
                     }
+                },
+                onSave={a->
+                    scope.launch {
+                        runCatching { repository.saveAssemblerDetails(a.id,a.name,a.phone,a.birthDate,a.comment) }
+                            .onSuccess { applySnapshot(repository.snapshot()); toast("Карточка сохранена"); runCatching { SansaraNotify.birthdayCheck(context) } }
+                            .onFailure { toast(it.message ?: "Ошибка") }
+                    }
                 }
             )
 
@@ -1783,6 +1798,9 @@ fun SansaraVisualPrototype() {
                     }
                 },
                 onIssuedSeen = { issuedAdminCode = null },
+                onLoadCode = { admin, done -> scope.launch { runCatching { repository.staffCode(admin.userId, session?.userId ?: "") }.onSuccess(done).onFailure { toast(it.message ?: "Ошибка") } } },
+                onReissue = { admin, done -> scope.launch { runCatching { repository.reissueStaffCode(admin.userId, session?.userId ?: "") }.onSuccess { done(it); toast("Новый код выдан") }.onFailure { toast(it.message ?: "Ошибка") } } },
+                onPhone = { admin, phone -> scope.launch { runCatching { repository.setStaffPhone(admin.userId, phone, session?.userId ?: "") }.onSuccess { refreshOperationsData(); toast("Телефон сохранён") }.onFailure { toast(it.message ?: "Ошибка") } } },
                 onRename = { admin, name ->
                     scope.launch {
                         runCatching { repository.renameStaff(admin.userId, name, session?.userId ?: "") }
@@ -3476,19 +3494,77 @@ internal fun ProtoAdminSearchScreen(clients:List<ProtoClient>,orders:List<ProtoO
 }
 
 @Composable
-internal fun ProtoAssemblerAdminScreen(assemblers:List<SansaraAssembler>,onBack:()->Unit,onAdd:(String)->Unit,onToggle:(SansaraAssembler)->Unit){
+internal fun ProtoAssemblerAdminScreen(assemblers:List<SansaraAssembler>,onBack:()->Unit,onAdd:(String)->Unit,onToggle:(SansaraAssembler)->Unit,onSave:(SansaraAssembler)->Unit={}){
     var name by remember{mutableStateOf("")}
-    ProtoScaffold("Сборщицы","Добавлять и отключать может только администратор",onBack){
-        item{ProtoSectionCard{ProtoField(name,{name=it},"ФИО / имя сборщицы");ProtoPrimaryButton("Добавить",{if(name.isNotBlank()){onAdd(name);name=""}},enabled=name.isNotBlank())}}
-        items(assemblers,key={it.id}){assembler->
+    var editing by remember{mutableStateOf<SansaraAssembler?>(null)}
+    editing?.let{a->
+        var fio by remember(a.id){mutableStateOf(a.name)}
+        var phone by remember(a.id){mutableStateOf(protoPhoneDigits(a.phone))}
+        var birth by remember(a.id){mutableStateOf(a.birthDate)}
+        var comment by remember(a.id){mutableStateOf(a.comment)}
+        var pickBirth by remember{mutableStateOf(false)}
+        val birthOk=birth.isBlank()||protoParseDate(birth)!=null
+        if(pickBirth)ProtoBirthDateDialog(protoParseDate(birth),onDismiss={pickBirth=false}){birth=it.format(protoDateFmt);pickBirth=false}
+        androidx.compose.ui.window.Dialog(onDismissRequest={editing=null},properties=androidx.compose.ui.window.DialogProperties(usePlatformDefaultWidth=false)){
+            Surface(color=ProtoPanel,shape=RoundedCornerShape(20.dp),modifier=Modifier.fillMaxWidth(0.94f)){
+                Column(Modifier.padding(18.dp).then(Modifier.verticalScroll(androidx.compose.foundation.rememberScrollState())),verticalArrangement=Arrangement.spacedBy(8.dp)){
+                    Text("Сборщица",color=ProtoText,fontSize=22.sp,fontWeight=FontWeight.Bold)
+                    OutlinedTextField(fio,{fio=it.take(80)},label={Text("ФИО")},singleLine=true,colors=protoFieldColors(),modifier=Modifier.fillMaxWidth())
+                    OutlinedTextField(phone,{phone=protoPhoneDigits(it)},label={Text("Телефон")},prefix={Text("+7 ",color=ProtoText)},singleLine=true,keyboardOptions=KeyboardOptions(keyboardType=KeyboardType.Phone),colors=protoFieldColors(),modifier=Modifier.fillMaxWidth())
+                    OutlinedTextField(birth,{birth=it.take(10)},label={Text("Дата рождения (дд.мм.гггг)")},singleLine=true,isError=!birthOk,colors=protoFieldColors(),modifier=Modifier.fillMaxWidth(),
+                        trailingIcon={IconButton(onClick={pickBirth=true}){Icon(Icons.Outlined.CalendarMonth,"Выбрать дату",tint=ProtoGold)}})
+                    OutlinedTextField(comment,{comment=it.take(300)},label={Text("Комментарий")},minLines=2,colors=protoFieldColors(),modifier=Modifier.fillMaxWidth())
+                    Text("О дне рождения придёт напоминание за 1–3 дня и в сам день.",color=ProtoMuted,fontSize=12.sp)
+                    if(a.phone.isNotBlank())ProtoContactActions(a.phone,"Здравствуйте, "+a.name.substringBefore(" ")+"!")
+                    Row(horizontalArrangement=Arrangement.spacedBy(8.dp)){
+                        OutlinedButton(onClick={editing=null},border=BorderStroke(1.dp,ProtoBorder),modifier=Modifier.weight(1f)){Text("Отмена",color=ProtoMuted)}
+                        Button(onClick={onSave(a.copy(name=fio.trim(),phone=if(phone.length==10)protoPhone(phone) else "",birthDate=birth.trim(),comment=comment.trim()));editing=null},enabled=fio.isNotBlank()&&birthOk&&(phone.isEmpty()||phone.length==10),colors=ButtonDefaults.buttonColors(containerColor=ProtoGold),modifier=Modifier.weight(1f)){Text("Сохранить",color=Color.Black)}
+                    }
+                }
+            }
+        }
+    }
+    ProtoScaffold("Сборщицы","Нажмите на сборщицу, чтобы открыть карточку",onBack){
+        item{ProtoSectionCard{ProtoField(name,{name=it},"ФИО сборщицы");ProtoPrimaryButton("Добавить",{if(name.isNotBlank()){onAdd(name);name=""}},enabled=name.isNotBlank())}}
+        val soon=assemblers.filter{it.enabled}.mapNotNull{a->a.daysToBirthday()?.let{d->a to d}}.filter{it.second<=7}.sortedBy{it.second}
+        if(soon.isNotEmpty())item{
             ProtoSectionCard{
+                Text("Дни рождения на этой неделе",color=ProtoGoldSoft,fontWeight=FontWeight.SemiBold)
+                soon.forEach{(a,d)->Text(a.name+" — "+(if(d==0L)"сегодня!" else a.birthDate.take(5)+", через "+d+" дн."),color=if(d==0L)ProtoGold else ProtoText,fontSize=14.sp,modifier=Modifier.padding(top=4.dp))}
+            }
+        }
+        items(assemblers,key={it.id}){assembler->
+            ProtoSectionCard(Modifier.clickable{editing=assembler}){
                 Row(verticalAlignment=Alignment.CenterVertically){
-                    Column(Modifier.weight(1f)){Text(assembler.name,color=ProtoText,fontWeight=FontWeight.SemiBold);Text(if(assembler.enabled)"Активна" else "Отключена",color=if(assembler.enabled)ProtoGreen else ProtoMuted,fontSize=12.sp)}
+                    Column(Modifier.weight(1f)){
+                        Text(assembler.name,color=ProtoText,fontWeight=FontWeight.SemiBold)
+                        val extra=listOfNotNull(assembler.phone.takeIf{it.isNotBlank()},assembler.birthDate.takeIf{it.isNotBlank()}?.let{"д.р. "+it}).joinToString(" · ")
+                        if(extra.isNotBlank())Text(extra,color=ProtoMuted,fontSize=12.sp)
+                        if(assembler.comment.isNotBlank())Text(assembler.comment,color=ProtoGoldSoft,fontSize=12.sp,maxLines=2,overflow=TextOverflow.Ellipsis)
+                        Text(if(assembler.enabled)"Активна" else "Отключена",color=if(assembler.enabled)ProtoGreen else ProtoMuted,fontSize=12.sp)
+                    }
                     Switch(checked=assembler.enabled,onCheckedChange={onToggle(assembler)},colors=SwitchDefaults.colors(checkedTrackColor=ProtoGold,checkedThumbColor=Color.Black))
                 }
             }
         }
     }
+}
+
+/** Выбор даты рождения: год, месяц и день колесом через календарь с быстрым переходом по годам. */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+internal fun ProtoBirthDateDialog(initial:LocalDate?,onDismiss:()->Unit,onPick:(LocalDate)->Unit){
+    val zone=java.time.ZoneOffset.UTC
+    val state=rememberDatePickerState(
+        initialSelectedDateMillis=(initial?:LocalDate.now().minusYears(30)).atStartOfDay(zone).toInstant().toEpochMilli(),
+        yearRange=1940..LocalDate.now().year,
+        initialDisplayMode=DisplayMode.Picker
+    )
+    DatePickerDialog(
+        onDismissRequest=onDismiss,
+        confirmButton={TextButton(enabled=state.selectedDateMillis!=null,onClick={state.selectedDateMillis?.let{onPick(java.time.Instant.ofEpochMilli(it).atZone(zone).toLocalDate())}}){Text("Выбрать",color=ProtoGold)}},
+        dismissButton={TextButton(onClick=onDismiss){Text("Отмена",color=ProtoMuted)}}
+    ){ DatePicker(state=state,title={Text("Дата рождения",modifier=Modifier.padding(start=24.dp,top=16.dp))},showModeToggle=true) }
 }
 
 @Composable

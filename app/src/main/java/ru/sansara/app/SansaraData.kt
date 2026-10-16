@@ -133,7 +133,11 @@ data class AssemblerEntity(
     @PrimaryKey val id: String,
     val name: String,
     val enabled: Boolean = true,
-    val createdAt: Long = System.currentTimeMillis()
+    val createdAt: Long = System.currentTimeMillis(),
+    val phone: String = "",
+    /** Дата рождения «дд.мм.гггг» (пусто — не указана). */
+    val birthDate: String = "",
+    val comment: String = ""
 )
 
 @Entity(tableName = "production_rates")
@@ -660,7 +664,7 @@ interface SansaraDao {
         ExpenseEntity::class,
         ClientHistoryEntity::class
     ],
-    version = 11,
+    version = 12,
     exportSchema = false
 )
 abstract class SansaraDatabase : RoomDatabase() {
@@ -746,6 +750,15 @@ abstract class SansaraDatabase : RoomDatabase() {
             }
         }
 
+        // 0.27: сборщицы — телефон, дата рождения, комментарий. Только добавление колонок.
+        private val MIGRATION_11_12 = object : Migration(11, 12) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE assemblers ADD COLUMN phone TEXT NOT NULL DEFAULT ''")
+                db.execSQL("ALTER TABLE assemblers ADD COLUMN birthDate TEXT NOT NULL DEFAULT ''")
+                db.execSQL("ALTER TABLE assemblers ADD COLUMN comment TEXT NOT NULL DEFAULT ''")
+            }
+        }
+
         // 0.26: задания в цех — время сборки, паузы, перенос остатка, комментарий мастера. Только добавление колонок.
         private val MIGRATION_10_11 = object : Migration(10, 11) {
             override fun migrate(db: SupportSQLiteDatabase) {
@@ -764,7 +777,7 @@ abstract class SansaraDatabase : RoomDatabase() {
                     SansaraDatabase::class.java,
                     "sansara.db"
                 )
-                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11)
+                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12)
                     .build()
                     .also { instance = it }
             }
@@ -799,8 +812,19 @@ data class SansaraCompanyContact(
 data class SansaraAssembler(
     val id: String,
     val name: String,
-    val enabled: Boolean
-)
+    val enabled: Boolean,
+    val phone: String = "",
+    val birthDate: String = "",
+    val comment: String = ""
+) {
+    /** Сколько дней до ближайшего дня рождения (0 — сегодня), null — дата не указана. */
+    fun daysToBirthday(today: java.time.LocalDate = java.time.LocalDate.now()): Long? {
+        val b = protoParseDate(birthDate) ?: return null
+        var next = runCatching { b.withYear(today.year) }.getOrElse { java.time.LocalDate.of(today.year, 3, 1) }
+        if (next.isBefore(today)) next = runCatching { b.withYear(today.year + 1) }.getOrElse { java.time.LocalDate.of(today.year + 1, 3, 1) }
+        return java.time.temporal.ChronoUnit.DAYS.between(today, next)
+    }
+}
 
 data class ProductionPostingLine(
     val sku: String,
@@ -870,7 +894,8 @@ data class SansaraAdminAccount(
     val displayName: String,
     val isMain: Boolean,
     val enabled: Boolean,
-    val role: String = SansaraRole.ADMIN.name
+    val role: String = SansaraRole.ADMIN.name,
+    val phone: String = ""
 )
 
 class SansaraRepository private constructor(
@@ -1043,7 +1068,7 @@ class SansaraRepository private constructor(
                 )
             },
             cart=dao.cart().associate { it.sku to it.qty },
-            assemblers=dao.assemblers().map { SansaraAssembler(it.id,it.name,it.enabled) },
+            assemblers=dao.assemblers().map { SansaraAssembler(it.id,it.name,it.enabled,it.phone,it.birthDate,it.comment) },
             productionRates=rates
         )
     }
@@ -1100,6 +1125,18 @@ class SansaraRepository private constructor(
         dao.putAssemblers(listOf(entity))
         return SansaraAssembler(entity.id,entity.name,entity.enabled)
     }
+
+    /** ФИО, телефон, дата рождения и комментарий сборщицы. */
+    suspend fun saveAssemblerDetails(id:String,name:String,phone:String,birthDate:String,comment:String):SansaraAssembler {
+        val current=dao.assemblers().firstOrNull{it.id==id} ?: error("Сборщица не найдена")
+        require(name.isNotBlank()) { "Укажите ФИО" }
+        require(birthDate.isBlank() || protoParseDate(birthDate)!=null) { "Дата рождения в виде дд.мм.гггг" }
+        val updated=current.copy(name=name.trim(),phone=phone.trim(),birthDate=birthDate.trim(),comment=comment.trim())
+        dao.putAssemblers(listOf(updated))
+        return SansaraAssembler(updated.id,updated.name,updated.enabled,updated.phone,updated.birthDate,updated.comment)
+    }
+
+    suspend fun assemblersList():List<SansaraAssembler> = dao.assemblers().map { SansaraAssembler(it.id,it.name,it.enabled,it.phone,it.birthDate,it.comment) }
 
     suspend fun setAssemblerEnabled(id:String,enabled:Boolean) {
         dao.setAssemblerEnabled(id,enabled)
@@ -1348,7 +1385,7 @@ class SansaraRepository private constructor(
         val controls=dao.adminControls().associateBy{it.userId}
         return dao.staffAccounts().map { account ->
             val control=controls[account.userId]
-            SansaraAdminAccount(account.userId,control?.displayName?:account.firstName,control?.isMain==true,account.enabled,account.role)
+            SansaraAdminAccount(account.userId,control?.displayName?:account.firstName,control?.isMain==true,account.enabled,account.role,account.phone)
         }.sortedWith(compareByDescending<SansaraAdminAccount>{it.isMain}.thenBy{it.role}.thenBy{it.displayName})
     }
 
@@ -1642,6 +1679,29 @@ class SansaraRepository private constructor(
             dao.putClientHistory(listOf(historyEntry(clientId,"Заявка одобрена: статус «"+status+"», скидка "+discount+"%",actor)))
         }
         return ApprovalResult(client,primaryCode,secondaryCode)
+    }
+
+    /** Код входа сотрудника для карточки (видит только главный администратор). */
+    suspend fun staffCode(targetUserId:String,actingUserId:String):String {
+        require(dao.adminControl(actingUserId)?.isMain==true) { "Коды сотрудников видит только главный администратор" }
+        val account=dao.accountByUserId(targetUserId) ?: error("Сотрудник не найден")
+        return runCatching { vault.decrypt(account.accessCodeEncrypted) }.getOrDefault("")
+    }
+
+    /** Новый код сотруднику; старый перестаёт работать. */
+    suspend fun reissueStaffCode(targetUserId:String,actingUserId:String):String {
+        require(dao.adminControl(actingUserId)?.isMain==true) { "Выдавать коды может только главный администратор" }
+        val account=dao.accountByUserId(targetUserId) ?: error("Сотрудник не найден")
+        val code=nextUniqueCode()
+        dao.putAccounts(listOf(account.copy(accessCodeHash=hashCode(code),accessCodeEncrypted=vault.encrypt(code))))
+        return code
+    }
+
+    /** Телефон сотрудника. */
+    suspend fun setStaffPhone(targetUserId:String,phone:String,actingUserId:String) {
+        require(dao.adminControl(actingUserId)?.isMain==true) { "Менять данные может только главный аккаунт" }
+        val account=dao.accountByUserId(targetUserId) ?: error("Сотрудник не найден")
+        dao.putAccounts(listOf(account.copy(phone=phone.trim())))
     }
 
     /** Новый код доступа основному пользователю клиента; старый перестаёт работать. */

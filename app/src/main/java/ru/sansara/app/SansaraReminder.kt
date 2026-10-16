@@ -213,6 +213,8 @@ class SansaraAdminOpsReminderReceiver:BroadcastReceiver(){
                     SansaraAdminOpsReminderScheduler.cancelAll(context)
                     return@runCatching
                 }
+                // Дни рождения сборщиц — в любой день, независимо от рабочего календаря.
+                runCatching { SansaraNotify.birthdayCheck(context) }
                 if(!SansaraAdminOpsReminderScheduler.isWorkday(LocalDate.now())){
                     SansaraAdminOpsReminderScheduler.scheduleAll(context)
                     return@runCatching
