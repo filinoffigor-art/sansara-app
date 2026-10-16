@@ -21,6 +21,7 @@ run 9001 AdminHome AdminSearch AdminClients AdminClient AdminOrders AdminOrderDe
 run 9002 Production ProductionCategory ProductionCatalog ProductionEntry ProductionHistory ProductionReport ProductionPayments ProductionProfile ProductionWorkshop ProductionAttendance ProductionChat
 run 9003 SalesHome SalesShipmentNew SalesShipments SalesClients SalesClient SalesProfile
 run 9001 AdminPayments AdminDashboard
+run 1024 OwnStock
 if [ -z "${ONLY:-}" ] || echo " $ONLY " | grep -q " FilterPolyanki "; then
   adb shell am force-stop ru.sansara.app
   adb shell am start -n ru.sansara.app/.MainActivity --es debug_code 1024 --es debug_screen Filter --es debug_types "Полянки" >/dev/null
