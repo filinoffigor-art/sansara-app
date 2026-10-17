@@ -73,33 +73,32 @@ def branch(out, rng, t, pts, nleaves, lmax, width):
         add_leaf(out, rng, t, x0, y0, ang, lmax * size * rng.uniform(0.8, 1.15), side)
 
 
-def build_wreath(rng, theme):
+def build_wreath(rng, theme, n_sprigs=8):
+    """Even wreath: identical sprigs on one exact circle, repeated every 360/N degrees.
+    The wreath is rotationally symmetric, so it can spin around the logo seamlessly."""
     t = THEMES[theme]
     out = {'back': [], 'stems': [], 'front': []}
-    N = 8
-    for k in range(N):
-        a0 = math.radians(-100 + k * 360 / N + rng.uniform(-5, 5))
-        span = math.radians(rng.uniform(48, 56))
-        bow = rng.uniform(4, 16) * rng.choice([-1, 1])
-        r0 = R_W + rng.uniform(-10, 10)
-        steps = 60
-        pts = []
-        for i in range(steps + 1):
-            s = i / steps
-            a = a0 + span * s
-            r = r0 + bow * math.sin(math.pi * s) + 10 * s   # tip drifts a little outward
-            pts.append((C + r * math.cos(a), C + r * math.sin(a)))
-        branch(out, rng, t, pts, rng.randint(8, 10), 92, 2.2)
-        # one or two side twigs leaning outward
-        for _ in range(rng.choice([1, 2])):
-            s0 = rng.uniform(0.25, 0.6)
-            i0 = int(s0 * steps)
-            (x0, y0), (x1, y1) = pts[i0], pts[i0 + 1]
-            tang = math.atan2(y1 - y0, x1 - x0) - math.radians(rng.uniform(25, 40))
-            ln = rng.uniform(46, 66)
-            tw = [(x0 + ln * q * math.cos(tang + 0.25 * q), y0 + ln * q * math.sin(tang + 0.25 * q)) for q in [i / 12 for i in range(13)]]
-            branch(out, rng, t, tw, rng.randint(2, 3), 56, 1.5)
-    return out['back'] + out['stems'] + out['front']
+    step = 360 / n_sprigs
+    span = math.radians(step + 12)          # sprigs overlap → the stem reads as one continuous circle
+    a0 = math.radians(-90)
+    steps = 60
+    pts = [(C + R_W * math.cos(a0 + span * i / steps), C + R_W * math.sin(a0 + span * i / steps)) for i in range(steps + 1)]
+    nleaves = 10
+    d = 'M ' + ' L '.join(f'{x:.1f},{y:.1f}' for x, y in pts)
+    out['stems'].append(f'<path d="{d}" fill="none" stroke="{t["stem"]}" stroke-width="2.2" stroke-linecap="round"/>')
+    for j in range(nleaves + 1):
+        terminal = j == nleaves
+        s_ = 0.06 + 0.9 * j / nleaves if not terminal else 1.0
+        i = min(steps - 1, int(s_ * steps))
+        (x0, y0), (x1, y1) = pts[i], pts[i + 1]
+        if terminal: x0, y0 = pts[-1]
+        tang = math.atan2(y1 - y0, x1 - x0)
+        side = -1 if j % 2 == 0 else 1          # -1 = outward, +1 = inward
+        ang = tang if terminal else tang + side * math.radians(42 + rng.uniform(-4, 4))
+        size = (1.0 - 0.3 * s_) * (0.62 if side == 1 and not terminal else 1.0)
+        add_leaf(out, rng, t, x0, y0, ang, 86 * size * rng.uniform(0.94, 1.06), side, ghost_p=0.14)
+    sprig = ''.join(out['back'] + out['stems'] + out['front'])
+    return [f'<g transform="rotate({k*step:.2f} {C} {C})">{sprig}</g>' for k in range(n_sprigs)]
 
 
 def text_path(text, font_file, cap_px, target_w, cx, baseline, colors, weight_px=0.0, hscale=1.0):
@@ -157,9 +156,21 @@ for theme in THEMES:
         f'sansara_logo_{theme}.svg': svg(wreath + center, theme),
         f'sansara_wreath_{theme}.svg': svg(wreath, theme),
         f'sansara_center_{theme}.svg': svg(center, theme),
+        f'sansara_logo_{theme}_animated.svg': svg(['<g>'] + wreath + [f'<animateTransform attributeName="transform" type="rotate" from="0 {C} {C}" to="360 {C} {C}" dur="24s" repeatCount="indefinite"/></g>'] + center, theme),
     }
     for name, content in files.items():
         open(os.path.join(OUT, name), 'w').write(content)
     cairosvg.svg2png(bytestring=files[f'sansara_logo_{theme}.svg'].encode(), write_to=os.path.join(OUT, f'sansara_logo_{theme}_2048.png'), output_width=2048, output_height=2048)
     cairosvg.svg2png(bytestring=svg(wreath + center, theme, bg=True).encode(), write_to=os.path.join(OUT, f'preview_{theme}.png'), output_width=1024, output_height=1024)
+    # GIF: wreath is symmetric every 45°, so 45 frames of 1° loop seamlessly (one turn ≈ 24 s at 15 fps)
+    from PIL import Image
+    import io
+    frames = []
+    for f in range(0, 45, 1):
+        body = [f'<g transform="rotate({f} {C} {C})">'] + wreath + ['</g>'] + center
+        png = cairosvg.svg2png(bytestring=svg(body, theme, bg=True).encode(), output_width=480, output_height=480)
+        frames.append(Image.open(io.BytesIO(png)).convert('RGB'))
+    pal = frames[0].quantize(colors=128, method=Image.Quantize.MEDIANCUT)
+    q = [fr.quantize(palette=pal, dither=Image.Dither.NONE) for fr in frames]
+    q[0].save(os.path.join(OUT, f'sansara_logo_{theme}_spin.gif'), save_all=True, append_images=q[1:], duration=67, loop=0, optimize=True)
 print('ok', OUT)
