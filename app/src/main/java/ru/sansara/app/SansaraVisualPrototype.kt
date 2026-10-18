@@ -945,6 +945,13 @@ fun SansaraVisualPrototype() {
             val dbgIntent = (context as? android.app.Activity)?.intent
             val dbgCode = dbgIntent?.getStringExtra("debug_code").orEmpty()
             val dbgScreen = dbgIntent?.getStringExtra("debug_screen").orEmpty()
+            if (dbgIntent?.getStringExtra("debug_section") == "welcome") settingsSection = "Приветственный экран"
+            // Снимки экрана: пример оформленных надписей на приветствии.
+            if (dbgIntent?.getStringExtra("debug_welcome") == "demo") prefs.edit()
+                .putString("welcome_promo_title", "СКИДКА 10%\nНА ВЕНКИ ПРЕМИУМ")
+                .putString("welcome_promo_text", "До конца месяца для всех партнёров")
+                .putString(ProtoPromoStyle.PREF_KEY, ProtoPromoStyle(titleFont = "cormorant", titleSize = 30, titlePos = 7, textFont = "montserrat", textSize = 14, textPos = 7).toJson())
+                .apply()
             if (dbgCode.isNotBlank()) {
                 val res = authProvider.signInWithAccessCode(dbgCode)
                 if (res.ok) {

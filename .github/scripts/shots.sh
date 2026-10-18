@@ -24,6 +24,19 @@ run 9002 Production ProductionCategory ProductionCatalog ProductionEntry Product
 run 9003 SalesHome SalesShipmentNew SalesShipments SalesClients SalesClient SalesProfile
 run 9001 AdminPayments AdminDashboard
 run 1024 OwnStock
+# Приветственный экран: настройки оформления надписей и результат на приветствии.
+if [ -z "${ONLY:-}" ] || echo " $ONLY " | grep -q " WelcomeStyle "; then
+  adb shell am force-stop ru.sansara.app
+  adb shell am start -n ru.sansara.app/.MainActivity --es debug_code 9001 --es debug_screen AdminSettingsDetail --es debug_section welcome --es debug_welcome demo >/dev/null
+  sleep 6
+  adb exec-out screencap -p > "shots/85_WelcomeStyleSettings.png"
+  adb shell input swipe 540 1900 540 500 400; sleep 2
+  adb exec-out screencap -p > "shots/86_WelcomeStyleEditor.png"
+  adb shell am force-stop ru.sansara.app
+  adb shell am start -n ru.sansara.app/.MainActivity >/dev/null
+  sleep 6
+  adb exec-out screencap -p > "shots/87_WelcomeStyled.png"
+fi
 if [ -z "${ONLY:-}" ] || echo " $ONLY " | grep -q " FilterPolyanki "; then
   adb shell am force-stop ru.sansara.app
   adb shell am start -n ru.sansara.app/.MainActivity --es debug_code 1024 --es debug_screen Filter --es debug_types "Полянки" >/dev/null
