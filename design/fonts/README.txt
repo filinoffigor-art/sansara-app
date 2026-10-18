@@ -1,0 +1,1 @@
+Шрифты надписей приветственного экрана (res/font/proto_font_*.ttf): Montserrat, Cormorant Garamond, Playfair Display, Marck Script — Google Fonts, лицензия SIL Open Font License 1.1 (OFL-license.txt). Оставлены латиница и кириллица.

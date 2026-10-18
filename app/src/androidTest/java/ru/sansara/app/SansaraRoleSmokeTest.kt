@@ -312,4 +312,27 @@ class SansaraRoleSmokeTest {
         click("В BOSS")
         waitText("Здравствуйте, BOSS")
     }
+
+    @Test
+    fun adminChangesWelcomeFontSizeAndPlace() {
+        login("9001")
+        waitText("Здравствуйте, BOSS")
+        click("Профиль")
+        click("Приветственный экран")
+        waitText("Оформление надписей")
+        type("Заголовок (до 3 строк)", "АКЦИЯ НЕДЕЛИ")
+        scrollTo("Cormorant")
+        click("Cormorant")                                   // первый ряд шрифтов — заголовок
+        scrollTo("Место на картинке")
+        clickDesc("Заголовок: место 8")                      // внизу по центру
+        scrollTo("Вернуть оформление по умолчанию")
+        compose.onAllNodes(hasText("Сохранить") and hasClickAction()).onLast().performScrollTo().performClick()
+        compose.waitForIdle()
+        val raw = compose.activity.getSharedPreferences("sansara", android.content.Context.MODE_PRIVATE).getString("welcome_promo_style", null)
+        val st = ProtoPromoStyle.fromJson(raw)
+        assertEquals("cormorant", st.titleFont)
+        assertEquals(7, st.titlePos)
+        compose.activityRule.scenario.recreate()
+        waitText("АКЦИЯ НЕДЕЛИ")
+    }
 }

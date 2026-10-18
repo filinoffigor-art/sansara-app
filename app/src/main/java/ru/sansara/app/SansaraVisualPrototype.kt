@@ -1720,7 +1720,8 @@ fun SansaraVisualPrototype() {
                 onPickupSave = { list -> prefs.edit().putString("pickup_points", list.joinToString("\n")).apply(); toast("Точки самовывоза сохранены: " + list.size); back() },
                 promoTitle = prefs.getString("welcome_promo_title", "").orEmpty(),
                 promoText = prefs.getString("welcome_promo_text", "").orEmpty(),
-                onPromoSave = { t, x -> prefs.edit().putString("welcome_promo_title", t).putString("welcome_promo_text", x).apply(); toast("Приветственный экран обновлён"); back() },
+                onPromoSave = { t, x, st -> prefs.edit().putString("welcome_promo_title", t).putString("welcome_promo_text", x).putString(ProtoPromoStyle.PREF_KEY, st.toJson()).apply(); toast("Приветственный экран обновлён"); back() },
+                promoStyle = ProtoPromoStyle.fromJson(prefs.getString(ProtoPromoStyle.PREF_KEY, null)),
                 promoImageVersion = welcomeImageVersion,
                 minOrder = minOrderTrading,
                 onMinOrder = { v -> minOrderTrading = v; prefs.edit().putInt("min_order_trading", v).apply(); toast(if (v > 0) "Минимальный заказ: " + protoMoney(v) else "Минимальный заказ отключён"); back() },
@@ -2620,6 +2621,7 @@ fun SansaraVisualPrototype() {
                 onRole = { if (BuildConfig.DEBUG) showRolePicker = true },
                 promoTitle = prefs.getString("welcome_promo_title", "").orEmpty(),
                 promoText = prefs.getString("welcome_promo_text", "").orEmpty(),
+                promoStyle = ProtoPromoStyle.fromJson(prefs.getString(ProtoPromoStyle.PREF_KEY, null)),
                 signedIn = session != null,
                 promoImageVersion = welcomeImageVersion
             )
@@ -2957,14 +2959,14 @@ internal fun ProtoSecondaryButton(text:String,onClick:()->Unit,modifier:Modifier
 }
 
 @Composable
-internal fun ProtoWelcomeScreen(onLogin:()->Unit,onRegister:()->Unit,onRole:()->Unit,promoTitle:String="УВАЖЕНИЕ\nВ КАЖДОЙ\nДЕТАЛИ",promoText:String="",signedIn:Boolean=false,promoImageVersion:Long=0L) {
+internal fun ProtoWelcomeScreen(onLogin:()->Unit,onRegister:()->Unit,onRole:()->Unit,promoTitle:String="УВАЖЕНИЕ\nВ КАЖДОЙ\nДЕТАЛИ",promoText:String="",signedIn:Boolean=false,promoImageVersion:Long=0L,promoStyle:ProtoPromoStyle=ProtoPromoStyle()) {
     val context=LocalContext.current
     // Невысокие экраны (до ~680 dp) и крупный шрифт: экран прокручивается, карточка получает фиксированную высоту,
     // надпись уменьшается. На планшете колонка не шире 560 dp и стоит по центру.
     val fontScale=androidx.compose.ui.platform.LocalDensity.current.fontScale
     Box(Modifier.fillMaxSize()){ProtoLiveBackground();BoxWithConstraints(Modifier.fillMaxSize()){val compact=maxHeight<680.dp||(fontScale>1.15f&&maxHeight<900.dp);Column(Modifier.align(Alignment.TopCenter).widthIn(max=560.dp).fillMaxWidth().fillMaxHeight().then(if(compact)Modifier.verticalScroll(androidx.compose.foundation.rememberScrollState()) else Modifier).padding(horizontal=18.dp)){
         Spacer(Modifier.height(if(compact)10.dp else 18.dp));Image(painterResource(R.drawable.sansara_wordmark_large),"SANSARA",Modifier.fillMaxWidth().height(if(compact)68.dp else 96.dp).padding(horizontal=6.dp).clickable{onRole()},contentScale=ContentScale.Fit);Spacer(Modifier.height(if(compact)8.dp else 14.dp))
-        Card(colors=CardDefaults.cardColors(containerColor=ProtoPanel),border=BorderStroke(1.dp,ProtoBorder),shape=RoundedCornerShape(22.dp),modifier=if(compact)Modifier.fillMaxWidth().height(210.dp) else Modifier.fillMaxWidth().weight(1f)){Box(Modifier.fillMaxSize()){val promoFile=remember(promoImageVersion){protoWelcomeImageFile(context).takeIf{promoImageVersion>0L&&it.exists()}};if(promoFile!=null)AsyncImage(model=coil.request.ImageRequest.Builder(context).data(promoFile).memoryCacheKey("welcome-$promoImageVersion").diskCacheKey("welcome-$promoImageVersion").build(),contentDescription=null,modifier=Modifier.fillMaxSize(),contentScale=ContentScale.Crop,error=painterResource(R.drawable.mock_wreath)) else Image(painterResource(R.drawable.mock_wreath),null,Modifier.fillMaxSize(),contentScale=ContentScale.Crop);Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha=.38f)));Column(Modifier.align(Alignment.CenterStart).padding(24.dp)){Text(promoTitle.ifBlank{"УВАЖЕНИЕ\nВ КАЖДОЙ\nДЕТАЛИ"},color=ProtoGoldSoft,fontSize=22.sp,lineHeight=32.sp,fontWeight=FontWeight.Medium,letterSpacing=3.sp);if(promoText.isNotBlank())Text(promoText,color=ProtoText,fontSize=15.sp,lineHeight=21.sp,modifier=Modifier.padding(top=12.dp))}}}
+        Card(colors=CardDefaults.cardColors(containerColor=ProtoPanel),border=BorderStroke(1.dp,ProtoBorder),shape=RoundedCornerShape(22.dp),modifier=if(compact)Modifier.fillMaxWidth().height(210.dp) else Modifier.fillMaxWidth().weight(1f)){Box(Modifier.fillMaxSize()){val promoFile=remember(promoImageVersion){protoWelcomeImageFile(context).takeIf{promoImageVersion>0L&&it.exists()}};if(promoFile!=null)AsyncImage(model=coil.request.ImageRequest.Builder(context).data(promoFile).memoryCacheKey("welcome-$promoImageVersion").diskCacheKey("welcome-$promoImageVersion").build(),contentDescription=null,modifier=Modifier.fillMaxSize(),contentScale=ContentScale.Crop,error=painterResource(R.drawable.mock_wreath)) else Image(painterResource(R.drawable.mock_wreath),null,Modifier.fillMaxSize(),contentScale=ContentScale.Crop);Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha=.38f)));ProtoPromoOverlay(promoTitle,promoText,promoStyle)}}
         Spacer(Modifier.height(18.dp));Text("Добро пожаловать",color=ProtoText,fontSize=31.sp,fontWeight=FontWeight.Bold)
         Text("Работаем с агентами и торговыми организациями. Заказывайте продукцию, отслеживайте наличие и оформляйте поставки в одном приложении.",color=ProtoMuted,fontSize=14.sp,lineHeight=20.sp,modifier=Modifier.padding(top=10.dp,bottom=18.dp))
         ProtoPrimaryButton(if(signedIn)"Войти в кабинет" else "Войти",onLogin);Spacer(Modifier.height(10.dp));ProtoSecondaryButton("Стать партнёром",onRegister)

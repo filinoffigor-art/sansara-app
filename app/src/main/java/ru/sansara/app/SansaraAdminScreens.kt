@@ -784,7 +784,8 @@ internal fun ProtoAdminSettingsDetailScreen(
     onRate: (List<String>, Int) -> Unit,
     promoTitle: String = "",
     promoText: String = "",
-    onPromoSave: (String, String) -> Unit = { _, _ -> },
+    onPromoSave: (String, String, ProtoPromoStyle) -> Unit = { _, _, _ -> },
+    promoStyle: ProtoPromoStyle = ProtoPromoStyle(),
     promoImageVersion: Long = 0L,
     minOrder: Int = 35_000,
     onMinOrder: (Int) -> Unit = {},
@@ -808,6 +809,7 @@ internal fun ProtoAdminSettingsDetailScreen(
             "Приветственный экран" -> item {
                 var title by remember(promoTitle) { mutableStateOf(promoTitle) }
                 var text by remember(promoText) { mutableStateOf(promoText) }
+                var style by remember(promoStyle) { mutableStateOf(promoStyle) }
                 val ctx = LocalContext.current
                 ProtoSectionCard {
                     Text("Картинка экрана «Добро пожаловать»", color = ProtoText, fontWeight = FontWeight.SemiBold)
@@ -818,7 +820,8 @@ internal fun ProtoAdminSettingsDetailScreen(
                         if (file != null) coil.compose.AsyncImage(model = coil.request.ImageRequest.Builder(ctx).data(file).memoryCacheKey("welcome-$promoImageVersion").build(), contentDescription = null, modifier = Modifier.fillMaxSize(), contentScale = androidx.compose.ui.layout.ContentScale.Crop)
                         else androidx.compose.foundation.Image(painterResource(R.drawable.mock_wreath), null, Modifier.fillMaxSize(), contentScale = androidx.compose.ui.layout.ContentScale.Crop)
                         Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = .38f)))
-                        Text((title.ifBlank { "УВАЖЕНИЕ\nВ КАЖДОЙ\nДЕТАЛИ" }), color = ProtoGoldSoft, fontSize = 18.sp, lineHeight = 26.sp, letterSpacing = 2.sp, modifier = Modifier.align(Alignment.CenterStart).padding(18.dp))
+                        // Предпросмотр: те же шрифты, размеры и места, что на экране приветствия.
+                        ProtoPromoOverlay(title, text, style, padding = 18.dp)
                     }
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         Button(onClick = { pickImage.launch(androidx.activity.result.PickVisualMediaRequest(androidx.activity.result.contract.ActivityResultContracts.PickVisualMedia.ImageOnly)) }, colors = ButtonDefaults.buttonColors(containerColor = ProtoGold), modifier = Modifier.weight(1f)) { Text("Выбрать картинку", color = Color.Black) }
@@ -830,9 +833,21 @@ internal fun ProtoAdminSettingsDetailScreen(
                     Text("Текст на фото экрана «Добро пожаловать». Пусто — «Уважение в каждой детали».", color = ProtoMuted, fontSize = 13.sp)
                     OutlinedTextField(value = title, onValueChange = { title = it.take(60) }, label = { Text("Заголовок (до 3 строк)") }, modifier = Modifier.fillMaxWidth().padding(top = 8.dp), minLines = 2, maxLines = 3, colors = protoFieldColors())
                     OutlinedTextField(value = text, onValueChange = { text = it.take(140) }, label = { Text("Акция или новость") }, modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp), minLines = 2, maxLines = 4, colors = protoFieldColors())
-                    ProtoPrimaryButton("Сохранить", { onPromoSave(title.trim(), text.trim()) })
-                    Text("Без сервера текст меняется только на этом телефоне.", color = ProtoOrange, fontSize = 12.sp, modifier = Modifier.padding(top = 6.dp))
+                    Text("Изменения сразу видны на картинке выше.", color = ProtoMuted, fontSize = 12.sp)
                 }
+                Spacer(Modifier.height(10.dp))
+                ProtoSectionCard {
+                    Text("Оформление надписей", color = ProtoText, fontSize = 17.sp, fontWeight = FontWeight.Bold)
+                    ProtoPromoTextStyleEditor("Заголовок", style.titleFont, style.titleSize, style.titlePos, ProtoPromoStyle.TITLE_SIZES,
+                        onFont = { style = style.copy(titleFont = it) }, onSize = { style = style.copy(titleSize = it) }, onPos = { style = style.copy(titlePos = it) })
+                    HorizontalDivider(color = ProtoBorder, modifier = Modifier.padding(top = 12.dp))
+                    ProtoPromoTextStyleEditor("Акция или новость", style.textFont, style.textSize, style.textPos, ProtoPromoStyle.TEXT_SIZES,
+                        onFont = { style = style.copy(textFont = it) }, onSize = { style = style.copy(textSize = it) }, onPos = { style = style.copy(textPos = it) })
+                    if (style != ProtoPromoStyle()) TextButton(onClick = { style = ProtoPromoStyle() }) { Text("Вернуть оформление по умолчанию", color = ProtoGold) }
+                }
+                Spacer(Modifier.height(10.dp))
+                ProtoPrimaryButton("Сохранить", { onPromoSave(title.trim(), text.trim(), style) })
+                Text("Без сервера текст и оформление меняются только на этом телефоне.", color = ProtoOrange, fontSize = 12.sp, modifier = Modifier.padding(top = 6.dp))
             }
             "Профиль компании" -> item {
                 ProtoSectionCard {
