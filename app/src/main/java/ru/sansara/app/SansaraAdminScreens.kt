@@ -813,7 +813,7 @@ internal fun ProtoAdminSettingsDetailScreen(
                 val ctx = LocalContext.current
                 ProtoSectionCard {
                     Text("Картинка экрана «Добро пожаловать»", color = ProtoText, fontWeight = FontWeight.SemiBold)
-                    Text("Рекламная или информационная. Лучше вертикальная, текст поверх неё будет слева.", color = ProtoMuted, fontSize = 12.sp)
+                    Text("Рекламная или информационная. Лучше вертикальная. Шрифт, размер и место надписей — ниже, в «Оформлении надписей».", color = ProtoMuted, fontSize = 12.sp)
                     // Предпросмотр в пропорциях карточки на экране приветствия.
                     Box(Modifier.fillMaxWidth().aspectRatio(0.9f).padding(vertical = 8.dp).clip(RoundedCornerShape(18.dp)).background(ProtoPanel2)) {
                         val file = protoWelcomeImageFile(ctx).takeIf { promoImageVersion > 0L && it.exists() }
