@@ -1184,9 +1184,20 @@ internal fun ProtoOrderDetailScreen(
     onApprove: (() -> Unit)? = null,
     onReject: ((String) -> Unit)? = null,
     onShiftDelivery: ((Int) -> Unit)? = null,
-    onEdit: ((List<ProtoOrderLine>, String) -> Unit)? = null
+    onEdit: ((List<ProtoOrderLine>, String) -> Unit)? = null,
+    /** Расчёты: клиент заказа (для правила отсрочки), сообщение клиента об оплате, подтверждение, условия. */
+    payClient: ProtoClient? = null,
+    onReportPayment: ((Int, String, String, String) -> Unit)? = null,
+    onConfirmPayment: ((String) -> Unit)? = null,
+    onRejectPayment: ((String) -> Unit)? = null,
+    onTerms: ((Int) -> Unit)? = null
 ) {
     val o = order ?: return
+    val terms = remember(o, payClient) { protoOrderTerms(o, payClient) }
+    var reportDialog by remember(o.id) { mutableStateOf(false) }
+    var termsDialog by remember(o.id) { mutableStateOf(false) }
+    if (reportDialog && onReportPayment != null) ProtoReportPaymentDialog(o, onDismiss = { reportDialog = false }) { a, m, d, c -> reportDialog = false; onReportPayment(a, m, d, c) }
+    if (termsDialog && onTerms != null) ProtoOrderTermsDialog(o, payClient, onDismiss = { termsDialog = false }) { days -> termsDialog = false; onTerms(days) }
     val finished = o.status in protoHistoryStatuses
     val awaitingApproval = o.status == "На согласовании"
     var paymentDialog by remember(o.id) { mutableStateOf(false) }
@@ -1310,18 +1321,13 @@ internal fun ProtoOrderDetailScreen(
             }
         }
         if (o.status != "Отменён" && o.status != "Отклонён") item {
-            ProtoSectionCard {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text("Оплата", color = ProtoGoldSoft, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
-                    ProtoPill(o.paymentStatus, when (o.paymentStatus) { "Оплачен полностью" -> ProtoGreen; "Оплачен частично" -> ProtoOrange; else -> ProtoMuted })
-                }
-                if (o.paid > 0) {
-                    ProtoInfoRow("Оплачено", protoMoney(o.paid))
-                    if (o.due > 0) ProtoInfoRow("Осталось оплатить", protoMoney(o.due))
-                    o.payments.forEach { p -> Text(p.date + " · " + p.method + " · " + protoMoney(p.amount) + if (p.comment.isNotBlank()) " · " + p.comment else "", color = ProtoMuted, fontSize = 12.sp, modifier = Modifier.padding(top = 3.dp)) }
-                } else Text("К оплате " + protoMoney(o.total), color = ProtoMuted, fontSize = 13.sp, modifier = Modifier.padding(top = 4.dp))
-                if (isAdmin && onPayment != null && o.due > 0) { Spacer(Modifier.height(8.dp)); ProtoSecondaryButton("Отметить оплату", { paymentDialog = true }) }
-            }
+            ProtoOrderPaymentSection(
+                o = o, terms = if (o.status == "На согласовании") null else terms, isAdmin = isAdmin,
+                onAdminPayment = onPayment?.let { { paymentDialog = true } },
+                onReport = onReportPayment?.let { { reportDialog = true } },
+                onConfirm = onConfirmPayment, onRejectPayment = onRejectPayment,
+                onTerms = onTerms?.let { { termsDialog = true } }
+            )
         }
         item {
             Column(verticalArrangement = Arrangement.spacedBy(9.dp)) {
@@ -1454,20 +1460,20 @@ internal fun ProtoClientTypeBadge(type: String) {
 @Composable
 internal fun ProtoPaymentDialog(order: ProtoOrder, onDismiss: () -> Unit, onSave: (Int, String, String, String) -> Unit) {
     var amount by remember { mutableStateOf(order.due.toString()) }
-    var method by remember { mutableStateOf("Расчётный счёт") }
+    var method by remember { mutableStateOf("Наличные") }
     var date by remember { mutableStateOf(currentDateShort()) }
     var comment by remember { mutableStateOf("") }
     val value = amount.toIntOrNull() ?: 0
     val dateOk = protoParseDate(date) != null
     AlertDialog(
         onDismissRequest = onDismiss, containerColor = ProtoPanel,
-        title = { Text("Оплата по заказу № " + order.id, color = ProtoText) },
+        title = { Text("Деньги получены · № " + order.id, color = ProtoText) },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 Text("К оплате " + protoMoney(order.total) + (if (order.paid > 0) " · уже оплачено " + protoMoney(order.paid) else ""), color = ProtoMuted, fontSize = 13.sp)
                 OutlinedTextField(amount, { amount = it.filter(Char::isDigit).take(9) }, label = { Text("Сумма, ₽") }, singleLine = true, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), colors = protoFieldColors(), modifier = Modifier.fillMaxWidth())
                 Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    listOf("Расчётный счёт", "СБП", "Наличные").forEach { m ->
+                    listOf("Наличные", "СБП", "Расчётный счёт").forEach { m ->
                         val sel = method == m
                         Surface(onClick = { method = m }, shape = RoundedCornerShape(16.dp), color = if (sel) ProtoGold else Color.Transparent, border = BorderStroke(1.dp, if (sel) ProtoGold else ProtoBorder)) {
                             Text(m, color = if (sel) Color.Black else ProtoText, fontSize = 12.sp, modifier = Modifier.padding(horizontal = 9.dp, vertical = 7.dp))

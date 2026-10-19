@@ -95,7 +95,7 @@ internal enum class ProtoScreen {
     Production, ProductionCategory, ProductionCatalog, ProductionEntry, ProductionHistory, ProductionReport, ProductionPayments, ProductionProfile, ProductionWorkshop, ProductionAttendance, ProductionChat,
     Server, StockList, ReserveList, NewClients, Export, AdminAssemblers,
     SalesHome, SalesShipmentNew, SalesShipments, SalesClients, SalesClient, AdminPayments, AdminDashboard, SalesProfile,
-    OwnStock
+    OwnStock, AdminSettlements
 }
 
 internal enum class ProtoClientType(val label: String) { AGENT("Агент"), TRADING("Торгующая организация") }
@@ -156,7 +156,10 @@ data class ProtoClient(
     val orderingEnabled: Boolean = true,
     val city: String = "",
     val address: String = "",
-    val firstName: String = contact.substringBefore(" ").ifBlank { name.substringBefore(" ") }
+    val firstName: String = contact.substringBefore(" ").ifBlank { name.substringBefore(" ") },
+    /** Общее правило отсрочки на все отгрузки клиента. */
+    val deferralEnabled: Boolean = false,
+    val deferralDays: Int = 0
 )
 
 data class ProtoOrderLine(
@@ -181,7 +184,14 @@ fun protoUnitPrice(price: Int, discountPct: Int): Int = price * (100 - discountP
 data class ProtoOrderEvent(val status: String, val dateTime: String, val actor: String, val note: String = "")
 
 /** Платёж по заказу, отмеченный администратором (позже — автоматически по банку). */
-data class ProtoPayment(val amount: Int, val date: String, val method: String, val comment: String = "", val by: String = "")
+/**
+ * Оплата по заказу. Внесённая администратором — сразу «деньги получены» (confirmed).
+ * Сообщённая клиентом — ждёт подтверждения администратора и до этого в «Оплачено» не входит.
+ */
+data class ProtoPayment(
+    val amount: Int, val date: String, val method: String, val comment: String = "", val by: String = "",
+    val id: String = "", val confirmed: Boolean = true, val fromClient: Boolean = false, val confirmedBy: String = ""
+)
 
 data class ProtoOrder(
     val id: String,
@@ -202,9 +212,14 @@ data class ProtoOrder(
     val retailCustomerName: String = "",
     val payments: List<ProtoPayment> = emptyList(),
     /** «Агент» или «Торгующая организация» на момент оформления. */
-    val clientType: String = ""
+    val clientType: String = "",
+    /** Отсрочка по этому заказу: −1 — по правилу клиента, 0 — без отсрочки, N — дней после отгрузки. */
+    val deferralDays: Int = -1
 ) {
-    val paid: Int get() = payments.sumOf { it.amount }
+    /** Только подтверждённые деньги («деньги получены»). */
+    val paid: Int get() = payments.filter { it.confirmed }.sumOf { it.amount }
+    /** Клиент сообщил об оплате, администратор ещё не подтвердил. */
+    val pendingPaid: Int get() = payments.filter { !it.confirmed }.sumOf { it.amount }
     val due: Int get() = (total - paid).coerceAtLeast(0)
     val paymentStatus: String get() = when {
         paid <= 0 -> "Не оплачен"
@@ -384,6 +399,7 @@ fun SansaraVisualPrototype() {
     val prefs = remember { context.getSharedPreferences("sansara", Context.MODE_PRIVATE) }
     var welcomeImageVersion by remember { mutableStateOf(prefs.getLong("welcome_promo_image_v", 0L)) }
     var minOrderTrading by remember { mutableStateOf(prefs.getInt("min_order_trading", 35_000)) }
+    var settlementsTab by remember { mutableStateOf("pending") }
     /** Минимальная сумма заказа: только для торгующих организаций, у агентов минимума нет. */
     fun minOrderFor(c: ProtoClient): Int = if (c.clientType.contains("Торг", ignoreCase = true)) minOrderTrading else 0
     var belowMinPrompt by remember { mutableStateOf<Triple<Int, Int, () -> Unit>?>(null) }
@@ -566,7 +582,29 @@ fun SansaraVisualPrototype() {
     }
     fun adminActorName(): String = session?.firstName?.ifBlank { null } ?: "Администратор"
     /** Тип клиента заказа: сохранённый при оформлении, иначе — из карточки клиента. */
+    /** Клиент заказа — для правила отсрочки и итогов расчётов. */
+    fun clientOfOrder(o: ProtoOrder): ProtoClient? = clients.firstOrNull { it.id == o.clientId } ?: clients.firstOrNull { it.name == o.clientName.substringBefore(" / ") }
+    fun orderPaymentsPending(): Int = orders.sumOf { o -> o.payments.count { !it.confirmed } }
     fun orderClientType(o: ProtoOrder): String = o.clientType.ifBlank { clients.firstOrNull { it.id == o.clientId || it.name == o.clientName }?.clientType.orEmpty() }
+    // Сроки оплаты: один раз на заказ — напоминание клиенту за день и в день срока, о просрочке — клиенту и администратору.
+    LaunchedEffect(dataReady, orders.size, currentDateShort()) {
+        if (!dataReady) return@LaunchedEffect
+        orders.filter { it.status !in protoNotInTurnover && it.due > 0 }.forEach { o ->
+            val t = protoOrderTerms(o, clientOfOrder(o))
+            val key = o.clientId.ifBlank { o.clientName }
+            when {
+                t.state == ProtoPayState.OVERDUE && !prefs.getBoolean("pay_od_" + o.id, false) -> {
+                    prefs.edit().putBoolean("pay_od_" + o.id, true).apply()
+                    addNotification("ADMIN", "ADMIN", "Просрочена оплата · " + o.id, o.clientName + " · долг " + protoMoney(o.due) + " · " + t.label, orderId = o.id)
+                    addNotification("CLIENT", key, "Срок оплаты прошёл · " + o.id, "Осталось оплатить " + protoMoney(o.due) + ". " + t.label, orderId = o.id)
+                }
+                t.state == ProtoPayState.DEFERRED && t.daysLeft != null && t.daysLeft in 0..1 && !prefs.getBoolean("pay_soon_" + o.id, false) -> {
+                    prefs.edit().putBoolean("pay_soon_" + o.id, true).apply()
+                    addNotification("CLIENT", key, "Скоро срок оплаты · " + o.id, "Оплатить " + protoMoney(o.due) + (if (t.daysLeft == 0) " сегодня" else " до завтра") + " (" + t.label.lowercase() + ")", orderId = o.id)
+                }
+            }
+        }
+    }
     fun orderingBlocked(): Boolean { val c = currentClient(); return c.status == "Приостановлен" || !c.orderingEnabled }
     fun setCartQty(p: ProtoCatalogProduct, q: Int) {
         if (orderingBlocked()) { toast("Оформление заказов временно приостановлено"); go(ProtoScreen.Suspended); return }
@@ -1284,6 +1322,16 @@ fun SansaraVisualPrototype() {
                 order = orders.firstOrNull { it.id == selectedOrderId },
                 products = products,
                 isAdmin = false,
+                payClient = client,
+                onReportPayment = { amount, method, date, comment -> guarded("сообщить об оплате") {
+                    updateOrder(selectedOrderId) { o ->
+                        val upd = o.copy(payments = o.payments + ProtoPayment(amount, date, method, comment, actor(client.contact), id = protoNewPaymentId(), confirmed = false, fromClient = true))
+                        upd.copy(history = upd.history + ProtoOrderEvent("Оплата", nowStamp(), actor(client.contact), "Сообщил об оплате " + protoMoney(amount) + " · " + method))
+                    }?.let { o ->
+                        addNotification("ADMIN", "ADMIN", "Клиент сообщил об оплате · " + o.id, client.name + " · " + protoMoney(amount) + " · " + method + ". Подтвердите, что деньги получены.", orderId = o.id)
+                        toast("Отправлено. Оплата засчитается после подтверждения")
+                    }
+                } },
                 onBack = { back() },
                 onStatus = {},
                 onRepeat = { orders.firstOrNull { it.id == selectedOrderId }?.let { repeatOrder(it, edit = false) } },
@@ -1379,7 +1427,7 @@ fun SansaraVisualPrototype() {
                 onNotifications = { notificationsOrders = it },
                 onBack = { back() }
             )
-            ProtoScreen.Profile -> ProtoProfileScreen(currentClient(), onBack = { back() }, onCall = { protoDial(context) }, onLogout = { signOut() }, onHome = { history.clear(); screen = ProtoScreen.Home }, onCatalog = { go(ProtoScreen.Catalog) }, onCart = { go(ProtoScreen.Cart) }, onOrders = { go(ProtoScreen.OrderList) }, onAnalytics = { refreshShipments(); go(ProtoScreen.ClientReports) })
+            ProtoScreen.Profile -> ProtoProfileScreen(currentClient(), settlement = currentClient().let { c -> protoSettlement(ordersOfClientAll(c), { c }) }, onBack = { back() }, onCall = { protoDial(context) }, onLogout = { signOut() }, onHome = { history.clear(); screen = ProtoScreen.Home }, onCatalog = { go(ProtoScreen.Catalog) }, onCart = { go(ProtoScreen.Cart) }, onOrders = { go(ProtoScreen.OrderList) }, onAnalytics = { refreshShipments(); go(ProtoScreen.ClientReports) })
             ProtoScreen.Suspended -> ProtoSuspendedScreen(onCall = { protoDial(context) }, onMessage = { protoMessage(context) }, onBack = { back() }, onCatalog = { go(ProtoScreen.Catalog) }, onHome = { history.clear(); screen = ProtoScreen.Home }, onOrders = { go(ProtoScreen.OrderList) })
 
             else -> Unit
@@ -1396,7 +1444,7 @@ fun SansaraVisualPrototype() {
                     newOrders = orders.count { it.status == "Получен" },
                     deliveriesToday = orders.count { protoParseDate(it.deliveryDate) == today && it.status !in setOf("Доставлен", "Отменён") },
                     newRegistrations = registrations.count { it.status != "Отклонена" },
-                    paymentsPending = shipments.count { it.moneyStatus == "REQUESTED" },
+                    paymentsPending = shipments.count { it.moneyStatus == "REQUESTED" } + orderPaymentsPending(),
                     unreadChats = chatMessages.count { !it.read && it.senderRole != "ADMIN" },
                     lowStockCount = catalogProducts.count { availableStock(it) <= lowStockThreshold },
                     activeClients = clients.count { it.status != "Приостановлен" },
@@ -1409,7 +1457,7 @@ fun SansaraVisualPrototype() {
                     onApprovals = { adminOrdersStatus = "На согласовании"; adminOrdersDate = "Все даты"; go(ProtoScreen.AdminOrders) },
                     onDeliveriesToday = { adminOrdersStatus = "Все"; adminOrdersDate = "Сегодня"; go(ProtoScreen.AdminOrders) },
                     onRegistrations = { go(ProtoScreen.AdminAttention) },
-                    onPayments = { refreshShipments(); go(ProtoScreen.AdminPayments) },
+                    onPayments = { refreshShipments(); settlementsTab = "pending"; go(ProtoScreen.AdminSettlements) },
                     onChats = { go(ProtoScreen.AdminChats) },
                     onLowStock = { go(ProtoScreen.LowStockList) },
                     onClients = { openTab(ProtoScreen.AdminHome, ProtoScreen.AdminClients) },
@@ -1468,6 +1516,13 @@ fun SansaraVisualPrototype() {
                         }
                     },
                     onOpenOrder = { selectedOrderId = it.id; go(ProtoScreen.AdminOrderDetail) },
+                    onDeferral = { on, days -> guarded("изменить отсрочку клиента") {
+                        updateClient(selectedClientId, if (on) "Отсрочка платежа: $days дн. после отгрузки" else "Отсрочка платежа выключена") { it.copy(deferralEnabled = on, deferralDays = if (on) days else 0) }
+                        clients.firstOrNull { it.id == selectedClientId }?.let { c ->
+                            addNotification("CLIENT", c.id, "Условия оплаты", if (on) "Вам открыта отсрочка платежа: $days дн. после отгрузки" else "Отсрочка платежа отключена, заказы оплачиваются без отсрочки")
+                        }
+                        toast(if (on) "Отсрочка $days дн. сохранена" else "Отсрочка выключена")
+                    } },
                     canDeleteHistory = adminAccounts.firstOrNull { it.userId == session?.userId }?.isMain == true,
                     onDeleteHistory = { ids ->
                         selectedClientId?.let { cid ->
@@ -1533,11 +1588,41 @@ fun SansaraVisualPrototype() {
             }, clientTypeLabel = orders.firstOrNull { it.id == selectedOrderId }?.let { orderClientType(it) }.orEmpty(),
             onPayment = { amount, method, date, comment ->
                 updateOrder(selectedOrderId) { o ->
-                    val paid = o.copy(payments = o.payments + ProtoPayment(amount, date, method, comment, adminActorName()))
+                    val paid = o.copy(payments = o.payments + ProtoPayment(amount, date, method, comment, adminActorName(), id = protoNewPaymentId(), confirmed = true, confirmedBy = adminActorName()))
                     paid.copy(history = paid.history + ProtoOrderEvent("Оплата", nowStamp(), adminActorName(), protoMoney(amount) + " · " + method + " · " + paid.paymentStatus.lowercase()))
                 }?.let { o ->
                     addNotification("CLIENT", o.clientId.ifBlank { o.clientName }, "Оплата по заказу " + o.id, "Получено " + protoMoney(amount) + ". " + o.paymentStatus + if (o.due > 0) ", осталось " + protoMoney(o.due) else "", orderId = o.id)
                     toast("Оплата отмечена: " + o.paymentStatus.lowercase())
+                }
+            },
+            payClient = orders.firstOrNull { it.id == selectedOrderId }?.let { clientOfOrder(it) },
+            onConfirmPayment = { pid ->
+                updateOrder(selectedOrderId) { o ->
+                    val p = o.payments.firstOrNull { it.id == pid } ?: return@updateOrder o
+                    val upd = o.copy(payments = o.payments.map { if (it.id == pid) it.copy(confirmed = true, confirmedBy = adminActorName()) else it })
+                    upd.copy(history = upd.history + ProtoOrderEvent("Оплата", nowStamp(), adminActorName(), "Деньги получены: " + protoMoney(p.amount) + " · " + p.method))
+                }?.let { o ->
+                    addNotification("CLIENT", o.clientId.ifBlank { o.clientName }, "Оплата получена · " + o.id, "Администратор подтвердил оплату. " + o.paymentStatus + if (o.due > 0) ", осталось " + protoMoney(o.due) else "", orderId = o.id)
+                    toast("Деньги получены: " + o.paymentStatus.lowercase())
+                }
+            },
+            onRejectPayment = { pid ->
+                updateOrder(selectedOrderId) { o ->
+                    val p = o.payments.firstOrNull { it.id == pid } ?: return@updateOrder o
+                    o.copy(payments = o.payments.filterNot { it.id == pid }, history = o.history + ProtoOrderEvent("Оплата", nowStamp(), adminActorName(), "Не получено: " + protoMoney(p.amount) + " · " + p.method))
+                }?.let { o ->
+                    addNotification("CLIENT", o.clientId.ifBlank { o.clientName }, "Оплата не подтверждена · " + o.id, "Администратор не нашёл эту оплату. Свяжитесь с менеджером.", orderId = o.id)
+                    toast("Оплата отклонена")
+                }
+            },
+            onTerms = { days ->
+                updateOrder(selectedOrderId) { o ->
+                    val note = when { days < 0 -> "по правилу клиента"; days == 0 -> "без отсрочки"; else -> "отсрочка $days дн. после отгрузки" }
+                    o.copy(deferralDays = days, history = o.history + ProtoOrderEvent("Условия оплаты", nowStamp(), adminActorName(), note))
+                }?.let { o ->
+                    val t = protoOrderTerms(o, clientOfOrder(o))
+                    addNotification("CLIENT", o.clientId.ifBlank { o.clientName }, "Условия оплаты · " + o.id, t.label, orderId = o.id)
+                    toast("Условия оплаты: " + t.label)
                 }
             },
             onApprove = {
@@ -1975,6 +2060,25 @@ fun SansaraVisualPrototype() {
 
     @Composable fun protoGroupE() {
         when (screen) {
+            ProtoScreen.AdminSettlements -> ProtoAdminSettlementsScreen(
+                orders = orders.toList(), clients = clients.toList(), clientOf = { clientOfOrder(it) },
+                salesPending = shipments.count { it.moneyStatus == "REQUESTED" },
+                onBack = { back() },
+                onOpenOrder = { selectedOrderId = it.id; go(ProtoScreen.AdminOrderDetail) },
+                onOpenClient = { c -> selectedClientId = c.id; loadClientDetails(c.id); go(ProtoScreen.AdminClient) },
+                onConfirm = { o, pid ->
+                    updateOrder(o.id) { x ->
+                        val p = x.payments.firstOrNull { it.id == pid } ?: return@updateOrder x
+                        val upd = x.copy(payments = x.payments.map { if (it.id == pid) it.copy(confirmed = true, confirmedBy = adminActorName()) else it })
+                        upd.copy(history = upd.history + ProtoOrderEvent("Оплата", nowStamp(), adminActorName(), "Деньги получены: " + protoMoney(p.amount) + " · " + p.method))
+                    }?.let { x ->
+                        addNotification("CLIENT", x.clientId.ifBlank { x.clientName }, "Оплата получена · " + x.id, "Администратор подтвердил оплату. " + x.paymentStatus + if (x.due > 0) ", осталось " + protoMoney(x.due) else "", orderId = x.id)
+                        toast("Деньги получены")
+                    }
+                },
+                onSalesPayments = { refreshShipments(); go(ProtoScreen.AdminPayments) },
+                initialTab = settlementsTab
+            )
             ProtoScreen.OwnStock -> {
                 val c = currentClient()
                 LaunchedEffect(c.id) { ownOps.clear(); ownOps.addAll(repository.ownStockOps(c.id)) }
@@ -2685,7 +2789,7 @@ fun SansaraVisualPrototype() {
             ProtoScreen.Notifications, ProtoScreen.ClientChat, ProtoScreen.ClientReports, ProtoScreen.ClientSettings, ProtoScreen.Profile, ProtoScreen.Suspended -> protoGroupB()
             ProtoScreen.AdminHome, ProtoScreen.AdminSearch, ProtoScreen.AdminClients, ProtoScreen.AdminClient, ProtoScreen.AdminOrders, ProtoScreen.AdminOrderDetail, ProtoScreen.AdminChats, ProtoScreen.AdminChat, ProtoScreen.AdminProductionChat, ProtoScreen.AdminNotifications, ProtoScreen.AdminCatalog, ProtoScreen.AdminSettings, ProtoScreen.AdminSettingsDetail, ProtoScreen.AdminAttention, ProtoScreen.OnlineController, ProtoScreen.LowStockList, ProtoScreen.AdminAssemblers, ProtoScreen.AdminAdmins, ProtoScreen.AdminWorkshop, ProtoScreen.AdminAttendance, ProtoScreen.AdminProduct -> protoGroupC()
             ProtoScreen.SalesHome, ProtoScreen.SalesShipmentNew, ProtoScreen.SalesShipments, ProtoScreen.AdminPayments, ProtoScreen.SalesClients, ProtoScreen.SalesClient, ProtoScreen.AdminReports, ProtoScreen.AdminDashboard, ProtoScreen.SalesProfile -> protoGroupD()
-            ProtoScreen.Production, ProtoScreen.ProductionCategory, ProtoScreen.ProductionCatalog, ProtoScreen.ProductionEntry, ProtoScreen.ProductionHistory, ProtoScreen.ProductionReport, ProtoScreen.ProductionPayments, ProtoScreen.ProductionProfile, ProtoScreen.ProductionWorkshop, ProtoScreen.ProductionAttendance, ProtoScreen.ProductionChat, ProtoScreen.Server, ProtoScreen.StockList, ProtoScreen.ReserveList, ProtoScreen.NewClients, ProtoScreen.Export, ProtoScreen.AgentClients, ProtoScreen.AgentClientDetail, ProtoScreen.AgentBase, ProtoScreen.AgentMarkup, ProtoScreen.AgentProductMarkup, ProtoScreen.AgentOrders, ProtoScreen.OwnStock -> protoGroupE()
+            ProtoScreen.Production, ProtoScreen.ProductionCategory, ProtoScreen.ProductionCatalog, ProtoScreen.ProductionEntry, ProtoScreen.ProductionHistory, ProtoScreen.ProductionReport, ProtoScreen.ProductionPayments, ProtoScreen.ProductionProfile, ProtoScreen.ProductionWorkshop, ProtoScreen.ProductionAttendance, ProtoScreen.ProductionChat, ProtoScreen.Server, ProtoScreen.StockList, ProtoScreen.ReserveList, ProtoScreen.NewClients, ProtoScreen.Export, ProtoScreen.AgentClients, ProtoScreen.AgentClientDetail, ProtoScreen.AgentBase, ProtoScreen.AgentMarkup, ProtoScreen.AgentProductMarkup, ProtoScreen.AgentOrders, ProtoScreen.OwnStock, ProtoScreen.AdminSettlements -> protoGroupE()
             ProtoScreen.RetailHome, ProtoScreen.RetailCatalog, ProtoScreen.RetailFilter, ProtoScreen.RetailProductList, ProtoScreen.RetailProductDetail, ProtoScreen.RetailCart, ProtoScreen.RetailCheckout, ProtoScreen.RetailOrderList, ProtoScreen.RetailOrderDetail, ProtoScreen.RetailNotifications, ProtoScreen.RetailOrderSent -> protoGroupF()
         }
         }
@@ -3181,7 +3285,8 @@ internal fun ProtoProfileScreen(
     onCatalog:()->Unit,
     onCart:()->Unit,
     onOrders:()->Unit,
-    onAnalytics:()->Unit={}
+    onAnalytics:()->Unit={},
+    settlement:ProtoSettlement?=null
 ){
     Box(Modifier.fillMaxSize()){
         ProtoLiveBackground()
@@ -3206,6 +3311,8 @@ internal fun ProtoProfileScreen(
                             ProtoInfoRow("Администратор",protoPhone(BuildConfig.ADMIN_PHONE))
                         }
                     }
+                    if(settlement!=null&&settlement.orders>0)item{ProtoSettlementCard(settlement,"Мои расчёты с SANSARA",
+                        if(client.deferralEnabled&&client.deferralDays>0)"Отсрочка платежа: "+client.deferralDays+" дн. после отгрузки" else "Оплата без отсрочки",onOpen={onOrders()})}
                     item{ProtoPrimaryButton("Моя аналитика и расчёты",onAnalytics)}
                     item{ProtoSecondaryButton("Позвонить администратору",onCall)}
                     item{TextButton(onClick=onLogout,modifier=Modifier.fillMaxWidth()){Text("Выйти",color=ProtoMuted)}}

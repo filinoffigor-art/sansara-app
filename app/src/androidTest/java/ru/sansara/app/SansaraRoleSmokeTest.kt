@@ -335,4 +335,35 @@ class SansaraRoleSmokeTest {
         compose.activityRule.scenario.recreate()
         waitText("АКЦИЯ НЕДЕЛИ")
     }
+
+    @Test
+    fun clientReportsCashAndAdminConfirmsMoney() {
+        login("1024")                                        // у демо-клиента отсрочка 14 дней
+        waitText("Наш ассортимент")
+        clickDesc("Меню")
+        click("Профиль")
+        waitText("Мои расчёты с SANSARA")
+        waitText("Отсрочка платежа: 14 дн.")
+        click("Заказы")
+        click("№ S-002384", substring = true)
+        scrollTo("Сообщить об оплате")
+        click("Сообщить об оплате")
+        waitText("Оплата засчитается")
+        compose.onAllNodes(hasText("Отправить") and hasClickAction()).onLast().performClick()
+        compose.waitForIdle()
+        waitText("ждёт подтверждения")
+        compose.activityRule.scenario.onActivity { it.onBackPressedDispatcher.onBackPressed() }
+        compose.waitForIdle()
+        click("Главная")
+        waitText("Наш ассортимент")
+        clickDesc("Меню")
+        click("Профиль")
+        click("Выйти")
+        login("9001")
+        waitText("Здравствуйте, BOSS")
+        click("Оплаты ждут подтверждения")
+        waitText("Расчёты с клиентами")
+        click("Деньги получены")
+        waitText("Нет оплат, ожидающих подтверждения")
+    }
 }

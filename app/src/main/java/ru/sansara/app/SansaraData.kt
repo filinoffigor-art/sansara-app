@@ -56,7 +56,9 @@ data class ClientEntity(
     val registeredAt: String,
     val orderingEnabled: Boolean,
     val city: String,
-    val address: String
+    val address: String,
+    val deferralEnabled: Boolean = false,
+    val deferralDays: Int = 0
 )
 
 @Entity(tableName = "accounts")
@@ -695,7 +697,7 @@ interface SansaraDao {
         ClientHistoryEntity::class,
         OwnStockOpEntity::class
     ],
-    version = 13,
+    version = 14,
     exportSchema = false
 )
 abstract class SansaraDatabase : RoomDatabase() {
@@ -782,6 +784,14 @@ abstract class SansaraDatabase : RoomDatabase() {
         }
 
         // 0.27: «Мой склад» клиентов. Новая таблица, существующие данные не трогаются.
+        // 0.27.3: отсрочка платежа в карточке клиента. Только добавление колонок.
+        private val MIGRATION_13_14 = object : Migration(13, 14) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE clients ADD COLUMN deferralEnabled INTEGER NOT NULL DEFAULT 0")
+                db.execSQL("ALTER TABLE clients ADD COLUMN deferralDays INTEGER NOT NULL DEFAULT 0")
+            }
+        }
+
         private val MIGRATION_12_13 = object : Migration(12, 13) {
             override fun migrate(db: SupportSQLiteDatabase) {
                 db.execSQL("CREATE TABLE IF NOT EXISTS `own_stock_ops` (`id` TEXT NOT NULL, `clientId` TEXT NOT NULL, `sku` TEXT NOT NULL, `name` TEXT NOT NULL, `qty` INTEGER NOT NULL, `kind` TEXT NOT NULL, `reason` TEXT NOT NULL, `serial` TEXT NOT NULL, `customer` TEXT NOT NULL, `orderRef` TEXT NOT NULL, `actor` TEXT NOT NULL, `createdAt` INTEGER NOT NULL, PRIMARY KEY(`id`))")
@@ -815,7 +825,7 @@ abstract class SansaraDatabase : RoomDatabase() {
                     SansaraDatabase::class.java,
                     "sansara.db"
                 )
-                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12, MIGRATION_12_13)
+                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12, MIGRATION_12_13, MIGRATION_13_14)
                     .build()
                     .also { instance = it }
             }
@@ -984,7 +994,7 @@ class SansaraRepository private constructor(
         }
 
         val clients = listOf(
-            ClientEntity("C-1024","ООО Ритуал-Сервис","Игорь","Игорь Петров","+7 999 123-45-67","Оптовик",10,286400,7,"info@ritual-service.ru","Торгующая организация","12.03.2023",true,"Москва","г. Москва, ул. Ленинская, д. 10, стр. 2"),
+            ClientEntity("C-1024","ООО Ритуал-Сервис","Игорь","Игорь Петров","+7 999 123-45-67","Оптовик",10,286400,7,"info@ritual-service.ru","Торгующая организация","12.03.2023",true,"Москва","г. Москва, ул. Ленинская, д. 10, стр. 2",deferralEnabled=true,deferralDays=14),
             ClientEntity("C-1025","Агент Смирнов А.А.","Алексей","Алексей Смирнов","+7 916 222-18-44","Активный",5,94800,3,"smirnov@example.ru","Агент","05.09.2026",true,"Тула",""),
             ClientEntity("C-1026","ООО Мемориал","Анна","Анна Сергеева","+7 903 555-34-11","Приостановлен",7,121500,4,"","Торгующая организация","01.09.2026",false,"",""),
             ClientEntity("C-1027","Ритуал-Тула","Сергей","Сергей Орлов","+7 920 701-20-80","VIP",15,418300,11,"","Торгующая организация","03.09.2026",true,"",""),
@@ -1085,7 +1095,8 @@ class SansaraRepository private constructor(
                 monthTurnover=c.monthTurnover,orderCount=c.orderCount,accessCode=code,
                 online=lastSeen>0 && now-lastSeen<90_000L,lastSeen=lastSeenLabel(lastSeen),
                 email=c.email,clientType=c.clientType,registeredAt=c.registeredAt,orderingEnabled=c.orderingEnabled,
-                city=c.city,address=c.address,firstName=c.firstName
+                city=c.city,address=c.address,firstName=c.firstName,
+                deferralEnabled=c.deferralEnabled,deferralDays=c.deferralDays
             )
         }
         val productEntities = dao.products()
@@ -1859,7 +1870,8 @@ private fun ProtoCatalogProduct.toEntity(physicalOverride:Int?)=ProductEntity(
 private fun ProductEntity.toProto()=ProtoCatalogProduct(sku,name,type,quality,size,price,stock,status,productionDays,imageUrl,externalId,retailPrice)
 
 private fun ProtoClient.toEntity()=ClientEntity(
-    id,name,firstName,contact,phone,status,discount,monthTurnover,orderCount,email,clientType,registeredAt,orderingEnabled,city,address
+    id,name,firstName,contact,phone,status,discount,monthTurnover,orderCount,email,clientType,registeredAt,orderingEnabled,city,address,
+    deferralEnabled=deferralEnabled,deferralDays=deferralDays
 )
 
 private fun ProtoRegistration.toEntity()=RegistrationEntity(
@@ -1897,9 +1909,13 @@ private fun ProtoOrder.toEntity():OrderEntity {
         put("clientType",this@toEntity.clientType)
         put("payments",JSONArray().apply {
             this@toEntity.payments.forEach { pay ->
-                put(JSONObject().apply { put("amount",pay.amount); put("date",pay.date); put("method",pay.method); put("comment",pay.comment); put("by",pay.by) })
+                put(JSONObject().apply {
+                    put("amount",pay.amount); put("date",pay.date); put("method",pay.method); put("comment",pay.comment); put("by",pay.by)
+                    put("id",pay.id); put("confirmed",pay.confirmed); put("fromClient",pay.fromClient); put("confirmedBy",pay.confirmedBy)
+                })
             }
         })
+        put("deferralDays",this@toEntity.deferralDays)
     }
     val events=JSONArray().apply {
         this@toEntity.history.forEach { event ->
@@ -1956,8 +1972,10 @@ private fun OrderEntity.toProto():ProtoOrder {
         retailCustomerName=payload?.optString("retailCustomerName").orEmpty(),
         clientType=payload?.optString("clientType").orEmpty(),
         payments=payload?.optJSONArray("payments")?.let { arr ->
-            (0 until arr.length()).mapNotNull { i -> arr.optJSONObject(i)?.let { p -> ProtoPayment(p.optInt("amount"),p.optString("date"),p.optString("method"),p.optString("comment"),p.optString("by")) } }
-        }.orEmpty()
+            (0 until arr.length()).mapNotNull { i -> arr.optJSONObject(i)?.let { p -> ProtoPayment(p.optInt("amount"),p.optString("date"),p.optString("method"),p.optString("comment"),p.optString("by"),
+                id=p.optString("id").ifBlank { "P$i" },confirmed=p.optBoolean("confirmed",true),fromClient=p.optBoolean("fromClient",false),confirmedBy=p.optString("confirmedBy")) } }
+        }.orEmpty(),
+        deferralDays=payload?.optInt("deferralDays",-1) ?: -1
     )
 }
 

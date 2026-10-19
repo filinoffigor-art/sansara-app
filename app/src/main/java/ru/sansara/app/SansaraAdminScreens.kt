@@ -261,9 +261,11 @@ internal fun ProtoAdminClientScreen(
     onReissueCode: () -> Unit,
     onOpenOrder: (ProtoOrder) -> Unit,
     canDeleteHistory: Boolean = false,
-    onDeleteHistory: (List<String>?) -> Unit = {}
+    onDeleteHistory: (List<String>?) -> Unit = {},
+    onDeferral: (Boolean, Int) -> Unit = { _, _ -> }
 ) {
     val c = client ?: return
+    val settlement = remember(clientOrders, c) { protoSettlement(clientOrders, { c }) }
     // История изменений свёрнута; главный администратор может удалить отдельные записи или всю историю.
     var historyOpen by remember(c.id) { mutableStateOf(false) }
     var selecting by remember(c.id) { mutableStateOf(false) }
@@ -323,26 +325,30 @@ internal fun ProtoAdminClientScreen(
                 }
             }
         }
-        item {
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                ProtoMetricCard("Оборот", protoMoney(stats.turnover), if (drill == "turnover") "скрыть" else "этот месяц ›", Modifier.weight(1f)) { drill = if (drill == "turnover") null else "turnover" }
-                ProtoMetricCard("Заказов", stats.orders.toString(), if (drill == "orders") "скрыть" else "всего ›", Modifier.weight(1f)) { drill = if (drill == "orders") null else "orders" }
-                ProtoMetricCard("Долг", protoMoney(stats.debt), if (drill == "debt") "скрыть" else if (stats.debt > 0) "не оплачено ›" else "нет", Modifier.weight(1f)) { drill = if (drill == "debt") null else "debt" }
-            }
-        }
+        item { ProtoSettlementCard(settlement, "Расчёты", "Оборот = оплачено + в отсрочке" + (if (settlement.overdue > 0) " + просрочено" else "") + (if (settlement.due > 0) " + к оплате" else ""), onOpen = { k -> val want = when (k) { "turnover" -> "turnover"; "paid" -> "paid"; else -> "debt" }; drill = if (drill == want) null else want }) }
+        item { ProtoDeferralRuleCard(c.deferralEnabled, c.deferralDays, onDeferral) }
         // Раскрытие показателя до первичных записей: заказы или отгрузки, из которых он посчитан.
         when (drill) {
             "turnover", "orders" -> {
-                val monthKey = currentDateShort().substringAfter('.')
-                val list = clientOrders.filter { it.status != "Отменён" && (drill == "orders" || protoMonthKey(it.dateTime.substringBefore(" ")) == monthKey) }.sortedByDescending { protoOrderEpoch(it.dateTime) }
-                item { Text(if (drill == "orders") "Все заказы (без отменённых): " + list.size else "Заказы этого месяца: " + list.size + " · " + protoMoney(list.sumOf { it.total }), color = ProtoGoldSoft, fontWeight = FontWeight.SemiBold) }
+                val list = clientOrders.filter { it.status !in protoNotInTurnover }.sortedByDescending { protoOrderEpoch(it.dateTime) }
+                item { Text("Заказы в обороте: " + list.size + " · " + protoMoney(list.sumOf { it.total }), color = ProtoGoldSoft, fontWeight = FontWeight.SemiBold) }
                 if (list.isEmpty()) item { Text("Записей нет", color = ProtoMuted) }
                 items(list, key = { "d-" + it.id }) { o -> ProtoOrderRow(o) { onOpenOrder(o) } }
             }
+            "paid" -> {
+                val list = clientOrders.filter { it.status !in protoNotInTurnover && it.paid > 0 }.sortedByDescending { protoOrderEpoch(it.dateTime) }
+                item { Text("Оплаченные заказы: " + list.size + " · получено " + protoMoney(settlement.paid), color = ProtoGoldSoft, fontWeight = FontWeight.SemiBold) }
+                if (list.isEmpty()) item { Text("Записей нет", color = ProtoMuted) }
+                items(list, key = { "pd-" + it.id }) { o -> ProtoSettleOrderRow(o, protoOrderTerms(o, c)) { onOpenOrder(o) } }
+            }
             "debt" -> {
+                val unpaid = clientOrders.filter { it.status !in protoNotInTurnover && it.due > 0 }.map { it to protoOrderTerms(it, c) }
+                    .sortedWith(compareBy({ it.second.state != ProtoPayState.OVERDUE }, { it.second.dueDate ?: LocalDate.MAX }))
+                item { Text("Неоплаченные заказы: " + unpaid.size + " · " + protoMoney(settlement.unpaid), color = ProtoGoldSoft, fontWeight = FontWeight.SemiBold) }
+                if (unpaid.isEmpty()) item { Text("Записей нет", color = ProtoMuted) }
+                items(unpaid, key = { "u-" + it.first.id }) { (o, t) -> ProtoSettleOrderRow(o, t) { onOpenOrder(o) } }
                 val open = shipments.filter { it.clientId == c.id && it.moneyStatus != "CONFIRMED" }.sortedBy { protoParseDate(it.dueDate) ?: LocalDate.MAX }
-                item { Text("Неоплаченные отгрузки: " + open.size + " · " + protoMoney(open.sumOf { it.amount }), color = ProtoGoldSoft, fontWeight = FontWeight.SemiBold) }
-                if (open.isEmpty()) item { Text("Записей нет", color = ProtoMuted) }
+                if (open.isNotEmpty()) item { Text("Отгрузки отдела продаж без подтверждённых денег: " + open.size + " · " + protoMoney(open.sumOf { it.amount }), color = ProtoMuted, fontWeight = FontWeight.SemiBold) }
                 items(open, key = { "s-" + it.id }) { sh ->
                     val order = clientOrders.firstOrNull { it.id == sh.orderId }
                     Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(ProtoPanel).clickable(enabled = order != null) { order?.let(onOpenOrder) }.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -414,7 +420,7 @@ internal fun ProtoAdminClientScreen(
             }
         }
         item { OutlinedButton(onClick = { confirmReissue = true }, modifier = Modifier.fillMaxWidth(), border = BorderStroke(1.dp, ProtoBorder)) { Text("Выдать новый код основному пользователю", color = ProtoText) } }
-        item { ProtoClientFinanceBlock(c.id, shipments) }
+        if (shipments.any { it.clientId == c.id }) item { ProtoClientFinanceBlock(c.id, shipments, title = "Отгрузки отдела продаж") }
         if (clientOrders.isNotEmpty()) {
             item { ProtoSectionTitle("Последние заказы") }
             items(clientOrders.sortedByDescending { protoOrderEpoch(it.dateTime) }.take(5), key = { "o-" + it.id }) { o -> ProtoOrderRow(o) { onOpenOrder(o) } }
