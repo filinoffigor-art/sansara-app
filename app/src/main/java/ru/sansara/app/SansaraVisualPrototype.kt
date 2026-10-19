@@ -999,7 +999,11 @@ fun SansaraVisualPrototype() {
                 promo = ProtoPromo("Осенняя акция", "demo", "", LocalDate.now().plusDays(10).format(DateTimeFormatter.ofPattern("dd.MM.yyyy")), true, protoDemoPromoItems(catalogProducts), nowStamp())
                 prefs.edit().putString(ProtoPromo.PREF_KEY, promo.toJson()).apply()
             }
-            dbgIntent?.getStringExtra("debug_cart")?.takeIf { it.isNotBlank() }?.split(",")?.forEach { sku -> cart[sku] = 2 }
+            // Снимки экрана: корзина с двумя акционными и одним обычным товаром.
+            if (dbgIntent?.getStringExtra("debug_cart") == "mixed") {
+                val shop = protoApplyPromo(catalogProducts, promo)
+                (shop.filter { it.promo }.take(2) + shop.filter { !it.promo }.take(1)).forEach { cart[it.sku] = 2 }
+            }
             // Снимки экрана: пример оформленных надписей на приветствии.
             if (dbgIntent?.getStringExtra("debug_welcome") == "demo") prefs.edit()
                 .putString("welcome_promo_title", "СКИДКА 10%\nНА ВЕНКИ ПРЕМИУМ")

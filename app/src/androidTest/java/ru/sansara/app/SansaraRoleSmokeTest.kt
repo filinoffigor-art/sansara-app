@@ -391,9 +391,10 @@ class SansaraRoleSmokeTest {
         type("YML-ссылка акционного каталога Tilda", "demo")   // debug-сборка: демо-товары без сети
         click("Загрузить товары акции")
         waitText("Демо: загружено")
-        compose.onAllNodes(isToggleable()).onFirst().performClick()
+        compose.onAllNodes(isToggleable()).onFirst().performScrollTo().performClick()
         compose.waitForIdle()
-        compose.onAllNodes(hasText("Сохранить") and hasClickAction()).onFirst().performClick()
+        waitText("Акция включена")
+        compose.onAllNodes(hasText("Сохранить") and hasClickAction()).onFirst().performScrollTo().performClick()
         compose.waitForIdle()
         waitText("Акция идёт")
         compose.activityRule.scenario.onActivity { it.onBackPressedDispatcher.onBackPressed() }

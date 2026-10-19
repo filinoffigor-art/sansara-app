@@ -36,7 +36,7 @@ if [ -z "${ONLY:-}" ] || echo " $ONLY " | grep -q " Promo "; then
   promo_shot 1024 Home 89
   promo_shot 1024 PromoCatalog 90
   promo_shot 1024 ProductList 91
-  promo_shot 1024 Cart 93 V-060-001,V-140-005,KOR-070-004
+  promo_shot 1024 Cart 93 mixed
   promo_shot 9001 AdminSettlements 92
 fi
 # Приветственный экран: настройки оформления надписей и результат на приветствии.
