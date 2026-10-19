@@ -265,12 +265,16 @@ internal data class ProtoCatalogFilter(
 
 internal fun protoAvailabilityLabel(available: Int) = if (available > 0) "В наличии" else "Под заказ"
 
+/** Пункт «По акции» в разделе «Наличие» фильтра. */
+internal const val PROTO_PROMO_FILTER = "По акции"
+
 internal fun protoMatches(p: ProtoCatalogProduct, f: ProtoCatalogFilter, available: Int, except: String = ""): Boolean {
     return protoSearchMatches(p, f.query) &&
         (except == "type" || f.types.isEmpty() || p.type in f.types) &&
         (except == "quality" || f.qualities.isEmpty() || p.quality in f.qualities) &&
         (except == "size" || f.sizes.isEmpty() || p.size in f.sizes) &&
-        (except == "availability" || f.availability.isEmpty() || protoAvailabilityLabel(available) in f.availability) &&
+        (except == "availability" || (f.availability - PROTO_PROMO_FILTER).let { a -> a.isEmpty() || protoAvailabilityLabel(available) in a }) &&
+        (except == "availability" || PROTO_PROMO_FILTER !in f.availability || p.promo) &&
         (f.minPrice == null || p.price >= f.minPrice) &&
         (f.maxPrice == null || p.price <= f.maxPrice)
 }

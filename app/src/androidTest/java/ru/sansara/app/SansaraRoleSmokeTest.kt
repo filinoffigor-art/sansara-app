@@ -366,4 +366,40 @@ class SansaraRoleSmokeTest {
         click("Деньги получены")
         waitText("Нет оплат, ожидающих подтверждения")
     }
+
+    @Test
+    fun adminRunsPromoAndClientBuysFromPromoCatalog() {
+        login("9001")
+        waitText("Здравствуйте, BOSS")
+        click("Профиль")
+        scrollTo("Проведение акций")
+        click("Проведение акций")
+        waitText("Загрузить товары акции")
+        type("Название, например «Осенняя распродажа»", "Осенняя акция")
+        type("YML-ссылка акционного каталога Tilda", "demo")   // debug-сборка: демо-товары без сети
+        click("Загрузить товары акции")
+        waitText("Демо: загружено")
+        compose.onAllNodes(isToggleable()).onFirst().performClick()
+        compose.waitForIdle()
+        compose.onAllNodes(hasText("Сохранить") and hasClickAction()).onFirst().performClick()
+        compose.waitForIdle()
+        waitText("Акция идёт")
+        compose.activityRule.scenario.onActivity { it.onBackPressedDispatcher.onBackPressed() }
+        compose.waitForIdle()
+        scrollTo("Выйти из аккаунта")
+        click("Выйти из аккаунта")
+        compose.onAllNodes(hasText("Выйти") and hasClickAction()).onLast().performClick()
+        compose.waitForIdle()
+        login("1024")
+        waitText("Наш ассортимент")
+        waitText("по акции")                                   // красная полоса на главной
+        clickDesc("Меню")
+        click("Акции")
+        waitText("Осенняя акция")
+        waitText("Акция −")
+        compose.onAllNodes(hasText("В корзину") and hasClickAction()).onFirst().performClick()
+        compose.waitForIdle()
+        click("Корзина")
+        waitText("Экономия по акции")
+    }
 }

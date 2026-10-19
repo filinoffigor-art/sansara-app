@@ -18,7 +18,9 @@ data class TildaCatalogItem(
     val imageUrl: String,
     val productionDays: Int = 3,
     val retailPrice: Int = 0,
-    val colors: List<String> = emptyList()
+    val colors: List<String> = emptyList(),
+    /** Старая цена из <oldprice> (акционные каталоги); 0 — нет. */
+    val oldPrice: Int = 0
 )
 
 data class CatalogSyncResult(
@@ -35,7 +37,8 @@ private data class RawOffer(
     val categoryId: String,
     val price: Int,
     val picture: String,
-    val params: Map<String, String>
+    val params: Map<String, String>,
+    val oldPrice: Int = 0
 )
 
 object TildaCatalogSync {
@@ -92,7 +95,8 @@ object TildaCatalogSync {
                 // «Срок производства» из параметров Tilda (первое число: «5 дней» → 5); нет параметра — 3 дня.
                 productionDays = param(primary.params, "срок")?.let { Regex("\\d+").find(it)?.value?.toIntOrNull() }?.coerceIn(1, 60) ?: 3,
                 retailPrice = retail.firstOrNull()?.price ?: 0,
-                colors = colors
+                colors = colors,
+                oldPrice = primary.oldPrice
             )
         }
     }
@@ -120,7 +124,7 @@ object TildaCatalogSync {
                 var currentCategoryId: String? = null
                 var currentParamName: String? = null
                 var tag: String? = null
-                var id = ""; var name = ""; var sku = ""; var categoryId = ""; var price = 0; var picture = ""
+                var id = ""; var name = ""; var sku = ""; var categoryId = ""; var price = 0; var oldPrice = 0; var picture = ""
                 var params = linkedMapOf<String, String>()
 
                 var event = parser.eventType
@@ -133,7 +137,7 @@ object TildaCatalogSync {
                                 "offer" -> {
                                     inOffer = true
                                     id = parser.getAttributeValue(null, "id").orEmpty()
-                                    name = ""; sku = ""; categoryId = ""; price = 0; picture = ""; params = linkedMapOf()
+                                    name = ""; sku = ""; categoryId = ""; price = 0; oldPrice = 0; picture = ""; params = linkedMapOf()
                                 }
                                 "param" -> currentParamName = parser.getAttributeValue(null, "name")
                             }
@@ -149,6 +153,7 @@ object TildaCatalogSync {
                                         "vendorCode" -> sku = text
                                         "categoryId" -> categoryId = text
                                         "price" -> price = text.replace(',', '.').toDoubleOrNull()?.toInt() ?: price
+                                        "oldprice" -> oldPrice = text.replace(',', '.').toDoubleOrNull()?.toInt() ?: oldPrice
                                         "picture" -> if (picture.isBlank()) picture = text
                                         "param" -> currentParamName?.let { params[it] = text }
                                     }
@@ -162,7 +167,7 @@ object TildaCatalogSync {
                                 "offer" -> {
                                     val resolvedSku = sku.ifBlank { id }
                                     if (resolvedSku.isNotBlank() && name.isNotBlank()) {
-                                        offers += RawOffer(id, name, resolvedSku, categoryId, price, picture, params)
+                                        offers += RawOffer(id, name, resolvedSku, categoryId, price, picture, params, oldPrice)
                                     }
                                     inOffer = false
                                     tag = null

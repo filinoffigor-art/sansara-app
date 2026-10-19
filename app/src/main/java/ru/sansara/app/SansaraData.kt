@@ -1894,6 +1894,7 @@ private fun ProtoOrder.toEntity():OrderEntity {
                 put("discountPct",line.discountPct)
                 put("retailPrice",line.retailPrice)
                 put("stockQty",line.stockQty)
+                if (line.promo) put("promo",true)
             })
         }
     }
@@ -1943,7 +1944,8 @@ private fun OrderEntity.toProto():ProtoOrder {
                 price=it.getInt("price"),
                 discountPct=it.optInt("discountPct",0),
                 retailPrice=it.optInt("retailPrice",0),
-                stockQty=it.optInt("stockQty",-1)
+                stockQty=it.optInt("stockQty",-1),
+                promo=it.optBoolean("promo",false)
             )
         }
     }

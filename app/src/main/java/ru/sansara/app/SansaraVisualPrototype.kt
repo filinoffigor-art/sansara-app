@@ -95,7 +95,7 @@ internal enum class ProtoScreen {
     Production, ProductionCategory, ProductionCatalog, ProductionEntry, ProductionHistory, ProductionReport, ProductionPayments, ProductionProfile, ProductionWorkshop, ProductionAttendance, ProductionChat,
     Server, StockList, ReserveList, NewClients, Export, AdminAssemblers,
     SalesHome, SalesShipmentNew, SalesShipments, SalesClients, SalesClient, AdminPayments, AdminDashboard, SalesProfile,
-    OwnStock, AdminSettlements
+    OwnStock, AdminSettlements, PromoCatalog, AdminPromo
 }
 
 internal enum class ProtoClientType(val label: String) { AGENT("Агент"), TRADING("Торгующая организация") }
@@ -112,7 +112,10 @@ data class ProtoCatalogProduct(
     val productionDays: Int,
     val imageUrl: String = "",
     val externalId: String = "",
-    val retailPrice: Int = 0
+    val retailPrice: Int = 0,
+    /** Товар участвует в действующей акции: price — цена по акции (окончательная), promoOldPrice — цена до акции. */
+    val promo: Boolean = false,
+    val promoOldPrice: Int = 0
 )
 
 data class ProtoProductionOp(
@@ -171,7 +174,9 @@ data class ProtoOrderLine(
     /** Цена для частного клиента агента (режим «Для клиентов»); 0 — обычный заказ. */
     val retailPrice: Int = 0,
     /** Сколько штук было в наличии на момент заказа (−1 — неизвестно, старые заказы). От этого зависит срок отмены. */
-    val stockQty: Int = -1
+    val stockQty: Int = -1,
+    /** Позиция по акции: цена окончательная, скидка клиента не применяется. */
+    val promo: Boolean = false
 ) {
     val lineTotal: Int get() = protoLineTotal(price, qty, discountPct)
 }
@@ -313,6 +318,11 @@ fun SansaraVisualPrototype() {
     val products = remember { mutableStateListOf<ProtoCatalogProduct>() }
     // Что видит клиент: без товаров, снятых с публикации в Tilda.
     val catalogProducts by remember { derivedStateOf { products.filter { it.status != PRODUCT_UNPUBLISHED } } }
+    // Акция: хранится в настройках телефона. Для клиента — каталог с акционными ценами (shopProducts).
+    var promo by remember { mutableStateOf(ProtoPromo.fromJson(context.getSharedPreferences("sansara", Context.MODE_PRIVATE).getString(ProtoPromo.PREF_KEY, null))) }
+    var promoLoading by remember { mutableStateOf(false) }
+    var promoStatus by remember { mutableStateOf("") }
+    val shopProducts by remember { derivedStateOf { protoApplyPromo(catalogProducts, promo) } }
     val stockOverrides: SnapshotStateMap<String, Int> = remember { mutableStateMapOf() }
     val cart: SnapshotStateMap<String, Int> = remember { mutableStateMapOf() }
     val history: SnapshotStateList<ProtoScreen> = remember { mutableStateListOf() }
@@ -1087,7 +1097,7 @@ fun SansaraVisualPrototype() {
         when (screen) {
             ProtoScreen.Home -> ProtoClientHomeScreen(
                 client = client,
-                products = catalogProducts,
+                products = shopProducts,
                 popularity = popularity(),
                 availableStock = { availableStock(it) },
                 cart = cart,
@@ -1100,6 +1110,7 @@ fun SansaraVisualPrototype() {
                 discount = client.discount,
                 homeFilter = homeFilter,
                 onPopular = { go(ProtoScreen.Popular) },
+                promoBanner = if (promo.isActive()) { { ProtoPromoBanner(promo, shopProducts.count { it.promo }) { go(ProtoScreen.PromoCatalog) } } } else null,
                 onGroup = { g -> openProductList(type = g) },
                 onOpenProduct = { openProduct(it) },
                 onSetQty = { p, q -> setCartQty(p, q) },
@@ -1110,7 +1121,7 @@ fun SansaraVisualPrototype() {
             )
             ProtoScreen.Catalog -> ProtoCatalogHomeScreen(
                 cartCount = cart.size,
-                groupCounts = protoAllGroupsOrdered.associateWith { g -> catalogProducts.count { it.type == g } }.filterValues { it > 0 },
+                groupCounts = protoAllGroupsOrdered.associateWith { g -> shopProducts.count { it.type == g } }.filterValues { it > 0 },
                 onBack = { back() },
                 onSearch = { value -> openProductList(query = value, focus = value.isBlank()) },
                 onGroup = { g -> openProductList(type = g) },
@@ -1118,7 +1129,7 @@ fun SansaraVisualPrototype() {
                 onHome = goHome, onCart = goCart, onOrders = goOrders, onProfile = goChat
             )
             ProtoScreen.Filter -> if (filterTarget == "home") ProtoFilterScreen(
-                products = catalogProducts.filter { it.type in protoWreathGroups },
+                products = shopProducts.filter { it.type in protoWreathGroups },
                 filter = homeFilter,
                 availableStock = { availableStock(it) },
                 onApply = { f ->
@@ -1130,7 +1141,7 @@ fun SansaraVisualPrototype() {
                 },
                 onBack = { filterTarget = "catalog"; back() }
             ) else ProtoFilterScreen(
-                products = catalogProducts.filter { it.type in protoWreathGroups },
+                products = shopProducts.filter { it.type in protoWreathGroups },
                 filter = currentFilter(),
                 availableStock = { availableStock(it) },
                 onApply = { f ->
@@ -1143,7 +1154,7 @@ fun SansaraVisualPrototype() {
             ProtoScreen.ProductList -> {
                 val f = currentFilter()
                 ProtoProductListScreen(
-                    products = catalogProducts.filter { protoMatches(it, f, availableStock(it)) },
+                    products = shopProducts.filter { protoMatches(it, f, availableStock(it)) },
                     cart = cart,
                     availableStock = { availableStock(it) },
                     query = searchQuery,
@@ -1170,7 +1181,7 @@ fun SansaraVisualPrototype() {
                 )
             }
             ProtoScreen.Popular -> ProtoPopularScreen(
-                products = catalogProducts,
+                products = shopProducts,
                 soldUnits = popularity(),
                 cart = cart,
                 availableStock = { availableStock(it) },
@@ -1179,6 +1190,20 @@ fun SansaraVisualPrototype() {
                 onOpenProduct = { openProduct(it) },
                 onSetQty = { p, q -> setCartQty(p, q) },
                 onHome = goHome, onCatalog = goCatalog, onCart = goCart, onOrders = goOrders, onProfile = goChat
+            )
+            ProtoScreen.PromoCatalog -> ProtoPromoScreen(
+                promo = promo,
+                products = shopProducts.filter { it.promo },
+                cart = cart,
+                cartCount = cart.values.sum(),
+                availableStock = { availableStock(it) },
+                discount = client.discount,
+                onBack = { back() },
+                onOpenProduct = { openProduct(it) },
+                onSetQty = { p, q -> setCartQty(p, q) },
+                onHome = goHome,
+                onCatalog = { history.clear(); history.add(ProtoScreen.Home); screen = ProtoScreen.Catalog },
+                onCart = goCart, onOrders = goOrders, onProfile = goChat
             )
             ProtoScreen.ProductDetail -> {
                 val p = selectedProduct
@@ -1216,7 +1241,7 @@ fun SansaraVisualPrototype() {
                 )
             }
             ProtoScreen.Cart -> ProtoCartScreen(
-                products = products,
+                products = shopProducts,
                 cart = cart,
                 discount = client.discount,
                 availableStock = { availableStock(it) },
@@ -1231,9 +1256,10 @@ fun SansaraVisualPrototype() {
                 minOrder = minOrderFor(client)
             )
             ProtoScreen.Checkout -> {
-                val cartLines = cart.mapNotNull { (sku, q) -> products.firstOrNull { it.sku == sku }?.let { it to q } }
-                val baseTotal = cartLines.sumOf { (p, q) -> p.price * q }
-                val finalTotal = cartLines.sumOf { (p, q) -> protoLineTotal(p.price, q, client.discount) }
+                val cartLines = cart.mapNotNull { (sku, q) -> shopProducts.firstOrNull { it.sku == sku }?.let { it to q } }
+                val baseTotal = cartLines.sumOf { (p, q) -> protoListPrice(p) * q }
+                val finalTotal = cartLines.sumOf { (p, q) -> protoShopLine(p, q, client.discount) }
+                val promoSaving = cartLines.filter { it.first.promo }.sumOf { (p, q) -> (protoListPrice(p) - p.price) * q }
                 val shortages = cartLines.mapNotNull { (p, q) -> val a = availableStock(p); if (q > a) p to (q - a) else null }
                 ProtoCheckoutScreen(
                     cartPositions = cartLines.size,
@@ -1241,6 +1267,7 @@ fun SansaraVisualPrototype() {
                     baseTotal = baseTotal,
                     finalTotal = finalTotal,
                     discount = client.discount,
+                    promoSaving = promoSaving,
                     defaultAddress = client.address,
                     contacts = companyContacts.ifEmpty {
                         listOf(SansaraCompanyContact("fallback", client.contact, client.phone, client.email))
@@ -1257,7 +1284,7 @@ fun SansaraVisualPrototype() {
                         } else {
                             // Заказ торгующей организации меньше минимальной суммы уходит на согласование администратору.
                             fun place(needsApproval: Boolean) = scope.launch {
-                                val lines = cartLines.map { (p, q) -> ProtoOrderLine(p.sku, p.name, q, p.price, client.discount, stockQty = availableStock(p).coerceAtMost(q)) }
+                                val lines = cartLines.map { (p, q) -> ProtoOrderLine(p.sku, p.name, q, p.price, if (p.promo) 0 else client.discount, stockQty = availableStock(p).coerceAtMost(q), promo = p.promo) }
                                 val id = repository.nextOrderId()
                                 val now = nowStamp()
                                 val firstStatus = if (needsApproval) "На согласовании" else "Получен"
@@ -1779,6 +1806,7 @@ fun SansaraVisualPrototype() {
                         "Табель рабочего времени" -> { refreshOperationsData(); go(ProtoScreen.AdminAttendance) }
                         "Отчёты" -> { refreshOperationsData(); go(ProtoScreen.AdminReports) }
                         "Экспорт данных" -> go(ProtoScreen.Export)
+                        "Проведение акций" -> { promoStatus = ""; go(ProtoScreen.AdminPromo) }
                         else -> { settingsSection = section; go(ProtoScreen.AdminSettingsDetail) }
                     }
                 }, onCall = { protoDial(context) }, onLogout = { signOut() },
@@ -2060,6 +2088,44 @@ fun SansaraVisualPrototype() {
 
     @Composable fun protoGroupE() {
         when (screen) {
+            ProtoScreen.AdminPromo -> ProtoAdminPromoScreen(
+                promo = promo,
+                catalogSkus = products.map { it.sku.lowercase() }.toSet(),
+                loading = promoLoading, status = promoStatus,
+                onBack = { back() },
+                onLoad = { url ->
+                    if (BuildConfig.DEBUG && url.equals("demo", true)) {
+                        promo = promo.copy(url = url, items = protoDemoPromoItems(catalogProducts), loadedAt = nowStamp())
+                        prefs.edit().putString(ProtoPromo.PREF_KEY, promo.toJson()).apply()
+                        promoStatus = "Демо: загружено " + promo.items.size + " товаров"
+                    } else {
+                        promoLoading = true; promoStatus = "Загрузка из Tilda…"
+                        scope.launch {
+                            runCatching { TildaCatalogSync.fetchYml(url) }
+                                .onSuccess { r ->
+                                    val items = protoPromoItems(r.items)
+                                    promo = promo.copy(url = url, items = items, loadedAt = nowStamp())
+                                    prefs.edit().putString(ProtoPromo.PREF_KEY, promo.toJson()).apply()
+                                    promoStatus = if (items.isEmpty()) "Ошибка: в ссылке нет товаров с ценой" else "Загружено " + items.size + " товаров · разделы: " + items.map { it.category }.distinct().joinToString()
+                                }
+                                .onFailure { promoStatus = "Ошибка загрузки: " + (it.message ?: "нет связи с Tilda") }
+                            promoLoading = false
+                        }
+                    }
+                },
+                onSave = { draft ->
+                    val wasActive = promo.isActive()
+                    promo = draft
+                    prefs.edit().putString(ProtoPromo.PREF_KEY, draft.toJson()).apply()
+                    toast(when { draft.isActive() && !wasActive -> "Акция запущена — клиенты видят её в меню"; draft.isActive() -> "Акция сохранена"; draft.enabled -> "Сохранено. Акция начнётся " + draft.from; else -> "Акция выключена" })
+                },
+                onNotify = {
+                    clients.filter { it.status != "Приостановлен" }.forEach { c ->
+                        addNotification("CLIENT", c.id, "Акция: " + promo.displayTitle, protoPlural(promo.items.size, "товар", "товара", "товаров") + " по акционным ценам " + promo.periodLabel + ". Откройте «Акции» в меню.", system = false)
+                    }
+                    toast("Уведомление об акции отправлено клиентам")
+                }
+            )
             ProtoScreen.AdminSettlements -> ProtoAdminSettlementsScreen(
                 orders = orders.toList(), clients = clients.toList(), clientOf = { clientOfOrder(it) },
                 salesPending = shipments.count { it.moneyStatus == "REQUESTED" },
@@ -2785,11 +2851,11 @@ fun SansaraVisualPrototype() {
                 onBack = { history.clear(); screen = ProtoScreen.Welcome },
                 onHaveCode = { history.clear(); history.add(ProtoScreen.Welcome); screen = ProtoScreen.Login })
 
-            ProtoScreen.Home, ProtoScreen.Popular, ProtoScreen.Catalog, ProtoScreen.Filter, ProtoScreen.ProductList, ProtoScreen.ProductDetail, ProtoScreen.Cart, ProtoScreen.Checkout, ProtoScreen.OrderSent, ProtoScreen.OrderList, ProtoScreen.OrderDetail -> protoGroupA()
+            ProtoScreen.Home, ProtoScreen.Popular, ProtoScreen.Catalog, ProtoScreen.Filter, ProtoScreen.ProductList, ProtoScreen.ProductDetail, ProtoScreen.Cart, ProtoScreen.Checkout, ProtoScreen.OrderSent, ProtoScreen.OrderList, ProtoScreen.OrderDetail, ProtoScreen.PromoCatalog -> protoGroupA()
             ProtoScreen.Notifications, ProtoScreen.ClientChat, ProtoScreen.ClientReports, ProtoScreen.ClientSettings, ProtoScreen.Profile, ProtoScreen.Suspended -> protoGroupB()
             ProtoScreen.AdminHome, ProtoScreen.AdminSearch, ProtoScreen.AdminClients, ProtoScreen.AdminClient, ProtoScreen.AdminOrders, ProtoScreen.AdminOrderDetail, ProtoScreen.AdminChats, ProtoScreen.AdminChat, ProtoScreen.AdminProductionChat, ProtoScreen.AdminNotifications, ProtoScreen.AdminCatalog, ProtoScreen.AdminSettings, ProtoScreen.AdminSettingsDetail, ProtoScreen.AdminAttention, ProtoScreen.OnlineController, ProtoScreen.LowStockList, ProtoScreen.AdminAssemblers, ProtoScreen.AdminAdmins, ProtoScreen.AdminWorkshop, ProtoScreen.AdminAttendance, ProtoScreen.AdminProduct -> protoGroupC()
             ProtoScreen.SalesHome, ProtoScreen.SalesShipmentNew, ProtoScreen.SalesShipments, ProtoScreen.AdminPayments, ProtoScreen.SalesClients, ProtoScreen.SalesClient, ProtoScreen.AdminReports, ProtoScreen.AdminDashboard, ProtoScreen.SalesProfile -> protoGroupD()
-            ProtoScreen.Production, ProtoScreen.ProductionCategory, ProtoScreen.ProductionCatalog, ProtoScreen.ProductionEntry, ProtoScreen.ProductionHistory, ProtoScreen.ProductionReport, ProtoScreen.ProductionPayments, ProtoScreen.ProductionProfile, ProtoScreen.ProductionWorkshop, ProtoScreen.ProductionAttendance, ProtoScreen.ProductionChat, ProtoScreen.Server, ProtoScreen.StockList, ProtoScreen.ReserveList, ProtoScreen.NewClients, ProtoScreen.Export, ProtoScreen.AgentClients, ProtoScreen.AgentClientDetail, ProtoScreen.AgentBase, ProtoScreen.AgentMarkup, ProtoScreen.AgentProductMarkup, ProtoScreen.AgentOrders, ProtoScreen.OwnStock, ProtoScreen.AdminSettlements -> protoGroupE()
+            ProtoScreen.Production, ProtoScreen.ProductionCategory, ProtoScreen.ProductionCatalog, ProtoScreen.ProductionEntry, ProtoScreen.ProductionHistory, ProtoScreen.ProductionReport, ProtoScreen.ProductionPayments, ProtoScreen.ProductionProfile, ProtoScreen.ProductionWorkshop, ProtoScreen.ProductionAttendance, ProtoScreen.ProductionChat, ProtoScreen.Server, ProtoScreen.StockList, ProtoScreen.ReserveList, ProtoScreen.NewClients, ProtoScreen.Export, ProtoScreen.AgentClients, ProtoScreen.AgentClientDetail, ProtoScreen.AgentBase, ProtoScreen.AgentMarkup, ProtoScreen.AgentProductMarkup, ProtoScreen.AgentOrders, ProtoScreen.OwnStock, ProtoScreen.AdminSettlements, ProtoScreen.AdminPromo -> protoGroupE()
             ProtoScreen.RetailHome, ProtoScreen.RetailCatalog, ProtoScreen.RetailFilter, ProtoScreen.RetailProductList, ProtoScreen.RetailProductDetail, ProtoScreen.RetailCart, ProtoScreen.RetailCheckout, ProtoScreen.RetailOrderList, ProtoScreen.RetailOrderDetail, ProtoScreen.RetailNotifications, ProtoScreen.RetailOrderSent -> protoGroupF()
         }
         }
@@ -2809,7 +2875,9 @@ fun SansaraVisualPrototype() {
                 onReports = { showClientMenu=false; go(ProtoScreen.ClientReports) },
                 onSettings = { showClientMenu=false; go(ProtoScreen.ClientSettings) },
                 onUpdate = { showClientMenu=false; showUpdateDialog = true },
-                updateAvailable = remember(updateVersion) { SansaraUpdates.available(context) != null }
+                updateAvailable = remember(updateVersion) { SansaraUpdates.available(context) != null },
+                promoLabel = if (promo.isActive()) "Акции · " + promo.periodLabel else null,
+                onPromo = { showClientMenu=false; go(ProtoScreen.PromoCatalog) }
             )
         }
 
@@ -3337,7 +3405,10 @@ internal fun ProtoClientMenuOverlay(
     onSettings:()->Unit,
     onUpdate:()->Unit={},
     updateAvailable:Boolean=false,
-    onOwnStock:()->Unit={}
+    onOwnStock:()->Unit={},
+    /** Подпись красного пункта «Акции»; null — акций сейчас нет (пункт серый). */
+    promoLabel:String?=null,
+    onPromo:()->Unit={}
 ){
     Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha=.72f)).clickable{onDismiss()}){
         Surface(
@@ -3350,7 +3421,24 @@ internal fun ProtoClientMenuOverlay(
                     Image(painter=painterResource(R.drawable.sansara_brand_header),contentDescription="SANSARA",modifier=Modifier.weight(1f).height(52.dp),contentScale=ContentScale.Fit)
                     IconButton(onClick=onDismiss){Icon(Icons.Outlined.Close,null,tint=ProtoGold)}
                 }
-                Spacer(Modifier.height(24.dp))
+                Spacer(Modifier.height(16.dp))
+                // Список прокручивается: на невысоких экранах пункты не обрезаются.
+                Column(Modifier.weight(1f).verticalScroll(androidx.compose.foundation.rememberScrollState())){
+                // «Акции» — первым пунктом, красным, пока акция идёт.
+                Row(
+                    Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).background(if(promoLabel!=null)ProtoPromoRed.copy(alpha=.14f) else Color.Transparent).clickable{onPromo()}.padding(horizontal=12.dp,vertical=13.dp),
+                    verticalAlignment=Alignment.CenterVertically
+                ){
+                    Box(Modifier.size(40.dp).background(if(promoLabel!=null)ProtoPromoRed else ProtoPanel2,RoundedCornerShape(11.dp)),contentAlignment=Alignment.Center){
+                        Icon(Icons.Outlined.LocalOffer,null,tint=if(promoLabel!=null)Color.White else ProtoMuted)
+                    }
+                    Spacer(Modifier.width(12.dp))
+                    Column(Modifier.weight(1f)){
+                        Text("Акции",color=if(promoLabel!=null)ProtoPromoRed else ProtoMuted,fontWeight=FontWeight.Bold)
+                        Text(promoLabel?.removePrefix("Акции · ") ?: "сейчас нет",color=if(promoLabel!=null)ProtoText else ProtoMuted,fontSize=12.sp)
+                    }
+                    Icon(Icons.Outlined.ChevronRight,null,tint=if(promoLabel!=null)ProtoPromoRed else ProtoMuted)
+                }
                 listOf(
                     Triple("Чат с менеджером",Icons.Outlined.ChatBubbleOutline,onChat),
                     Triple("Профиль",Icons.Outlined.Person,onProfile),
@@ -3372,8 +3460,8 @@ internal fun ProtoClientMenuOverlay(
                         Icon(Icons.Outlined.ChevronRight,null,tint=ProtoMuted)
                     }
                 }
-                Spacer(Modifier.weight(1f))
-                Text("SANSARA · ${BuildConfig.VERSION_NAME}",color=ProtoMuted,fontSize=12.sp)
+                }
+                Text("SANSARA · ${BuildConfig.VERSION_NAME}",color=ProtoMuted,fontSize=12.sp,modifier=Modifier.padding(top=8.dp))
             }
         }
     }

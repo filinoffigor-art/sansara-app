@@ -281,6 +281,7 @@ internal fun ProtoProductCard(
     ) {
         Box(Modifier.fillMaxWidth().height(150.dp).background(photoBackdrop)) {
             ProtoProductImage(p, Modifier.fillMaxSize().padding(6.dp), ContentScale.Fit)
+            ProtoPromoBadge(p, Modifier.align(Alignment.TopStart).padding(7.dp))
             Surface(Modifier.align(Alignment.BottomStart).padding(7.dp), color = if (currentStock > 0) Color(0xEE123A27) else Color(0xEE4A2220), shape = RoundedCornerShape(16.dp)) {
                 Text(
                     if (currentStock > 0) "В наличии $currentStock" else "Под заказ · ${p.productionDays} дн.",
@@ -294,8 +295,8 @@ internal fun ProtoProductCard(
             Text("Арт. " + p.sku, color = ProtoGoldSoft, fontSize = 12.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 2.dp))
             // Цена сразу со скидкой партнёра; базовая — зачёркнутой мелкой строкой.
             Row(Modifier.padding(top = 4.dp, bottom = 8.dp), verticalAlignment = Alignment.Bottom) {
-                Text(protoMoney(protoUnitPrice(p.price, discount)), color = ProtoText, fontWeight = FontWeight.Bold, fontSize = 19.sp)
-                if (discount > 0) Text(protoMoney(p.price), color = ProtoMuted, fontSize = 12.sp, textDecoration = androidx.compose.ui.text.style.TextDecoration.LineThrough, modifier = Modifier.padding(start = 6.dp, bottom = 2.dp))
+                Text(protoMoney(protoShopPrice(p, discount)), color = if (p.promo) ProtoPromoRed else ProtoText, fontWeight = FontWeight.Bold, fontSize = 19.sp)
+                if (protoListPrice(p) > protoShopPrice(p, discount)) Text(protoMoney(protoListPrice(p)), color = ProtoMuted, fontSize = 12.sp, textDecoration = androidx.compose.ui.text.style.TextDecoration.LineThrough, modifier = Modifier.padding(start = 6.dp, bottom = 2.dp))
             }
             if (inCart <= 0) {
                 Button(
@@ -350,7 +351,8 @@ internal fun ProtoClientHomeScreen(
     greetingName: String = client.firstName,
     discount: Int = 0,
     homeFilter: ProtoCatalogFilter = ProtoCatalogFilter(),
-    onPopular: () -> Unit = {}
+    onPopular: () -> Unit = {},
+    promoBanner: (@Composable () -> Unit)? = null
 ) {
     var mode by remember { mutableStateOf("Все") }
     var searchText by remember { mutableStateOf("") }
@@ -393,7 +395,7 @@ internal fun ProtoClientHomeScreen(
                                     Text(protoTitle(p), color = ProtoText, fontSize = 14.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
                                     Text("Арт. " + p.sku, color = ProtoGoldSoft, fontSize = 12.sp)
                                 }
-                                Text(protoMoney(protoUnitPrice(p.price, discount)), color = ProtoText, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                                Text(protoMoney(protoShopPrice(p, discount)), color = if (p.promo) ProtoPromoRed else ProtoText, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
                             }
                         }
                     }
@@ -407,6 +409,7 @@ internal fun ProtoClientHomeScreen(
             }
             Spacer(Modifier.height(14.dp))
             LazyColumn(Modifier.weight(1f), contentPadding = PaddingValues(bottom = 16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                if (promoBanner != null && !retailMode) item { Box(Modifier.padding(horizontal = 16.dp)) { promoBanner() } }
                 item {
                     LazyRow(contentPadding = PaddingValues(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                         items(groupCounts.keys.toList()) { g ->
@@ -494,7 +497,7 @@ internal fun ProtoClientHomeScreen(
                                     Text(protoTitle(p), color = ProtoText, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, maxLines = 2, overflow = TextOverflow.Ellipsis)
                                     Text("Арт. " + p.sku + " · " + (if (availableStock(p) > 0) "в наличии" else "под заказ"), color = ProtoGoldSoft, fontSize = 12.sp)
                                 }
-                                Text(protoMoney(protoUnitPrice(p.price, discount)), color = ProtoText, fontWeight = FontWeight.Bold)
+                                Text(protoMoney(protoShopPrice(p, discount)), color = if (p.promo) ProtoPromoRed else ProtoText, fontWeight = FontWeight.Bold)
                             }
                         }
                     }
@@ -621,7 +624,7 @@ internal fun ProtoFilterScreen(
                     item { ProtoOptionGrid("Продукция", groupTypes, types, okTypes) { types = protoToggle(types, it) } }
                     item { ProtoOptionGrid("Качество", allQualities, qualities, okQualities) { qualities = protoToggle(qualities, it) } }
                     item { ProtoOptionGrid("Размер", allSizes, sizes, okSizes) { sizes = protoToggle(sizes, it) } }
-                    item { ProtoOptionGrid("Наличие", listOf("В наличии", "Под заказ"), availability, okAvail) { availability = protoToggle(availability, it) } }
+                    item { ProtoOptionGrid("Наличие", listOf("В наличии", "Под заказ") + if (products.any { it.promo }) listOf(PROTO_PROMO_FILTER) else emptyList(), availability, okAvail + if (scope("availability").any { it.promo }) setOf(PROTO_PROMO_FILTER) else emptySet()) { availability = protoToggle(availability, it) } }
                     item {
                         Text("Цена, ₽", color = ProtoGoldSoft, fontSize = 17.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(top = 8.dp, bottom = 6.dp))
                         Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -765,8 +768,8 @@ internal fun ProtoProductDetailScreen(
 ) {
     val p = product ?: return
     var preview by remember { mutableStateOf(false) }
-    val base = p.price * qty
-    val total = protoLineTotal(p.price, qty, discount)
+    val base = protoListPrice(p) * qty
+    val total = protoShopLine(p, qty, discount)
     Box(Modifier.fillMaxSize()) {
         ProtoLiveBackground()
         Scaffold(containerColor = Color.Transparent, bottomBar = {
@@ -809,8 +812,12 @@ internal fun ProtoProductDetailScreen(
                     // Цена — одной строкой без переносов, наличие — отдельной строкой под ней:
                     // на узких экранах и с крупным шрифтом они больше не сжимают друг друга.
                     Row(verticalAlignment = Alignment.Bottom) {
-                        Text(protoMoney(protoUnitPrice(p.price, discount)), color = ProtoText, fontSize = 28.sp, fontWeight = FontWeight.Bold, maxLines = 1, softWrap = false)
-                        if (discount > 0) Text(protoMoney(p.price), color = ProtoMuted, fontSize = 14.sp, maxLines = 1, softWrap = false, textDecoration = androidx.compose.ui.text.style.TextDecoration.LineThrough, modifier = Modifier.padding(start = 8.dp, bottom = 4.dp))
+                        Text(protoMoney(protoShopPrice(p, discount)), color = if (p.promo) ProtoPromoRed else ProtoText, fontSize = 28.sp, fontWeight = FontWeight.Bold, maxLines = 1, softWrap = false)
+                        if (protoListPrice(p) > protoShopPrice(p, discount)) Text(protoMoney(protoListPrice(p)), color = ProtoMuted, fontSize = 14.sp, maxLines = 1, softWrap = false, textDecoration = androidx.compose.ui.text.style.TextDecoration.LineThrough, modifier = Modifier.padding(start = 8.dp, bottom = 4.dp))
+                    }
+                    if (p.promo) Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(top = 4.dp)) {
+                        ProtoPromoBadge(p)
+                        Text("  цена по акции, скидка клиента не суммируется", color = ProtoMuted, fontSize = 12.sp)
                     }
                     Text(
                         if (currentStock > 0) "В наличии $currentStock шт." else "Под заказ · готов к " + protoReadyLabel(p.productionDays),
@@ -830,8 +837,8 @@ internal fun ProtoProductDetailScreen(
                             ProtoQtyButton(Icons.Outlined.Add, onPlus, size = 44.dp)
                         }
                         HorizontalDivider(color = ProtoBorder, modifier = Modifier.padding(vertical = 6.dp))
-                        ProtoInfoRow("Цена за 1 шт." + if (discount > 0) " с вашей скидкой $discount%" else "", protoMoney(protoUnitPrice(p.price, discount)))
-                        if (discount > 0) ProtoInfoRow("Экономия", protoMoney(base - total))
+                        ProtoInfoRow("Цена за 1 шт." + if (p.promo) " по акции" else if (discount > 0) " с вашей скидкой $discount%" else "", protoMoney(protoShopPrice(p, discount)))
+                        if (base > total) ProtoInfoRow("Экономия", protoMoney(base - total))
                     }
                 }
                 item { ProtoSectionCard { Text("Характеристики", color = ProtoGoldSoft, fontSize = 16.sp, fontWeight = FontWeight.Bold); ProtoInfoRow("Категория", p.type); if (protoValidValue(p.quality)) ProtoInfoRow("Качество", p.quality); if (protoValidValue(p.size)) ProtoInfoRow("Размер", p.size); ProtoInfoRow("Срок под заказ", protoPlural(p.productionDays, "рабочий день", "рабочих дня", "рабочих дней")) } }
@@ -866,8 +873,10 @@ internal fun ProtoCartScreen(
     minOrder: Int = 0
 ) {
     val lines = cart.mapNotNull { (sku, q) -> products.firstOrNull { it.sku == sku }?.let { it to q } }
-    val base = lines.sumOf { it.first.price * it.second }
-    val total = lines.sumOf { protoLineTotal(it.first.price, it.second, discount) }
+    val base = lines.sumOf { protoListPrice(it.first) * it.second }
+    val total = lines.sumOf { protoShopLine(it.first, it.second, discount) }
+    val promoSaving = lines.filter { it.first.promo }.sumOf { (protoListPrice(it.first) - it.first.price) * it.second }
+    val hasPromo = lines.any { it.first.promo }
     val snackbar = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
     Box(Modifier.fillMaxSize()) {
@@ -897,7 +906,8 @@ internal fun ProtoCartScreen(
                                     Column(Modifier.weight(1f).clickable { onOpenProduct(p) }) {
                                         Text(protoTitle(p), color = ProtoText, fontWeight = FontWeight.SemiBold, fontSize = 14.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
                                         Text("Арт. " + p.sku, color = ProtoGoldSoft, fontSize = 12.sp)
-                                        Text("$q × " + protoMoney(protoUnitPrice(p.price, discount)) + " = " + protoMoney(protoLineTotal(p.price, q, discount)), color = ProtoMuted, fontSize = 13.sp)
+                                        if (p.promo) ProtoPromoBadge(p, Modifier.padding(vertical = 2.dp))
+                                        Text("$q × " + protoMoney(protoShopPrice(p, discount)) + " = " + protoMoney(protoShopLine(p, q, discount)), color = ProtoMuted, fontSize = 13.sp)
                                         if (q > available) Text(if (available > 0) "В наличии $available шт., остальное под заказ" else "Под заказ · готов к " + protoReadyLabel(p.productionDays), color = ProtoOrange, fontSize = 12.sp)
                                     }
                                     IconButton(onClick = {
@@ -913,14 +923,15 @@ internal fun ProtoCartScreen(
                                     Text(q.toString(), color = ProtoText, fontWeight = FontWeight.Bold, fontSize = 16.sp, modifier = Modifier.padding(horizontal = 14.dp))
                                     ProtoQtyButton(Icons.Outlined.Add, { onPlus(p) }, 38.dp)
                                     Spacer(Modifier.weight(1f))
-                                    Text(protoMoney(protoLineTotal(p.price, q, discount)), color = ProtoGoldSoft, fontWeight = FontWeight.Bold, fontSize = 16.sp)
+                                    Text(protoMoney(protoShopLine(p, q, discount)), color = if (p.promo) ProtoPromoRed else ProtoGoldSoft, fontWeight = FontWeight.Bold, fontSize = 16.sp)
                                 }
                             }
                         }
                     }
                     ProtoSectionCard(Modifier.padding(horizontal = 16.dp, vertical = 6.dp)) {
-                        if (discount > 0) ProtoInfoRow("Без скидки", protoMoney(base))
-                        if (discount > 0) ProtoInfoRow("Ваша скидка $discount% уже в ценах", "−" + protoMoney(base - total))
+                        if (base > total) ProtoInfoRow("Без скидок", protoMoney(base))
+                        if (promoSaving > 0) ProtoInfoRow("Экономия по акции", "−" + protoMoney(promoSaving))
+                        if (discount > 0 && base - total - promoSaving > 0) ProtoInfoRow("Ваша скидка $discount%" + (if (hasPromo) " (без акц. товаров)" else " уже в ценах"), "−" + protoMoney(base - total - promoSaving))
                         HorizontalDivider(color = ProtoBorder, modifier = Modifier.padding(vertical = 6.dp))
                         Row(Modifier.fillMaxWidth()) {
                             Text("Итого", color = ProtoText, fontSize = 18.sp, fontWeight = FontWeight.Bold)
@@ -948,6 +959,7 @@ internal fun ProtoCheckoutScreen(
     baseTotal: Int,
     finalTotal: Int,
     discount: Int,
+    promoSaving: Int = 0,
     defaultAddress: String,
     contacts: List<SansaraCompanyContact>,
     clientStatus: String,
@@ -1072,7 +1084,8 @@ internal fun ProtoCheckoutScreen(
                         ProtoSectionCard {
                             ProtoInfoRow("Статус", clientStatus)
                             ProtoInfoRow("Товары", protoMoney(baseTotal))
-                            if (discount > 0) ProtoInfoRow("Скидка клиента $discount%", "−" + protoMoney(baseTotal - finalTotal))
+                            if (promoSaving > 0) ProtoInfoRow("Экономия по акции", "−" + protoMoney(promoSaving))
+                            if (discount > 0 && baseTotal - finalTotal - promoSaving > 0) ProtoInfoRow("Скидка клиента $discount%", "−" + protoMoney(baseTotal - finalTotal - promoSaving))
                             ProtoInfoRow("Всего", "$totalPieces шт.")
                             HorizontalDivider(color = ProtoBorder, modifier = Modifier.padding(vertical = 7.dp))
                             ProtoInfoRow("Итого", protoMoney(finalTotal))
@@ -1306,7 +1319,7 @@ internal fun ProtoOrderDetailScreen(
                     Column(Modifier.weight(1f)) {
                         Text(line.name, color = ProtoText, fontWeight = FontWeight.SemiBold, maxLines = 2, overflow = TextOverflow.Ellipsis)
                         Text("Арт. " + line.sku, color = ProtoGoldSoft, fontSize = 12.sp)
-                        Text(line.qty.toString() + " шт. × " + protoMoney(protoUnitPrice(line.price, line.discountPct)), color = ProtoMuted, fontSize = 13.sp)
+                        Text(line.qty.toString() + " шт. × " + protoMoney(protoUnitPrice(line.price, line.discountPct)) + if (line.promo) " · по акции" else "", color = if (line.promo) ProtoPromoRed else ProtoMuted, fontSize = 13.sp)
                     }
                     Text(protoMoney(line.lineTotal), color = ProtoGoldSoft, fontWeight = FontWeight.Bold)
                 }
