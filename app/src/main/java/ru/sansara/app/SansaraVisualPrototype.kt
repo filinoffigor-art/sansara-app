@@ -994,6 +994,12 @@ fun SansaraVisualPrototype() {
             val dbgCode = dbgIntent?.getStringExtra("debug_code").orEmpty()
             val dbgScreen = dbgIntent?.getStringExtra("debug_screen").orEmpty()
             if (dbgIntent?.getStringExtra("debug_section") == "welcome") settingsSection = "Приветственный экран"
+            // Снимки экрана: демо-акция.
+            if (dbgIntent?.getStringExtra("debug_promo") == "demo") {
+                promo = ProtoPromo("Осенняя акция", "demo", "", LocalDate.now().plusDays(10).format(DateTimeFormatter.ofPattern("dd.MM.yyyy")), true, protoDemoPromoItems(catalogProducts), nowStamp())
+                prefs.edit().putString(ProtoPromo.PREF_KEY, promo.toJson()).apply()
+            }
+            dbgIntent?.getStringExtra("debug_cart")?.takeIf { it.isNotBlank() }?.split(",")?.forEach { sku -> cart[sku] = 2 }
             // Снимки экрана: пример оформленных надписей на приветствии.
             if (dbgIntent?.getStringExtra("debug_welcome") == "demo") prefs.edit()
                 .putString("welcome_promo_title", "СКИДКА 10%\nНА ВЕНКИ ПРЕМИУМ")

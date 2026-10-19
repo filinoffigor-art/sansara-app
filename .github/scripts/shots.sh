@@ -24,6 +24,21 @@ run 9002 Production ProductionCategory ProductionCatalog ProductionEntry Product
 run 9003 SalesHome SalesShipmentNew SalesShipments SalesClients SalesClient SalesProfile
 run 9001 AdminPayments AdminDashboard
 run 1024 OwnStock
+# Акция и расчёты: демо-акция, акционный каталог, корзина со смешанными товарами, сводка расчётов.
+promo_shot() { # code screen name [cart]
+  adb shell am force-stop ru.sansara.app
+  adb shell am start -n ru.sansara.app/.MainActivity --es debug_code $1 --es debug_screen $2 --es debug_promo demo ${4:+--es debug_cart $4} >/dev/null
+  sleep 6
+  adb exec-out screencap -p > "shots/$3_$2.png"
+}
+if [ -z "${ONLY:-}" ] || echo " $ONLY " | grep -q " Promo "; then
+  promo_shot 9001 AdminPromo 88
+  promo_shot 1024 Home 89
+  promo_shot 1024 PromoCatalog 90
+  promo_shot 1024 ProductList 91
+  promo_shot 1024 Cart 93 V-060-001,V-140-005,KOR-070-004
+  promo_shot 9001 AdminSettlements 92
+fi
 # Приветственный экран: настройки оформления надписей и результат на приветствии.
 if [ -z "${ONLY:-}" ] || echo " $ONLY " | grep -q " WelcomeStyle "; then
   adb shell am force-stop ru.sansara.app

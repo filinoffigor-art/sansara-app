@@ -25,8 +25,17 @@ class SansaraRoleSmokeTest {
     val compose = createAndroidComposeRule<MainActivity>()
 
     private fun waitText(text: String, timeout: Long = 25_000) {
-        compose.waitUntil(timeoutMillis = timeout) {
-            compose.onAllNodes(hasText(text, substring = true), useUnmergedTree = true).fetchSemanticsNodes().isNotEmpty()
+        try {
+            compose.waitUntil(timeoutMillis = timeout) {
+                compose.onAllNodes(hasText(text, substring = true), useUnmergedTree = true).fetchSemanticsNodes().isNotEmpty()
+            }
+        } catch (e: Throwable) {
+            // Для разбора падения: какие надписи были на экране.
+            val seen = runCatching {
+                compose.onAllNodes(hasText("", substring = true), useUnmergedTree = true).fetchSemanticsNodes()
+                    .mapNotNull { it.config.getOrNull(SemanticsProperties.Text)?.joinToString() }.filter { it.isNotBlank() }.distinct().take(60)
+            }.getOrDefault(emptyList())
+            throw AssertionError("Не дождались «$text». На экране: " + seen.joinToString(" | "), e)
         }
     }
 

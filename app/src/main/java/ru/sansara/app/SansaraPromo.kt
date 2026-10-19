@@ -225,11 +225,12 @@ internal fun ProtoAdminPromoScreen(
     onSave: (ProtoPromo) -> Unit,
     onNotify: () -> Unit
 ) {
-    var title by remember(promo) { mutableStateOf(promo.title) }
-    var url by remember(promo) { mutableStateOf(promo.url) }
-    var from by remember(promo) { mutableStateOf(promo.from) }
-    var to by remember(promo) { mutableStateOf(promo.to) }
-    var enabled by remember(promo) { mutableStateOf(promo.enabled) }
+    // Поля не сбрасываются после «Загрузить товары»: введённое название и даты остаются до «Сохранить».
+    var title by remember { mutableStateOf(promo.title) }
+    var url by remember { mutableStateOf(promo.url) }
+    var from by remember { mutableStateOf(promo.from) }
+    var to by remember { mutableStateOf(promo.to) }
+    var enabled by remember { mutableStateOf(promo.enabled) }
     fun okDate(s: String) = s.isBlank() || protoParseDate(s) != null
     val draft = promo.copy(title = title.trim(), url = url.trim(), from = from.trim(), to = to.trim(), enabled = enabled)
     val changed = draft != promo
