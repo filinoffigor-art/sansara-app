@@ -215,6 +215,7 @@ class SansaraRoleSmokeTest {
         val code = compose.onAllNodes(hasText("", substring = true), useUnmergedTree = true).fetchSemanticsNodes()
             .mapNotNull { it.config.getOrNull(SemanticsProperties.Text)?.joinToString() }
             .first { it.length == 6 && it.all(Char::isLetterOrDigit) && it.any(Char::isDigit) }
+        scrollTo("Цех Тестовый")
         waitText("Производство · активен")
         compose.activityRule.scenario.onActivity { it.onBackPressedDispatcher.onBackPressed() }
         compose.waitForIdle()
@@ -287,6 +288,7 @@ class SansaraRoleSmokeTest {
         waitText("Наш ассортимент")
         clickDesc("Меню")
         click("Профиль")
+        scrollTo("Выйти")                                   // в профиле клиента выше — блок расчётов
         click("Выйти")
         login("9001")
         waitText("Заказы на согласовании")
@@ -358,6 +360,7 @@ class SansaraRoleSmokeTest {
         waitText("Наш ассортимент")
         clickDesc("Меню")
         click("Профиль")
+        scrollTo("Выйти")                                   // в профиле клиента выше — блок расчётов
         click("Выйти")
         login("9001")
         waitText("Здравствуйте, BOSS")
